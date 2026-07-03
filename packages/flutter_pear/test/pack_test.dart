@@ -5,6 +5,42 @@ import 'package:flutter_test/flutter_test.dart';
 import '../bin/pack.dart';
 
 void main() {
+  test('buildBundle packs pear-end/index.js to the documented asset path',
+      () async {
+    try {
+      await Process.run('bare-pack', ['--version']);
+    } on ProcessException {
+      markTestSkipped('bare-pack not installed — npm i -g bare-pack');
+      return;
+    }
+
+    // `flutter test` runs with the package root as the working directory.
+    final realPearEnd = Directory('${Directory.current.path}/pear-end');
+    final realNodeModules = Directory('${realPearEnd.path}/node_modules');
+    if (!realNodeModules.existsSync()) {
+      markTestSkipped(
+          'pear-end/node_modules missing — run `npm install` in pear-end/ first');
+      return;
+    }
+
+    final tmp = Directory.systemTemp.createTempSync('fp_pack_bundle');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    Directory('${tmp.path}/pear-end').createSync(recursive: true);
+    File('${realPearEnd.path}/index.js').copySync('${tmp.path}/pear-end/index.js');
+    File('${realPearEnd.path}/schema.js').copySync('${tmp.path}/pear-end/schema.js');
+    File('${realPearEnd.path}/package-lock.json')
+        .copySync('${tmp.path}/pear-end/package-lock.json');
+    // Symlinked, not copied: index.js now requires real npm packages
+    // (hyperswarm et al.), and bare-pack needs them resolvable to bundle.
+    Link('${tmp.path}/pear-end/node_modules').createSync(realNodeModules.path);
+
+    expect(await buildBundle(tmp.path), 0);
+
+    final bundle = File('${tmp.path}/$bundleAssetPath');
+    expect(bundle.existsSync(), isTrue);
+    expect(bundle.lengthSync(), greaterThan(0));
+  }, timeout: const Timeout(Duration(minutes: 1)));
+
   test('collects LICENSE + NOTICE, including scoped packages', () async {
     final tmp = Directory.systemTemp.createTempSync('fp_pack');
     addTearDown(() => tmp.deleteSync(recursive: true));

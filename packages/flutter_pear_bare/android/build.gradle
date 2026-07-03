@@ -23,6 +23,243 @@ rootProject.allprojects {
 apply plugin: "com.android.library"
 apply plugin: "kotlin-android"
 
+// Bare Kit wiring: fetch the pinned prebuild release (checksum-verified) and
+// extract classes.jar + the supported ABIs' .so files to boot a worklet.
+// Mirrors holepunchto/bare-android's own `libs/bare-kit/` layout and Gradle
+// dependency shape (`fileTree` + `jniLibs.srcDirs`) rather than treating it
+// as a proper AAR — that's what upstream itself does.
+//
+// ponytail: Configuration Cache compatibility (this task calls project.ant/
+// project.copy from doLast, which CC forbids) is a separate, deliberately
+// deferred concern — do NOT build that here.
+//
+// CACHE: `layout.buildDirectory` resolves to a consuming app's own
+// build/flutter_pear_bare/ (Flutter's Gradle tooling relocates every
+// plugin's build output under the app's build/ dir, even for a local path
+// dependency like this melos workspace uses) — so the zip and its extracted
+// contents land at <app>/build/flutter_pear_bare/bare-kit/<version>/. A
+// normal build/ dir: `flutter clean` (or deleting that directory yourself)
+// clears it; the next build re-fetches automatically. Bumping bareKitVersion
+// (below) starts a fresh, separately-versioned cache dir rather than
+// reusing/overwriting the old one.
+def bareKitVersion = "2.3.0"
+// Pinned against the exact release asset (independently re-downloaded and
+// verified 2026-07-03, not just copied from whatever was already cached
+// locally). Bump together whenever bareKitVersion bumps.
+def bareKitSha256 = "a386063fa405b0bb4967490e84745075f007f95359c9871c5b7a45c18c2f49e2"
+// arm64-v8a (physical devices) + x86_64 (desktop-class emulators, including
+// both Apple Silicon's native-arm64 emulator images and Intel/CI x86_64
+// ones). armeabi-v7a/x86 (32-bit) are a deliberate EXCLUSION, not an
+// oversight: bare-kit's own AndroidManifest already declares minSdkVersion
+// 31 (Android 12), and there's essentially no certified 32-bit-only
+// hardware from that era regardless of distribution channel -- sideloaded,
+// enterprise/MDM, or Play, none of that changes what CPUs exist. (Play's
+// 64-bit requirement since 2019 is a secondary, weaker point: it mandates
+// INCLUDING a 64-bit build, not dropping 32-bit, so it doesn't by itself
+// justify this exclusion the way the minSdk/hardware argument does.)
+// Revisit only if a real user demonstrates a 32-bit-only device that must
+// run flutter_pear.
+def bareKitAbis = ["arm64-v8a", "x86_64"]
+// Version-scoped path: bumping bareKitVersion must invalidate the old cache
+// rather than silently keep serving a stale binary from build/bare-kit/.
+def bareKitDir = layout.buildDirectory.dir("bare-kit/${bareKitVersion}").get().asFile
+def bareKitClassesJar = new File(bareKitDir, "android/bare-kit/classes.jar")
+def bareKitJniDir = new File(bareKitDir, "android/bare-kit/jni")
+
+// Compares [file]'s SHA-256 against [expected], throwing with a clear,
+// actionable message on mismatch (a fresh download that got corrupted
+// mid-transfer, or a cached file tampered with between builds) rather than
+// silently bundling whatever bytes happen to be on disk into the APK.
+def verifySha256 = { File file, String expected ->
+    def digest = java.security.MessageDigest.getInstance("SHA-256")
+    file.withInputStream { input ->
+        def buffer = new byte[8192]
+        int bytesRead
+        while ((bytesRead = input.read(buffer)) != -1) {
+            digest.update(buffer, 0, bytesRead)
+        }
+    }
+    def actual = digest.digest().collect { String.format("%02x", it) }.join()
+    if (actual != expected) {
+        throw new GradleException(
+            "Checksum mismatch for ${file}: expected sha256:${expected}, got " +
+            "sha256:${actual}. The download may be corrupted, or the cached file " +
+            "tampered with -- delete ${file} and rebuild.")
+    }
+}
+
+tasks.register("fetchBareKit") {
+    outputs.file(bareKitClassesJar)
+    outputs.dir(bareKitJniDir)
+    // The checksum below is a security gate, not a performance-sensitive
+    // computation -- Gradle's normal up-to-date check would otherwise skip
+    // this task's whole doLast (including the checksum) once its outputs
+    // already exist, so a zip tampered with or corrupted AFTER a successful
+    // build would go completely unnoticed on every subsequent build. Always
+    // re-run instead; re-hashing a few hundred MB and re-extracting two
+    // small entries costs a couple seconds, not worth trading away the
+    // guarantee for.
+    outputs.upToDateWhen { false }
+    doLast {
+        bareKitDir.mkdirs()
+        // .part + rename so a build killed mid-download (Ctrl+C, CI timeout)
+        // leaves no file at the final path — the next run re-downloads
+        // instead of silently reusing a truncated, unreadable zip forever.
+        def zipFile = new File(bareKitDir, "prebuilds.zip")
+        if (!zipFile.exists()) {
+            // Overridable (-PbareKitDownloadUrlOverride=...) so a failed
+            // download can be simulated deterministically (a bogus/blocked
+            // URL) without touching /etc/hosts or a firewall, and so a
+            // developer on a restricted network can point at a mirror.
+            def downloadUrl
+            if (project.hasProperty("bareKitDownloadUrlOverride")) {
+                downloadUrl = project.property("bareKitDownloadUrlOverride")
+                // Loud on purpose: a stale override left in a shared
+                // gradle.properties would otherwise silently redirect every
+                // future build with no visible signal that it's active.
+                logger.lifecycle("flutter_pear_bare: bareKitDownloadUrlOverride is " +
+                    "set -- fetching from ${downloadUrl} instead of the pinned release")
+            } else {
+                downloadUrl = "https://github.com/holepunchto/bare-kit/releases/download/v${bareKitVersion}/prebuilds.zip"
+            }
+            def sizeLabel = "size unknown"
+            try {
+                def head = new URL(downloadUrl).openConnection()
+                head.setRequestMethod("HEAD")
+                head.connect()
+                def bytes = head.getContentLengthLong()
+                head.disconnect()
+                if (bytes > 0) sizeLabel = String.format("%.1f MB", bytes / 1024.0 / 1024.0)
+            } catch (Exception ignored) {
+                // Best-effort only -- proceed without a size estimate rather
+                // than fail the build over a HEAD request.
+            }
+            logger.lifecycle("flutter_pear_bare: downloading Bare Kit v${bareKitVersion} (${sizeLabel})...")
+
+            def partFile = new File(bareKitDir, "prebuilds.zip.part")
+            // ONE retry, immediate (this is a one-shot build-time fetch, not
+            // a hot path needing backoff) -- the persona's tolerance is one
+            // failed build, not an infinite/silent hang.
+            def attempts = 0
+            Exception lastFailure = null
+            while (attempts < 2) {
+                attempts++
+                try {
+                    ant.get(src: downloadUrl, dest: partFile)
+                    lastFailure = null
+                    break
+                } catch (Exception e) {
+                    lastFailure = e
+                    partFile.delete()
+                    if (attempts < 2) {
+                        logger.warn("flutter_pear_bare: download attempt ${attempts} failed " +
+                            "(${e.message}) -- retrying once...")
+                    }
+                }
+            }
+            if (lastFailure != null) {
+                throw new GradleException(
+                    "flutter_pear_bare: failed to download Bare Kit v${bareKitVersion} after " +
+                    "${attempts} attempts.\n" +
+                    "  URL: ${downloadUrl}\n" +
+                    "  Error: ${lastFailure.message}\n\n" +
+                    "Manual fallback: download that URL yourself (e.g. in a browser) and place " +
+                    "the file at exactly:\n  ${zipFile}\n" +
+                    "then re-run the build -- it will be checksum-verified " +
+                    "(sha256:${bareKitSha256}) and used as-is, no further download attempted.",
+                    lastFailure)
+            }
+            partFile.renameTo(zipFile)
+            logger.lifecycle("flutter_pear_bare: downloaded Bare Kit v${bareKitVersion} " +
+                "(${String.format('%.1f', zipFile.length() / 1024.0 / 1024.0)} MB)")
+        }
+        // Verified every run, not just right after a fresh download -- a
+        // cached zip could have been corrupted or tampered with between
+        // builds, and this is the only gate that would catch that.
+        verifySha256(zipFile, bareKitSha256)
+        copy {
+            from(zipTree(zipFile)) {
+                include "android/bare-kit/classes.jar"
+                bareKitAbis.each { abi -> include "android/bare-kit/jni/${abi}/**" }
+            }
+            into bareKitDir
+        }
+        // copy{} only ADDS files matching the current include patterns; it
+        // never removes a destination file that stopped matching. Harmless
+        // today (bareKitAbis is only ever growing), but if a future change
+        // narrows bareKitAbis without also bumping bareKitVersion, a
+        // previously-extracted ABI would linger under this same
+        // version-scoped dir and keep getting bundled via jniLibs.srcDirs.
+        // Explicitly prune anything not currently selected, same pattern
+        // linkNativeAddons already uses below.
+        bareKitJniDir.listFiles()?.each { abiDir ->
+            if (abiDir.isDirectory() && !(abiDir.name in bareKitAbis)) {
+                delete abiDir
+            }
+        }
+    }
+}
+
+// Native addons pear-end actually requires (hyperswarm et al.) resolve in
+// the bundle as `linked:` specifiers (bare-pack --preset android implies
+// --linked — mobile can't dlopen file: prebuilds ahead of an install step
+// the way desktop does). bare-link produces the real .so for each, read
+// from pear-end's own already-`npm install`-ed node_modules (not fetched
+// remotely itself — it repackages prebuilds those packages already ship).
+// Silently links nothing if pear-end/node_modules is missing, matching
+// flutter_pear's own THIRD_PARTY_LICENSES collector's established "skip
+// with a stderr note, don't hard-fail" behavior for the same precondition.
+// ponytail: `rootDir` (the consuming app's android/ dir) walking up to a
+// sibling `packages/flutter_pear/pear-end` only holds for this melos
+// monorepo's exact directory depth — a real external consumer (pub.cache,
+// or a differently-nested workspace) would resolve this wrong. Portable
+// resolution across install locations is the same E4 "Gradle task fetch"
+// productionization this file's other tasks already defer.
+def pearEndDir = new File(rootDir, "../../flutter_pear/pear-end")
+def nativeAddonsDir = layout.buildDirectory.dir("bare-kit-addons").get().asFile
+
+tasks.register("linkNativeAddons", Exec) {
+    workingDir pearEndDir
+    commandLine "bare-link", "--preset", "android", "--out", nativeAddonsDir
+    // package.json/package-lock.json, not the whole node_modules tree (slow
+    // to hash, and its contents are exactly what these two files pin) — so a
+    // dependency bump invalidates this task's up-to-date check instead of
+    // Gradle silently reusing a stale bare-kit-addons/ from before the bump.
+    inputs.file(new File(pearEndDir, "package.json"))
+    inputs.file(new File(pearEndDir, "package-lock.json"))
+    // Same ABI set as fetchBareKit (bareKitAbis) — filter bare-link's own
+    // multi-ABI preset output down to match after it runs.
+    doLast {
+        nativeAddonsDir.listFiles()?.each { abiDir ->
+            if (abiDir.isDirectory() && !(abiDir.name in bareKitAbis)) {
+                delete abiDir
+            }
+        }
+    }
+    outputs.dir(nativeAddonsDir)
+    onlyIf {
+        def present = new File(pearEndDir, "node_modules").exists()
+        if (!present) {
+            logger.warn(
+                "linkNativeAddons: skipping -- ${pearEndDir}/node_modules is missing " +
+                "(run 'npm install' in pear-end/ first). The APK will be missing " +
+                "hyperswarm's native addons (sodium-native, udx-native, ...) and the " +
+                "worklet will fail at runtime.")
+        }
+        present
+    }
+}
+
+// jniLibs.srcDirs (below) has no .builtBy-equivalent hook, so nothing tells
+// Gradle's jniLib-merge tasks that fetchBareKit/linkNativeAddons produce
+// their input — the same class of bug that made mozilla/rust-android-gradle
+// silently ship AARs missing their .so when built outside a full app
+// assemble (rust-android-gradle#85). preBuild.dependsOn (below) isn't
+// enough on its own; wire the merge tasks directly too.
+tasks.matching { it.name ==~ /merge.*JniLibFolders/ }.configureEach {
+    dependsOn(tasks.named("fetchBareKit"), tasks.named("linkNativeAddons"))
+}
+
 android {
     namespace = "tech.loable.flutter_pear_bare"
     compileSdk = 34
@@ -38,10 +275,30 @@ android {
 
     sourceSets {
         main.java.srcDirs += "src/main/kotlin"
+        main.jniLibs.srcDirs += bareKitJniDir
+        main.jniLibs.srcDirs += nativeAddonsDir
     }
 
     defaultConfig {
-        // Bare Kit targets modern Android; 24 is a safe floor.
+        // NOTE: Bare Kit's own prebuild declares minSdkVersion 31 (see its
+        // AndroidManifest.xml) — untested below that. 24 is kept as this
+        // library's floor for the M0 echo; E1.3's on-device worklet boot is
+        // the real test of whether arm64-v8a API 29 (our only physical
+        // device right now) actually works.
         minSdk = 24
+        // Ships to every consuming app's R8 pass automatically -- app devs
+        // never add this themselves (see consumer-rules.pro for why it's
+        // required: libbare-kit.so calls back into Java by unobfuscated
+        // JNI method names).
+        consumerProguardFiles "consumer-rules.pro"
     }
 }
+
+dependencies {
+    // .builtBy declares the fetchBareKit task as this FileCollection's
+    // producer, so Gradle task-output validation (desugarDebugFileDependencies
+    // et al.) knows to depend on it instead of just happening to run after it.
+    implementation files(bareKitClassesJar).builtBy(tasks.named("fetchBareKit"))
+}
+
+preBuild.dependsOn(tasks.named("fetchBareKit"), tasks.named("linkNativeAddons"))

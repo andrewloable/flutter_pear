@@ -1,1 +1,6 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Bare Kit worklet needs raw sockets for Hyperswarm/DHT. Declared here
+         (not in the example app) so it auto-merges into any app that depends
+         on flutter_pear_bare — no manual manifest step for app devs. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+</manifest>

@@ -15,6 +15,35 @@ enum WorkletState {
   suspended,
 }
 
+/// A worklet's own report that it's gone (or about to be): a short [reason]
+/// category, plus [detail] (a message/stack) when the worklet managed to
+/// self-report before dying -- null for the native-only backstop signal,
+/// which knows only that the worklet's IPC ended, not why.
+typedef WorkletCrash = ({String reason, String? detail});
+
+/// The minimal binary-frame transport `PearRpc` needs from a worklet: send a
+/// frame, receive a stream of frames, and observe if it dies unexpectedly.
+///
+/// [BareWorklet] implements this against a real Bare Kit worklet;
+/// `flutter_pear_test`'s in-memory fake (E3) implements it without one, so
+/// higher layers (`PearRpc`, `PearSwarm`, …) can be built and tested against
+/// either.
+abstract interface class WorkletIpc {
+  /// Frames emitted by the other side.
+  Stream<Uint8List> get incoming;
+
+  /// Sends one binary frame.
+  Future<void> send(Uint8List frame);
+
+  /// Fires when the worklet's native side detects it's gone without an
+  /// explicit `terminate()` call -- e.g. bare-kit's own IPC pipe ending
+  /// unexpectedly. This is a low-level, detail-free backstop: most crashes
+  /// (a JS exception the worklet catches on its own way down) are reported
+  /// with real detail as an ordinary event over [incoming] instead -- see
+  /// `PearRpc`'s handling of `PearEventName.workletCrash`.
+  Stream<WorkletCrash> get onCrash;
+}
+
 /// A running Bare runtime worklet and the binary IPC pipe to it.
 ///
 /// This is the low-level surface — [start] / [terminate] / [suspend] /
@@ -24,28 +53,48 @@ enum WorkletState {
 ///
 /// One worklet per app. [start] is hot-restart-safe: after a Dart hot restart
 /// the native worklet keeps running and [start] reattaches to it.
-class BareWorklet {
+class BareWorklet implements WorkletIpc {
   BareWorklet._();
 
-  /// Lifecycle control (start/terminate/suspend/resume).
+  /// Lifecycle control (start/terminate/suspend/resume) -- and, in the
+  /// other direction, the native side's `onWorkletExit` crash backstop (see
+  /// [onCrash]).
   static const MethodChannel _control =
       MethodChannel('flutter_pear_bare/control');
 
-  /// Bidirectional binary frames to/from the worklet.
-  static const BasicMessageChannel<ByteData> _ipc =
-      BasicMessageChannel('flutter_pear_bare/ipc', BinaryCodec());
+  /// Bidirectional binary frames to/from the worklet, as raw `Uint8List`
+  /// via [StandardMessageCodec] -- NOT [BinaryCodec]/`ByteBuffer`, which
+  /// silently delivers empty data on native-to-Dart sends on this
+  /// Flutter/Android combination (reproduced with a minimal hardcoded
+  /// buffer; matches the long-standing flutter/flutter#19849 class of
+  /// engine bug). StandardMessageCodec's byte[]<->Uint8List encoding is
+  /// well-tested both directions; the extra type-tag byte is negligible
+  /// overhead for these small control-plane frames.
+  static const BasicMessageChannel<Object?> _ipc =
+      BasicMessageChannel('flutter_pear_bare/ipc', StandardMessageCodec());
 
   static BareWorklet? _instance;
 
   final StreamController<Uint8List> _incoming =
       StreamController<Uint8List>.broadcast();
+  final StreamController<WorkletCrash> _crash =
+      StreamController<WorkletCrash>.broadcast();
   WorkletState _state = WorkletState.stopped;
+
+  // Bytes received but not yet resolved into a complete frame -- see
+  // _onIpc's doc for why this accumulator exists at all.
+  Uint8List _pending = Uint8List(0);
 
   /// Current lifecycle state.
   WorkletState get state => _state;
 
   /// Frames emitted by the worklet (its `IPC.write` on the pear-end side).
+  @override
   Stream<Uint8List> get incoming => _incoming.stream;
+
+  /// The native-detected "worklet is gone" backstop -- see [WorkletIpc.onCrash].
+  @override
+  Stream<WorkletCrash> get onCrash => _crash.stream;
 
   /// Starts the worklet from the bundled pear-end, or from [bundlePath] if given.
   ///
@@ -61,25 +110,78 @@ class BareWorklet {
     final w = BareWorklet._();
     _instance = w;
     _ipc.setMessageHandler(w._onIpc);
+    _control.setMethodCallHandler(w._onControlCall);
     await _control.invokeMethod<void>('start', {'bundlePath': bundlePath});
     w._state = WorkletState.running;
     return w;
   }
 
-  Future<ByteData>? _onIpc(ByteData? message) {
-    if (message != null) {
-      _incoming.add(message.buffer
-          .asUint8List(message.offsetInBytes, message.lengthInBytes));
+  /// Resolves incoming bytes into complete frames using the 4-byte
+  /// big-endian length prefix [send] stamps on every write (mirrored by
+  /// pear-end's own `send`/`IPC.on('data', ...)` in index.js).
+  ///
+  /// Required because the underlying transport is a byte stream, not a
+  /// message queue: nothing guarantees one native `IPC.write()` arrives as
+  /// exactly one `_onIpc` call. Under rapid consecutive writes (confirmed
+  /// with a 5-write burst during E4.4's real Hyperswarm join work -- the
+  /// first traffic pattern dense enough to ever trigger it), multiple
+  /// frames can coalesce into a single delivery, or one frame can split
+  /// across more than one; without a length prefix, the receiver has no
+  /// way to find the boundary and `jsonDecode` fails on the mashed-together
+  /// bytes. [_pending] carries any leftover partial frame across calls.
+  Future<Object?> _onIpc(Object? message) async {
+    if (message is! Uint8List) return null;
+    if (_pending.isEmpty) {
+      _pending = message;
+    } else {
+      final combined = Uint8List(_pending.length + message.length)
+        ..setRange(0, _pending.length, _pending)
+        ..setRange(_pending.length, _pending.length + message.length, message);
+      _pending = combined;
+    }
+    while (_pending.length >= 4) {
+      final frameLength =
+          ByteData.sublistView(_pending, 0, 4).getUint32(0, Endian.big);
+      if (_pending.length < 4 + frameLength) break; // frame not fully here yet
+      _incoming.add(Uint8List.sublistView(_pending, 4, 4 + frameLength));
+      _pending = Uint8List.sublistView(_pending, 4 + frameLength);
     }
     return null; // no reply; frames flow through [incoming]
   }
 
-  /// Sends one binary frame to the worklet.
+  /// Handles native-initiated control-channel calls -- currently just
+  /// `onWorkletExit`, the E2.6 crash backstop (see [onCrash]). The worklet
+  /// is already gone by the time this fires (bare-kit has no
+  /// exit/crash callback to hook -- see FlutterPearBarePlugin.kt's doc
+  /// comment), so this tears down the same way [terminate] would, minus the
+  /// now-pointless native `terminate` call.
+  Future<void> _onControlCall(MethodCall call) async {
+    if (call.method != 'onWorkletExit') return;
+    // Defensive: nothing in the native plugin fires this twice for one
+    // worklet generation today (relayFromWorklet's read loop never re-arms
+    // after reporting an exit), but a second call landing here regardless
+    // must not double-close already-closed streams.
+    if (_state == WorkletState.stopped) return;
+    final reason = (call.arguments as Map)['reason'] as String;
+    _state = WorkletState.stopped;
+    _ipc.setMessageHandler(null);
+    _crash.add((reason: reason, detail: null));
+    await _incoming.close();
+    await _crash.close();
+    if (identical(_instance, this)) _instance = null;
+  }
+
+  /// Sends one binary frame to the worklet, prefixed with its 4-byte
+  /// big-endian length -- see [_onIpc]'s doc for why.
+  @override
   Future<void> send(Uint8List frame) async {
     if (_state != WorkletState.running) {
       throw StateError('worklet is not running (state: $_state)');
     }
-    await _ipc.send(ByteData.sublistView(frame));
+    final prefixed = Uint8List(4 + frame.length);
+    ByteData.sublistView(prefixed).setUint32(0, frame.length, Endian.big);
+    prefixed.setRange(4, prefixed.length, frame);
+    await _ipc.send(prefixed);
   }
 
   /// Pauses the worklet (wired to app background by higher layers).
@@ -96,13 +198,15 @@ class BareWorklet {
     _state = WorkletState.running;
   }
 
-  /// Terminates the worklet and closes [incoming].
+  /// Terminates the worklet and closes [incoming] and [onCrash].
   Future<void> terminate() async {
     if (_state == WorkletState.stopped) return;
     await _control.invokeMethod<void>('terminate');
     _ipc.setMessageHandler(null);
+    _control.setMethodCallHandler(null);
     _state = WorkletState.stopped;
     await _incoming.close();
+    await _crash.close();
     if (identical(_instance, this)) _instance = null;
   }
 }

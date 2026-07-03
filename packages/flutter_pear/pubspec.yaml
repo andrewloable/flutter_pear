@@ -21,7 +21,13 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  # E3.2 conformance check: PearSwarm/PearRpc run unmodified against the
+  # fake. Dev-only, so this doesn't create a real cycle for consumers of
+  # flutter_pear (flutter_pear_test's own non-dev dependency on flutter_pear
+  # is never resolved transitively through a dev_dependency edge).
+  flutter_pear_test:
+    path: ../flutter_pear_test
 
-# ponytail: no `assets:` block yet — M0 native echo doesn't load the bundle.
-# Add `assets/pear-end.bundle` here in M1 when the worklet actually loads it
-# (built via `dart run flutter_pear:pack`).
+flutter:
+  assets:
+    - assets/pear-end.bundle

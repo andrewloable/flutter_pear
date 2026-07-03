@@ -20,6 +20,8 @@ flutter pub add flutter_pear
 
 One line — native binaries and the P2P runtime resolve automatically via Gradle and CocoaPods. No NDK, ABI, or Podfile edits.
 
+The first Android build downloads Bare Kit's native binaries (cached under each app's `build/flutter_pear_bare/bare-kit/`; delete that directory, or run `flutter clean`, to force a re-download).
+
 Mobile first (iOS + Android); desktop later.
 
 ## Quick start — encrypted chat (target API)
@@ -85,10 +87,12 @@ This is a [melos](https://melos.invertase.dev/) monorepo. To work on it you need
 ```bash
 melos bootstrap        # link packages + pub get
 melos run analyze
-melos run test
+melos run test --no-select
 ```
 
 Example runners aren't committed; hydrate once with `cd packages/flutter_pear_example && flutter create --platforms=android .`, then `flutter run` on an Android device.
+
+**Release packaging (E4.5):** `flutter build appbundle --release` and `flutter build apk --release --split-per-abi` both build and run correctly — verified on a real arm64-v8a Android emulator (release-mode R8/native-lib loading, not just debug). Both artifact types include a 32-bit `armeabi-v7a` variant by default that is **missing this plugin's native libraries entirely** (Flutter's own ABI splitting has no way to know a dependency only ships arm64-v8a/x86_64 binaries) — installing that specific variant on a device that reports `armeabi-v7a` support (a real 32-bit device, or an ARM-translation layer) fails fast with a clear error at worklet-start time instead of a cryptic native-loader crash; it is not a supported configuration. Always ship the `arm64-v8a`/`x86_64` splits (or let an app bundle's per-device delivery pick one of those).
 
 ## Contributing
 

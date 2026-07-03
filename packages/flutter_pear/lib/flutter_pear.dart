@@ -8,7 +8,10 @@ library;
 export 'package:flutter_pear_bare/flutter_pear_bare.dart'
     show BareWorklet, WorkletState;
 
+export 'src/bee.dart';
 export 'src/crypto.dart';
+export 'src/drive.dart';
 export 'src/exceptions.dart';
 export 'src/pear.dart';
+export 'src/store.dart';
 export 'src/swarm.dart';
