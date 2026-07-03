@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "flutter_pear",
+  "project_id": "3b4cc464-6a1e-4847-919e-4cd4c18abcd1"
+}
