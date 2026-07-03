@@ -20,7 +20,7 @@ which we depend on).
 
 | MIT | Apache-2.0 |
 |---|---|
-| hypercore, hyperbee, hyperswarm, hyperdht, protomux, hypercore-crypto, corestore¹, sodium-native | bare, bare-kit, hyperdrive, autobase, compact-encoding, blind-pairing, localdrive, mirror-drive, hyperblobs, hyperschema, hyperdispatch, b4a |
+| hypercore, hyperbee, hyperswarm, hyperdht, protomux, hypercore-crypto, corestore¹, sodium-native, streamx | bare, bare-kit, hyperdrive, autobase, compact-encoding, blind-pairing, localdrive, mirror-drive, hyperblobs, hyperschema, hyperdispatch, b4a |
 
 ¹ corestore ships no `LICENSE` file, but its `package.json` declares MIT.
 secret-stream is pulled in transitively via hyperswarm. The build-time collector

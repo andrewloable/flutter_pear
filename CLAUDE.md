@@ -10,6 +10,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Unofficial, not affiliated with Holepunch.
 
+## Git commits — manual only
+
+**Never run `git commit` or `git push` automatically in this repo.** The developer commits and pushes by hand. This overrides the "Session Completion" mandatory push workflow in the Beads Issue Tracker section below — do all the other session-close steps (file issues, run quality gates, update issue status, hand off context) but stop short of `git commit`/`git push`. Leave changes staged or unstaged in the working tree for the developer to review and commit themselves. If explicitly asked to commit/push in a given message, that one-time ask is fine — the default is still no.
+
 ## Current status
 
 The melos monorepo is scaffolded at **M0**. Present:
@@ -54,6 +58,7 @@ Bare Kit worklet — the prebuilt "pear-end" JS bundle (built with bare-pack)
 | JDK 17 + Android SDK/NDK | build plugin + example | Android Studio or `sdkmanager`; M0 is Android-only |
 | Node.js ≥18 + npm | `pear-end/` JS deps | already present in this env |
 | bare-pack | rebuild the bundle | `npm i -g bare-pack`; only when `pear-end/` changes |
+| bare-link | link `pear-end/`'s native addons (hyperswarm et al.) for Android | `npm i -g bare-link`; invoked by `flutter_pear_bare/android/build.gradle`'s `linkNativeAddons` task at build time, reading `pear-end/node_modules` (run `npm install` there first) |
 | Xcode + CocoaPods | iOS | **M1** — not needed yet |
 
 Bare Kit native binaries resolve automatically (Gradle task on Android, CocoaPods on iOS) once that wiring lands in M1 — no manual NDK/ABI/Podfile steps for app devs.
@@ -63,12 +68,14 @@ Bare Kit native binaries resolve automatically (Gradle task on Android, CocoaPod
 ```bash
 melos bootstrap                       # link packages + pub get across the monorepo
 melos run analyze                     # analyze every package
-melos run test                        # test packages that have a test/ dir
+melos run test --no-select            # test packages that have a test/ dir (--no-select: this melos version otherwise prompts interactively even non-interactively, e.g. in CI)
 flutter test test/crypto_test.dart --plain-name topic   # single test / group (from a package dir)
-dart run flutter_pear:pack            # rebuild the pear-end bundle (wraps bare-pack; devs never touch it)
+dart run flutter_pear:pack            # rebuild the pear-end bundle (from packages/flutter_pear; wraps bare-pack, devs never touch it)
 ```
 
 Per-package work: `cd packages/flutter_pear && flutter test`. The example needs its runner hydrated once: `cd packages/flutter_pear_example && flutter create --platforms=android .`
+
+`assets/pear-end.bundle` (written by the `:pack` command above) is a **committed, versioned artifact** — like `THIRD_PARTY_LICENSES`, it's checked into git, not gitignored. Regenerate and commit it when `pear-end/` or the pinned Bare Kit version changes; a fresh checkout must never depend on running `:pack` before it can build.
 
 The pear-end ships as a **prebuilt, versioned bundle** — rebuild it via the `:pack` wrapper only when JS modules change, and pin/bump versions in the compatibility table (plugin ↔ Bare Kit ↔ Hyper* versions).
 

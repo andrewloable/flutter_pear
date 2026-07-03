@@ -1,0 +1,37 @@
+name: CI
+
+# E3.4 (flutter_pear-0ux.4): the fake (flutter_pear_test) is the default CI
+# substrate -- this job exercises the full Dart stack on a hosted runner
+# with zero devices/emulators. Device/ABI/release matrices (real Android
+# builds, on-device smoke tests) are a separate, later CI job (E9) -- not
+# this one.
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Activate melos
+        run: dart pub global activate melos
+
+      - name: melos bootstrap
+        run: melos bootstrap
+
+      - name: melos run analyze
+        run: melos run analyze
+
+      - name: melos run test
+        # --no-select: this melos version otherwise prompts interactively
+        # to pick a package even in a non-interactive shell, since the
+        # `test` script's packageFilters make melos treat it as a
+        # single-package-selection script by default.
+        run: melos run test --no-select
