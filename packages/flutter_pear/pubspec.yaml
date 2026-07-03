@@ -1,0 +1,27 @@
+name: flutter_pear
+description: Dart-idiomatic Flutter API for the Pear P2P stack (Hyperswarm, Hypercore, Hyperbee, Hyperdrive, Autobase, blind pairing) over a bundled Bare worklet.
+version: 0.0.1
+publish_to: none
+homepage: https://github.com/andrewloable/flutter_pear
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_pear_bare:
+    path: ../flutter_pear_bare
+  # ponytail: SHA-256 for deterministic topics until the worklet's
+  # hypercore-crypto is the source of truth. Already-common dep, not custom code.
+  crypto: ^3.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+# ponytail: no `assets:` block yet — M0 native echo doesn't load the bundle.
+# Add `assets/pear-end.bundle` here in M1 when the worklet actually loads it
+# (built via `dart run flutter_pear:pack`).

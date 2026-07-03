@@ -1,0 +1,12 @@
+{
+  "name": "pear-end",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Bare worklet bundled by flutter_pear (built with bare-pack).",
+  "main": "index.js",
+  "comment": "Pin these and publish a compatibility table (plugin ↔ Bare Kit ↔ Hyper*). Versions below are placeholders for M1.",
+  "dependencies": {
+    "hyperswarm": "^4.8.0",
+    "hypercore-crypto": "^3.4.0"
+  }
+}

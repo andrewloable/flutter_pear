@@ -1,0 +1,14 @@
+name: flutter_pear
+
+packages:
+  - packages/*
+
+scripts:
+  analyze:
+    exec: flutter analyze .
+    description: Analyze every package.
+  test:
+    exec: flutter test
+    packageFilters:
+      dirExists: test
+    description: Run tests in packages that have them.

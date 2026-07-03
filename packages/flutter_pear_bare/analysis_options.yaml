@@ -1,0 +1,6 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    # pub.dev score target ≥130 — every public symbol carries a doc comment.
+    public_member_api_docs: true
