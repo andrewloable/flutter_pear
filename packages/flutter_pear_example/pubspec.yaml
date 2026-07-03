@@ -1,0 +1,22 @@
+name: flutter_pear_example
+description: Demos for flutter_pear. M0: worklet echo round-trip.
+publish_to: none
+version: 0.0.1
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_pear:
+    path: ../flutter_pear
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
