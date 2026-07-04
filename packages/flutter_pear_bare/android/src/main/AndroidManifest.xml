@@ -3,4 +3,15 @@
          (not in the example app) so it auto-merges into any app that depends
          on flutter_pear_bare — no manual manifest step for app devs. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- E5.9: excludes the worklet's Corestore/Hypercore storage (identity
+         keys, replicated data) from Android's cloud backup and device
+         transfer -- see the referenced XML files' own comments for the
+         full rationale. Merges into the consuming app's own <application>
+         tag; if that app ALREADY sets either attribute, Gradle's manifest
+         merger will require it to add tools:replace (a build-time error,
+         never a silent gap) rather than silently picking one side. -->
+    <application
+        android:fullBackupContent="@xml/flutter_pear_full_backup_content"
+        android:dataExtractionRules="@xml/flutter_pear_data_extraction_rules"/>
 </manifest>

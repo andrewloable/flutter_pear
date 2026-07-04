@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  E5.9 — the legacy counterpart of flutter_pear_data_extraction_rules.xml,
+  referenced via android:fullBackupContent. dataExtractionRules only takes
+  over from this file when BOTH the device is API 31+ AND the consuming
+  app's own targetSdkVersion is 31+ — an app that hasn't bumped its own
+  targetSdkVersion yet still gets this file honored even on a brand-new
+  device. Since flutter_pear_bare has no control over the host app's
+  targetSdkVersion, shipping both files (rather than only
+  dataExtractionRules) is what actually covers this plugin's full minSdk
+  24+ range.
+-->
+<full-backup-content>
+    <exclude domain="file" path="pear-corestore"/>
+    <exclude domain="file" path="pear-bulk"/>
+</full-backup-content>

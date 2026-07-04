@@ -40,6 +40,14 @@ void main() {
     expect(PearMethod.pairingAcceptInvite, 'pairing.acceptInvite');
     expect(PearMethod.pairingConfirmCandidate, 'pairing.confirmCandidate');
     expect(PearMethod.pairingRevoke, 'pairing.revoke');
+    expect(PearMethod.baseOpen, 'base.open');
+    expect(PearMethod.baseReplicate, 'base.replicate');
+    expect(PearMethod.baseAppend, 'base.append');
+    expect(PearMethod.baseGet, 'base.get');
+    expect(PearMethod.baseRange, 'base.range');
+    expect(PearMethod.baseWatch, 'base.watch');
+    expect(PearMethod.baseUnwatch, 'base.unwatch');
+    expect(PearMethod.baseClose, 'base.close');
 
     expect(PearEventName.swarmConnection, 'swarm.connection');
     expect(PearEventName.connectionData, 'connection.data');
@@ -50,6 +58,7 @@ void main() {
     expect(PearEventName.coreUpdate, 'core.update');
     expect(PearEventName.beeUpdate, 'bee.update');
     expect(PearEventName.pairingCandidate, 'pairing.candidate');
+    expect(PearEventName.baseUpdate, 'base.update');
 
     expect(PearErrorCode.unknownPeer, 'UNKNOWN_PEER');
     expect(PearErrorCode.unknownMethod, 'UNKNOWN_METHOD');
@@ -69,6 +78,11 @@ void main() {
     expect(PearErrorCode.pairingTimeout, 'PAIRING_TIMEOUT');
     expect(PearErrorCode.unknownInvite, 'UNKNOWN_INVITE');
     expect(PearErrorCode.unknownCandidate, 'UNKNOWN_CANDIDATE');
+    expect(PearErrorCode.pairingFailed, 'PAIRING_FAILED');
+    expect(PearErrorCode.malformedOp, 'MALFORMED_OP');
+    expect(PearErrorCode.unknownRecipe, 'UNKNOWN_RECIPE');
+    expect(PearErrorCode.unknownBase, 'UNKNOWN_BASE');
+    expect(PearErrorCode.baseClosed, 'BASE_CLOSED');
 
     expect(PearSwarmState.discovering.name, 'discovering');
     expect(PearSwarmState.connecting.name, 'connecting');
@@ -76,6 +90,10 @@ void main() {
     expect(PearSwarmState.reconnecting.name, 'reconnecting');
     expect(PearSwarmState.suspended.name, 'suspended');
     expect(PearSwarmState.failed.name, 'failed');
+
+    expect(PearRecipe.lww.name, 'lww');
+    expect(PearRecipe.orderedLog.name, 'orderedLog');
+    expect(PearRecipe.crdtMap.name, 'crdtMap');
 
     expect(PearFrameType.json, 0x00);
     expect(PearFrameType.raw, 0x01);
@@ -92,8 +110,14 @@ void main() {
         .readAsStringSync();
 
     String jsValue(String key) {
-      final match = RegExp("$key: '([^']*)'").firstMatch(js) ??
-          RegExp('$key: (0x[0-9a-fA-F]+)').firstMatch(js);
+      // Lookbehind guards against a shorter key matching as a suffix of a
+      // longer one elsewhere in the file -- e.g. `jsValue('FAILED')`
+      // (PearSwarmState) landing inside `PAIRING_FAILED: 'PAIRING_FAILED'`
+      // (PearErrorCode) instead of the real `FAILED: 'FAILED'` entry,
+      // since plain substring matching can't tell "FAILED" apart from
+      // "...NG_FAILED" (caught when PAIRING_FAILED was added, E5.6 review).
+      final match = RegExp("(?<![A-Za-z_])$key: '([^']*)'").firstMatch(js) ??
+          RegExp('(?<![A-Za-z_])$key: (0x[0-9a-fA-F]+)').firstMatch(js);
       if (match == null) {
         fail('schema.js has no entry for `$key`');
       }
@@ -135,6 +159,14 @@ void main() {
     expect(jsValue('PAIRING_ACCEPT_INVITE'), PearMethod.pairingAcceptInvite);
     expect(jsValue('PAIRING_CONFIRM_CANDIDATE'), PearMethod.pairingConfirmCandidate);
     expect(jsValue('PAIRING_REVOKE'), PearMethod.pairingRevoke);
+    expect(jsValue('BASE_OPEN'), PearMethod.baseOpen);
+    expect(jsValue('BASE_REPLICATE'), PearMethod.baseReplicate);
+    expect(jsValue('BASE_APPEND'), PearMethod.baseAppend);
+    expect(jsValue('BASE_GET'), PearMethod.baseGet);
+    expect(jsValue('BASE_RANGE'), PearMethod.baseRange);
+    expect(jsValue('BASE_WATCH'), PearMethod.baseWatch);
+    expect(jsValue('BASE_UNWATCH'), PearMethod.baseUnwatch);
+    expect(jsValue('BASE_CLOSE'), PearMethod.baseClose);
 
     expect(jsValue('SWARM_CONNECTION'), PearEventName.swarmConnection);
     expect(jsValue('CONNECTION_DATA'), PearEventName.connectionData);
@@ -144,6 +176,8 @@ void main() {
     expect(jsValue('WORKLET_CRASH'), PearEventName.workletCrash);
     expect(jsValue('CORE_UPDATE'), PearEventName.coreUpdate);
     expect(jsValue('BEE_UPDATE'), PearEventName.beeUpdate);
+    expect(jsValue('PAIRING_CANDIDATE'), PearEventName.pairingCandidate);
+    expect(jsValue('BASE_UPDATE'), PearEventName.baseUpdate);
 
     expect(jsValue('UNKNOWN_PEER'), PearErrorCode.unknownPeer);
     expect(jsValue('UNKNOWN_METHOD'), PearErrorCode.unknownMethod);
@@ -158,6 +192,20 @@ void main() {
     expect(jsValue('UNKNOWN_DRIVE'), PearErrorCode.unknownDrive);
     expect(jsValue('DRIVE_CLOSED'), PearErrorCode.driveClosed);
     expect(jsValue('FILE_NOT_FOUND'), PearErrorCode.fileNotFound);
+    expect(jsValue('INVALID_INVITE'), PearErrorCode.invalidInvite);
+    expect(jsValue('INVITE_EXPIRED'), PearErrorCode.inviteExpired);
+    expect(jsValue('PAIRING_TIMEOUT'), PearErrorCode.pairingTimeout);
+    expect(jsValue('UNKNOWN_INVITE'), PearErrorCode.unknownInvite);
+    expect(jsValue('UNKNOWN_CANDIDATE'), PearErrorCode.unknownCandidate);
+    expect(jsValue('PAIRING_FAILED'), PearErrorCode.pairingFailed);
+    expect(jsValue('MALFORMED_OP'), PearErrorCode.malformedOp);
+    expect(jsValue('UNKNOWN_RECIPE'), PearErrorCode.unknownRecipe);
+    expect(jsValue('UNKNOWN_BASE'), PearErrorCode.unknownBase);
+    expect(jsValue('BASE_CLOSED'), PearErrorCode.baseClosed);
+
+    expect(jsValue('LWW'), PearRecipe.lww.name);
+    expect(jsValue('ORDERED_LOG'), PearRecipe.orderedLog.name);
+    expect(jsValue('CRDT_MAP'), PearRecipe.crdtMap.name);
 
     expect(jsValue('DISCOVERING'), PearSwarmState.discovering.name);
     expect(jsValue('CONNECTING'), PearSwarmState.connecting.name);

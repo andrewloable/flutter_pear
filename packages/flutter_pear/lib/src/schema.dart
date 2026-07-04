@@ -222,6 +222,64 @@ abstract final class PearMethod {
   /// doesn't reach across to cancel an in-flight accept immediately -- see
   /// that method's doc). See `PearInvite.revoke`.
   static const pairingRevoke = 'pairing.revoke';
+
+  /// Opens the Autobase `p.recipe` (a [PearRecipe] name) known locally as
+  /// `p.name` (creating it on first use), or attaches to an existing one by
+  /// its public `p.key` -- exactly one of `p.name`/`p.key` must be given,
+  /// same contract as `PearStore.get`. `p.recipe` is required even when
+  /// reattaching by key: the worklet has no other way to know which
+  /// open/apply pair (pear-end's recipes module, E5.7) to construct this
+  /// generation's Autobase instance with. Returns `{key, writerKey}` (both
+  /// hex) -- `writerKey` is THIS worklet generation's own local writer
+  /// identity for this base, share it with a peer (e.g. over
+  /// `PearPairing`) so THEY can pass it to their own [baseAppend]'s
+  /// `addWriter` op to admit you. See `PearBase.open` (E5.8).
+  static const baseOpen = 'base.open';
+
+  /// Replicates base `p.base` (hex)'s underlying cores over the existing
+  /// peer connection `p.peer` (hex) — same contract as [coreReplicate]/
+  /// [beeReplicate]/[driveReplicate]: watching or appending alone never
+  /// moves bytes, this is what lets another writer's ops ever reach this
+  /// peer (and vice versa). See `PearBase.replicate`.
+  static const baseReplicate = 'base.replicate';
+
+  /// Appends `p.value` to base `p.base` (hex)'s local writer log --
+  /// `p.value` is whatever op shape the base's own recipe expects (see
+  /// pear-end's recipes module), OR the shared `{addWriter}`/`{removeWriter}`
+  /// directive every recipe recognizes identically. See `PearBase.put`/
+  /// `PearBase.del`/`PearBase.append`/`PearBase.addWriter`/
+  /// `PearBase.removeWriter`.
+  static const baseAppend = 'base.append';
+
+  /// Reads the CURRENT materialized value for `p.key` (base64) from base
+  /// `p.base` (hex)'s merged view -- lww/crdtMap recipes only (orderedLog
+  /// has no keyed read; see [baseRange]). Returns `{exists}`, plus `value`
+  /// (base64) when `exists` is true. See `PearBase.get`.
+  static const baseGet = 'base.get';
+
+  /// Reads entries `p.start` (inclusive, default 0) through `p.end`
+  /// (exclusive, default the current length) of base `p.base` (hex)'s
+  /// merged view as a single bounded snapshot -- same shape/caveat as
+  /// [beeRange]; orderedLog only (lww/crdtMap have no ordered log; see
+  /// [baseGet]). Returns `{entries: [...]}` (each base64). See
+  /// `PearBase.range`.
+  static const baseRange = 'base.range';
+
+  /// Subscribes to merged-view changes on base `p.base` (hex), tagged
+  /// `p.watch` (caller-generated, since a base can have more than one
+  /// concurrent watch) -- same subscribe-lifecycle contract as
+  /// [beeWatch]/[beeUnwatch]. See `PearBase.watch`.
+  static const baseWatch = 'base.watch';
+
+  /// Unsubscribes watch `p.watch` on base `p.base` (hex) -- same contract
+  /// as [beeUnwatch]. See `PearBase.watch`.
+  static const baseUnwatch = 'base.unwatch';
+
+  /// Closes base `p.base` (hex). Idempotent. Also stops every outstanding
+  /// [baseWatch] on it. Further [baseAppend]/[baseGet]/[baseRange]/
+  /// [baseWatch] calls against that key fail with
+  /// [PearErrorCode.baseClosed]. See `PearBase.close`.
+  static const baseClose = 'base.close';
 }
 
 /// Worklet-emitted event names — the `ev` field of an event frame.
@@ -272,6 +330,12 @@ abstract final class PearEventName {
   /// [PearMethod.pairingAcceptInvite] `p.userData`, arbitrary length,
   /// possibly empty). See `PearInvite.candidates` (E5.6).
   static const pairingCandidate = 'pairing.candidate';
+
+  /// A base's merged view changed within an active [PearMethod.baseWatch]'s
+  /// subscription. Payload: `{base, watch}` — `watch` identifies which
+  /// [PearMethod.baseWatch] call this belongs to (a base may have more than
+  /// one concurrent watch). See `PearBase.watch` (E5.8).
+  static const baseUpdate = 'base.update';
 }
 
 /// Connection-state vocabulary for `PearSwarm.state` — also the wire value
@@ -293,9 +357,20 @@ enum PearSwarmState {
   /// and discovery has resumed automatically.
   reconnecting,
 
-  /// The worklet is suspended (see `BareWorklet.suspend`). Reserved: nothing
-  /// emits this transition yet — wiring app-lifecycle suspend/resume to the
-  /// swarm state machine is later work (see flutter_pear-cvz.2).
+  /// The worklet is suspended (see `BareWorklet.suspend`) — emitted by
+  /// `Pear.suspend` (whether called directly or automatically by
+  /// `PearLifecycle`, E6.2). A suspended worklet can't run JS at all, so
+  /// pear-end never emits this itself; `PearRpc.workletSuspendedChanges` is
+  /// the Dart-local substitute every `PearSwarm` listens to. On resume,
+  /// transitions to [connected] (a peer is still tracked), [reconnecting]
+  /// (was connected before, none tracked now), or [discovering] (never
+  /// connected before this suspend cycle) — a same-worklet-generation
+  /// best-effort signal, not a promise that pear-end has itself confirmed
+  /// anything; a real change still arrives separately as its own ordinary
+  /// transition once pear-end notices it. See `BACKGROUND_EXECUTION.md`
+  /// for what this state actually reflects on Android versus what's
+  /// outside this library's control entirely (Doze/App Standby/OEM
+  /// killers, E6.4).
   suspended,
 
   /// Discovery/connection failed outright — never reached [connected]
@@ -303,6 +378,35 @@ enum PearSwarmState {
   /// swarm-level error. The accompanying `PearSwarmStatus.error` carries
   /// why (e.g. [PearErrorCode.connectTimeout] or [PearErrorCode.udpBlocked]).
   failed,
+}
+
+/// Which built-in Autobase merge recipe a `PearBase.open` call (E5.8) picks,
+/// by name. Each member's [Enum.name] IS its wire string (same convention as
+/// [PearSwarmState]) — no separate string-constant class to keep in sync,
+/// cross-checked against pear-end/schema.js's `Recipe` object instead; the
+/// pear-end recipes module (E5.7) exports one entry per member here, keyed
+/// by that same `.name`. LOCKED (project decision, "codex #2"): app-facing
+/// Autobase access is always by recipe name, never a generic Dart-driven
+/// open/apply — see the pear-end recipes module's own doc comment for why
+/// (deterministic multi-writer indexing across an RPC boundary is
+/// slow/reentrant/failure-prone) and for exactly what each recipe guarantees.
+enum PearRecipe {
+  /// Last-writer-wins map: `key -> value`. "Latest" means Autobase's own
+  /// deterministic per-node ordering (writer + that writer's local
+  /// sequence number), never wall-clock time.
+  lww,
+
+  /// An append-only merged log: every writer's entries interleaved into
+  /// one order, deterministic because it's exactly Autobase's own causal
+  /// linearization — no extra recipe-level tiebreak on top of it.
+  orderedLog,
+
+  /// An add-wins observed-remove map: `key -> value`, where a concurrent
+  /// put and delete resolve so the put survives unless the deleter had
+  /// already observed it. See the pear-end recipes module's doc comment
+  /// for the exact CRDT variant (an OR-Set of `(tag, value)` pairs per
+  /// key, materialized to one scalar via the same tiebreak as [lww]).
+  crdtMap,
 }
 
 /// Which typed exception subtype (see `exceptions.dart`) a [PearErrorCode]
@@ -327,6 +431,16 @@ enum PearErrorCategory {
 abstract final class PearErrorCode {
   /// [PearMethod.connectionWrite] targeted a peer with no open connection.
   static const unknownPeer = 'UNKNOWN_PEER';
+
+  /// `PearConnection.write` was called on a connection that has already
+  /// closed (E6.5, see `RECONNECT_CONTRACT.md`) — synthesized entirely on
+  /// the Dart side by `PearConnection` itself, never sent by the worklet.
+  /// Distinct from [unknownPeer]: that's the WORKLET reporting no live
+  /// connection for a peer hex (which a reconnected peer's new
+  /// `PearConnection` would no longer trigger); this is the Dart object
+  /// itself refusing to resurrect a specific, already-dead connection
+  /// instance, even if the same peer has since reconnected as a new one.
+  static const connectionClosed = 'CONNECTION_CLOSED';
 
   /// The requested [PearMethod] has no handler.
   static const unknownMethod = 'UNKNOWN_METHOD';
@@ -439,10 +553,12 @@ abstract final class PearErrorCode {
   /// revoked invite, which never confirms either (E5.6).
   static const pairingTimeout = 'PAIRING_TIMEOUT';
 
-  /// A `p.inviteId` in [PearMethod.pairingConfirmCandidate]/
-  /// [PearMethod.pairingRevoke] doesn't match any invite this worklet
-  /// generation created via [PearMethod.pairingCreateInvite] (E5.6) —
-  /// analogous to [unknownCore].
+  /// A `p.inviteId` in [PearMethod.pairingConfirmCandidate] doesn't match
+  /// any invite this worklet generation created via
+  /// [PearMethod.pairingCreateInvite] (E5.6) — analogous to [unknownCore].
+  /// [PearMethod.pairingRevoke] does NOT throw this for an unknown id —
+  /// see [PearInvite.revoke]'s doc — revoke is idempotent, like every other
+  /// wrapper's `close()`.
   static const unknownInvite = 'UNKNOWN_INVITE';
 
   /// A `p.candidateId` in [PearMethod.pairingConfirmCandidate] doesn't
@@ -450,12 +566,45 @@ abstract final class PearErrorCode {
   /// e.g. already confirmed, or never existed.
   static const unknownCandidate = 'UNKNOWN_CANDIDATE';
 
+  /// An E5.6 pairing call failed for a reason none of the more specific
+  /// codes above cover (e.g. blind-pairing/Protomux internals rejecting a
+  /// malformed confirm key) — the pairing-wrapper analog of
+  /// [storageUnavailable] for the storage-category wrappers, but
+  /// categorized [PearErrorCategory.connection] since a pairing failure
+  /// isn't a storage-substrate issue.
+  static const pairingFailed = 'PAIRING_FAILED';
+
+  /// An Autobase recipe's `apply` (E5.7) rejected an op it couldn't
+  /// interpret (wrong shape, unknown `type`, a `del` referencing tags of
+  /// the wrong encoding, ...). Thrown before mutating the recipe's view,
+  /// never after — a malformed op is a typed failure, not silent
+  /// corruption of shared multi-writer state.
+  static const malformedOp = 'MALFORMED_OP';
+
+  /// [PearMethod.baseOpen]'s `p.recipe` doesn't match any name pear-end's
+  /// recipes module (E5.7) exports — i.e. not one of [PearRecipe]'s
+  /// members. Reaching Dart at all means the typed [PearRecipe] enum was
+  /// bypassed (a raw RPC call, or a future schema drift) — E5.8.
+  static const unknownRecipe = 'UNKNOWN_RECIPE';
+
+  /// A `p.base` in [PearMethod.baseAppend]/[PearMethod.baseGet]/
+  /// [PearMethod.baseRange]/[PearMethod.baseWatch]/[PearMethod.baseUnwatch]/
+  /// [PearMethod.baseClose] doesn't match any base this worklet generation
+  /// has opened via [PearMethod.baseOpen] (E5.8) — analogous to
+  /// [unknownBee].
+  static const unknownBase = 'UNKNOWN_BASE';
+
+  /// A base call targeted a base [PearMethod.baseClose] already closed
+  /// (E5.8) — analogous to [beeClosed].
+  static const baseClosed = 'BASE_CLOSED';
+
   /// The explicit err.code -> exception-category registry (LOCKED: entries
   /// only, no prefix/substring heuristics). A code not listed here —
   /// including one this version of the schema simply doesn't know about
   /// yet — falls back to the base `PearException` rather than guessing.
   static const categories = <String, PearErrorCategory>{
     unknownPeer: PearErrorCategory.connection,
+    connectionClosed: PearErrorCategory.connection,
     storageUnavailable: PearErrorCategory.storage,
     connectTimeout: PearErrorCategory.connection,
     udpBlocked: PearErrorCategory.connection,
@@ -472,6 +621,11 @@ abstract final class PearErrorCode {
     pairingTimeout: PearErrorCategory.connection,
     unknownInvite: PearErrorCategory.connection,
     unknownCandidate: PearErrorCategory.connection,
+    pairingFailed: PearErrorCategory.connection,
+    malformedOp: PearErrorCategory.storage,
+    unknownRecipe: PearErrorCategory.storage,
+    unknownBase: PearErrorCategory.storage,
+    baseClosed: PearErrorCategory.storage,
   };
 }
 
@@ -493,6 +647,20 @@ abstract final class PearRpcDefaults {
   /// How long [PearRpc.call] waits for a response before failing with
   /// [PearErrorCode.rpcTimeout]. Overridable per call.
   static const callTimeout = Duration(seconds: 10);
+
+  /// How long `Pear.start`'s [PearMethod.attachInfo] health probe waits
+  /// before giving up on an ALREADY-RUNNING worklet it just reattached to
+  /// (E6.3, see `BareWorklet.reattached`) — deliberately shorter than
+  /// [callTimeout], so a genuinely unresponsive reattached worklet is
+  /// detected quickly and a fresh boot is taken instead of every hot
+  /// restart waiting out the full default call timeout first. Scoped
+  /// specifically to that reattach case: a worklet known to have just
+  /// cold-booted (a first-ever launch, or the mandatory retry after a
+  /// kill) uses the normal [callTimeout] instead — real JS engine + native
+  /// module init legitimately takes real time, and applying this shorter
+  /// bound there too would make `Pear.start` fail forever on a device
+  /// merely slow to cold-boot, not one running anything unhealthy.
+  static const attachHealthTimeout = Duration(seconds: 3);
 }
 
 /// The 1-byte IPC frame-type discriminator every frame is prefixed with.

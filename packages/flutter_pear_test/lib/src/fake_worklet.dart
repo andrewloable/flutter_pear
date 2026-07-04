@@ -41,6 +41,24 @@ class FakeRpcError implements Exception {
 class FakeSwarmHub {
   final Map<String, Set<FakeBareWorklet>> _topics = {};
 
+  // E5.6 -- blind-pairing conformance. Unlike cores/bees/drives, an invite
+  // is a single shared resource from the moment it's created (real
+  // DHT-based discovery makes it globally reachable to anyone holding the
+  // invite bytes) -- no per-worklet duplicate-then-merge-on-replicate
+  // machinery needed, just one shared map every worklet on this hub reads
+  // and writes directly.
+  final Map<String, _FakeInvite> _invites = {};
+
+  // E5.8 -- a hub-wide monotonic counter stamped on every orderedLog append
+  // at APPLY time, purely to give two independently-grown logs a stable
+  // merge order (see _FakeBase.log's doc). NOT used for lww/crdtMap conflict
+  // resolution -- those use each writer's own local seq instead (see
+  // _FakeBase.writerSeq's doc for why a hub-wide/call-order counter would
+  // pick a different winner than the real recipes' isNewer/causal-order
+  // semantics do).
+  int _baseOpSeq = 0;
+  int _nextBaseOpSeq() => _baseOpSeq++;
+
   /// Registers [worklet] as joined to [topicHex], connecting it to every
   /// other worklet already joined to the same topic (and vice versa).
   void join(String topicHex, FakeBareWorklet worklet) {
@@ -143,6 +161,18 @@ class FakeBareWorklet implements WorkletIpc {
   // open. _closedDrives is per-worklet.
   final Map<String, _FakeDrive> _drives = {}; // drive key hex -> drive
   final Set<String> _closedDrives = {}; // drive key hex
+
+  // E5.8 -- Autobase conformance. Same registry SHAPE as _cores/_bees/
+  // _drives above (per-worklet _bases holding THIS worklet's view, becoming
+  // a shared _FakeBase object once PearMethod.baseReplicate binds it to a
+  // peer that also has that key open; _closedBases per-worklet;
+  // _baseWatches this worklet's own outstanding PearMethod.baseWatch
+  // subscriptions) -- but the MERGE itself is fundamentally different: see
+  // _FakeBase's own doc for why a base can't reuse the single-writer
+  // prefix/subset-check pattern the others use.
+  final Map<String, _FakeBase> _bases = {}; // base key hex -> base
+  final Set<String> _closedBases = {}; // base key hex
+  final Map<String, _FakeBaseWatch> _baseWatches = {}; // watchId -> watch
   final StreamController<Uint8List> _incoming =
       StreamController<Uint8List>.broadcast();
   final StreamController<WorkletCrash> _crash =
@@ -587,6 +617,346 @@ class FakeBareWorklet implements WorkletIpc {
         _requireDrive(driveKeyHex); // throws unknownDrive if never opened
         _closedDrives.add(driveKeyHex);
         return null;
+      case PearMethod.baseOpen:
+        final keyParam = params['key'] as String?;
+        final nameParam = params['name'] as String?;
+        if ((keyParam == null) == (nameParam == null)) {
+          throw FakeRpcError('base.open needs exactly one of name/key',
+              PearErrorCode.storageUnavailable);
+        }
+        final recipeParam = params['recipe'] as String?;
+        PearRecipe? recipe;
+        for (final r in PearRecipe.values) {
+          if (r.name == recipeParam) {
+            recipe = r;
+            break;
+          }
+        }
+        if (recipe == null) {
+          throw FakeRpcError(
+              'unknown recipe: $recipeParam', PearErrorCode.unknownRecipe);
+        }
+        // Recipe is NOT folded into the salt -- matches pear-end/index.js's
+        // real key derivation (`namespaceSeed = p.key || p.name`, recipe
+        // never enters it), so reopening the SAME name with a DIFFERENT
+        // recipe aliases onto the SAME base/key here too (and _bases'
+        // putIfAbsent below then silently keeps the original recipe,
+        // exactly like the real worklet silently keeps the original
+        // Autobase instance's open/apply pair).
+        final baseKeyHex = keyParam ??
+            PearCrypto.hash(utf8.encode('$peerKey:$nameParam')).hex;
+        _closedBases.remove(baseKeyHex); // a fresh session, even if a prior one closed
+        final base = _bases.putIfAbsent(
+            baseKeyHex, () => _FakeBase(baseKeyHex, recipe!).._owners.add(this));
+        // writerKey: derived per (worklet, base) -- a real Autobase writer
+        // key (base.local.key) is namespaced per-base, so the SAME worklet
+        // opening two DIFFERENT bases must get two DIFFERENT writerKeys
+        // (see _writerKeyFor's doc).
+        final writerKeyHex = _writerKeyFor(baseKeyHex);
+        // A name-derived open is always the genesis writer AND indexer; a
+        // key-derived attach is read-only until a PearMethod.baseAppend
+        // addWriter op admits this worklet's own writerKey (see that
+        // handling below) -- a SET of admitted writers, unlike
+        // core/bee/drive's single immutable `writer` field, since a base
+        // can admit more than one.
+        if (keyParam == null) {
+          base.writers.add(writerKeyHex);
+          base.indexers.add(writerKeyHex);
+        }
+        return {'key': baseKeyHex, 'writerKey': writerKeyHex};
+      case PearMethod.baseReplicate:
+        final baseKeyHex = params['base'] as String;
+        final peerHex = params['peer'] as String;
+        final other = _connections[peerHex];
+        if (other == null) {
+          throw FakeRpcError(
+              'unknown peer: $peerHex', PearErrorCode.unknownPeer);
+        }
+        final mine = _requireOpenBase(baseKeyHex);
+        _replicateOffered.add('$baseKeyHex:$peerHex');
+        if (!other._replicateOffered.contains('$baseKeyHex:$peerKey')) {
+          // Same two-sided handshake as PearMethod.coreReplicate/
+          // beeReplicate/driveReplicate -- see coreReplicate's handling.
+          return null;
+        }
+        final theirs = other._bases[baseKeyHex];
+        if (theirs != null && !identical(theirs, mine)) {
+          // UNLIKE core/bee/drive: no "throw if not a clean prefix/subset"
+          // gate -- two independently-evolved bases are EXPECTED to
+          // diverge (that's the whole point of multi-writer) and always
+          // merge safely (see _mergeBases's doc). Every current owner of
+          // EITHER side gets repointed at the one canonical merged object.
+          //
+          // NOTE (known fake limitation): this fusion is PERMANENT -- once
+          // merged, every owner shares the one canonical object with no way
+          // to "unreplicate", so this fake can't model a real Autobase
+          // pair's repeated diverge/reconnect/reconcile cycle (only a
+          // single reconciliation). Fine for "two writers converge" tests;
+          // not for "sync, disconnect, diverge again, resync" ones.
+          final beforeMine = _baseDataSize(mine);
+          final beforeTheirs = _baseDataSize(theirs);
+          final canonical = _mergeBases(mine, theirs);
+          for (final owner in {...mine._owners, ...theirs._owners}) {
+            owner._bases[baseKeyHex] = canonical;
+            canonical._owners.add(owner);
+          }
+          for (final w in [...mine._watches, ...theirs._watches]) {
+            mine._watches.remove(w);
+            theirs._watches.remove(w);
+            canonical._watches.add(w);
+            w.base = canonical;
+          }
+          // Only notify if the merge actually changed something -- matches
+          // coreReplicate/beeReplicate's own "did the size actually change"
+          // convention, so e.g. two freshly-opened, still-empty bases
+          // replicating for the first time doesn't fire a spurious update.
+          final afterSize = _baseDataSize(canonical);
+          if (afterSize != beforeMine || afterSize != beforeTheirs) {
+            canonical._notify();
+          }
+        }
+        return null;
+      case PearMethod.baseAppend:
+        final baseKeyHex = params['base'] as String;
+        final base = _requireOpenBase(baseKeyHex);
+        final myWriterKey = _writerKeyFor(baseKeyHex);
+        if (!base.writers.contains(myWriterKey)) {
+          throw FakeRpcError(
+              'base is not writable from this worklet: $baseKeyHex',
+              PearErrorCode.storageUnavailable);
+        }
+        final value = params['value'] as Map;
+        // Shared cross-cutting op shape every recipe recognizes identically
+        // -- see pear-end's real recipes module's own doc. Gated behind the
+        // SAME writer check above as any other op: admitting/removing a
+        // writer is how a non-writer BECOMES one, but the admitter/remover
+        // itself must already be an admitted writer (a real, non-admitted
+        // Autobase writer's self-authored ops are never linearized/
+        // observed by anyone else -- self-admission is structurally
+        // impossible there, so it must be here too).
+        if (value['addWriter'] != null) {
+          final target = value['addWriter'] as String;
+          base.writers.add(target);
+          if (value['indexer'] != false) base.indexers.add(target);
+          return null;
+        }
+        if (value['removeWriter'] != null) {
+          final target = value['removeWriter'] as String;
+          // Autobase itself refuses to remove the last remaining indexer
+          // -- see PearBase.removeWriter's doc.
+          if (base.indexers.contains(target) && base.indexers.length <= 1) {
+            throw FakeRpcError(
+                'cannot remove the last remaining indexer: $baseKeyHex',
+                PearErrorCode.storageUnavailable);
+          }
+          base.writers.remove(target);
+          base.indexers.remove(target);
+          return null;
+        }
+        switch (base.recipe) {
+          case PearRecipe.lww:
+            // This writer's OWN local seq -- never a hub-wide counter, see
+            // writerSeq's doc for why that distinction is load-bearing.
+            final seq = (base.writerSeq[myWriterKey] = (base.writerSeq[myWriterKey] ?? 0) + 1);
+            final type = value['type'] as String;
+            final keyHex = _hexOf(base64Decode(value['key'] as String));
+            base.lwwEntries[keyHex] = type == 'put'
+                ? (
+                    value: base64Decode(value['value'] as String),
+                    deleted: false,
+                    seq: seq,
+                    writer: myWriterKey,
+                  )
+                : (value: null, deleted: true, seq: seq, writer: myWriterKey);
+          case PearRecipe.orderedLog:
+            // Hub-wide is fine here -- see `log`'s own doc.
+            final seq = hub._nextBaseOpSeq();
+            base.log
+                .add((entry: base64Decode(value['entry'] as String), seq: seq));
+          case PearRecipe.crdtMap:
+            final seq = (base.writerSeq[myWriterKey] = (base.writerSeq[myWriterKey] ?? 0) + 1);
+            final type = value['type'] as String;
+            final keyHex = _hexOf(base64Decode(value['key'] as String));
+            if (type == 'put') {
+              final tag = '$myWriterKey:$seq';
+              base.crdtTags.putIfAbsent(keyHex, () => {})[tag] =
+                  base64Decode(value['value'] as String);
+            } else {
+              // A caller (PearBase.del) never has to read tags itself --
+              // auto-filled from THIS worklet's own currently-observed
+              // tags for `key` if not already given, mirroring pear-end's
+              // real recipes module's normalizeAppend hook exactly.
+              final removes = (value['removes'] as List?)?.cast<String>() ??
+                  base.crdtTags[keyHex]?.keys.toList() ??
+                  const <String>[];
+              base.crdtTombstones.addAll(removes);
+              base.crdtTags[keyHex]
+                  ?.removeWhere((tag, _) => removes.contains(tag));
+            }
+        }
+        base._notify();
+        return null;
+      case PearMethod.baseGet:
+        final base = _requireOpenBase(params['base'] as String);
+        if (base.recipe != PearRecipe.lww && base.recipe != PearRecipe.crdtMap) {
+          throw FakeRpcError(
+              'base.get is not supported by the ${base.recipe.name} recipe',
+              PearErrorCode.storageUnavailable);
+        }
+        final keyHex = _hexOf(base64Decode(params['key'] as String));
+        if (base.recipe == PearRecipe.lww) {
+          final entry = base.lwwEntries[keyHex];
+          if (entry == null || entry.deleted) return {'exists': false};
+          return {'exists': true, 'value': base64Encode(entry.value!)};
+        }
+        final tags = base.crdtTags[keyHex];
+        if (tags == null || tags.isEmpty) return {'exists': false};
+        // Same canonical-pick rule as the real crdtMap recipe's isNewer --
+        // see _tagIsNewer's doc.
+        String? winnerTag;
+        for (final tag in tags.keys) {
+          if (winnerTag == null || _tagIsNewer(tag, winnerTag)) {
+            winnerTag = tag;
+          }
+        }
+        return {'exists': true, 'value': base64Encode(tags[winnerTag]!)};
+      case PearMethod.baseRange:
+        final base = _requireOpenBase(params['base'] as String);
+        if (base.recipe != PearRecipe.orderedLog) {
+          throw FakeRpcError(
+              'base.range is only supported by the orderedLog recipe',
+              PearErrorCode.storageUnavailable);
+        }
+        final start = params['start'] as int? ?? 0;
+        final end = params['end'] as int? ?? base.log.length;
+        return {
+          'entries':
+              base.log.sublist(start, end).map((e) => base64Encode(e.entry)).toList(),
+        };
+      case PearMethod.baseWatch:
+        final base = _requireOpenBase(params['base'] as String);
+        final watchId = params['watch'] as String;
+        final watch = _FakeBaseWatch(this, watchId, base);
+        _baseWatches[watchId] = watch;
+        base._watches.add(watch);
+        return null;
+      case PearMethod.baseUnwatch:
+        final watchId = params['watch'] as String;
+        final watch = _baseWatches[watchId];
+        // Scoped by base, same as baseClose's cleanup loop below.
+        if (watch != null && watch.base.keyHex == params['base']) {
+          _baseWatches.remove(watchId);
+          watch.base._watches.remove(watch);
+        } else if (watch != null) {
+          throw FakeRpcError(
+              'watch $watchId does not belong to base ${params['base']}',
+              PearErrorCode.unknownBase);
+        }
+        return null;
+      case PearMethod.baseClose:
+        final baseKeyHex = params['base'] as String;
+        _requireBase(baseKeyHex); // throws unknownBase if never opened
+        if (_closedBases.add(baseKeyHex)) {
+          for (final watchId in _baseWatches.keys
+              .where((id) => _baseWatches[id]!.base.keyHex == baseKeyHex)
+              .toList()) {
+            final watch = _baseWatches.remove(watchId);
+            watch?.base._watches.remove(watch);
+          }
+        }
+        return null;
+      case PearMethod.pairingCreateInvite:
+        final inviteId = _randomHex(16);
+        final expiresAt = params['expiresAt'] as int? ?? 0;
+        hub._invites[inviteId] = _FakeInvite(inviteId, expiresAt, this);
+        // The fake's "invite bytes" are just the id itself, opaque to
+        // Dart -- unlike the real blind-pairing wire format, nothing here
+        // needs decoding beyond that id, since PearMethod.pairingAcceptInvite
+        // below looks the invite straight up in the shared hub.
+        return {
+          'invite': base64Encode(utf8.encode(inviteId)),
+          'inviteId': inviteId,
+        };
+      case PearMethod.pairingConfirmCandidate:
+        final inviteId = params['inviteId'] as String;
+        final invite = hub._invites[inviteId];
+        // Both checks mirror the real worklet's per-process `invites` Map:
+        // real PAIRING_REVOKE does invites.delete(...), so a post-revoke
+        // confirm hits getInviteOrThrow's UNKNOWN_INVITE outright -- the
+        // fake keeps a revoked entry around (see pairingRevoke's doc below)
+        // so accept can still time out realistically, but confirm must
+        // still treat it as gone. Likewise a real worklet's `invites` map
+        // is private to the process that ran pairingCreateInvite -- any
+        // OTHER worklet confirming the same inviteId would find no entry
+        // at all and hit the same UNKNOWN_INVITE; hub._invites is shared
+        // hub-wide with no such privacy, so the owner check reproduces it
+        // (E5.6 review fix -- both gaps let the fake diverge from the real
+        // worklet).
+        if (invite == null || invite.revoked || !identical(invite.owner, this)) {
+          throw FakeRpcError('unknown invite: $inviteId', PearErrorCode.unknownInvite);
+        }
+        final candidateId = params['candidateId'] as String;
+        final candidate = invite.pending.remove(candidateId);
+        if (candidate == null) {
+          throw FakeRpcError(
+              'unknown candidate: $candidateId', PearErrorCode.unknownCandidate);
+        }
+        candidate.confirmed.complete(base64Decode(params['key'] as String));
+        return null;
+      case PearMethod.pairingRevoke:
+        // Marks revoked rather than removing the entry -- a revoked
+        // invite's BYTES stay just as decodable as before (mirrors real
+        // blind-pairing: decodeInvite is a pure function of the invite
+        // bytes with no dependency on whether a Member is still
+        // listening). What actually changes is nobody responds to a new
+        // accept attempt anymore, exactly like a real closed Member
+        // registration never seeing/answering a fresh request -- see
+        // PearMethod.pairingAcceptInvite's handling below.
+        hub._invites[params['inviteId'] as String]?.revoked = true;
+        return null;
+      case PearMethod.pairingAcceptInvite:
+        final String inviteId;
+        try {
+          inviteId = utf8.decode(base64Decode(params['invite'] as String));
+        } catch (_) {
+          throw FakeRpcError('invalid invite', PearErrorCode.invalidInvite);
+        }
+        final invite = hub._invites[inviteId];
+        if (invite == null) {
+          throw FakeRpcError('invalid invite', PearErrorCode.invalidInvite);
+        }
+        if (invite.expiresAt != 0 &&
+            DateTime.now().millisecondsSinceEpoch > invite.expiresAt) {
+          throw FakeRpcError('invite expired', PearErrorCode.inviteExpired);
+        }
+        final timeoutMs = params['timeoutMs'] as int? ?? 30000;
+        Uint8List? key;
+        if (!invite.revoked) {
+          final candidateId = _randomHex(8);
+          final userData = params['userData'] != null
+              ? base64Decode(params['userData'] as String)
+              : Uint8List(0);
+          final candidate = _FakePendingCandidate(userData);
+          invite.pending[candidateId] = candidate;
+          invite.owner._emitEvent(PearEventName.pairingCandidate, {
+            'inviteId': inviteId,
+            'candidateId': candidateId,
+            'userData': base64Encode(userData),
+          });
+          key = await candidate.confirmed.future.timeout(
+            Duration(milliseconds: timeoutMs),
+            onTimeout: () => null,
+          );
+        } else {
+          // Revoked: nobody is listening, so this waits out the SAME
+          // bound with nothing to ever complete it -- matching a real
+          // closed Member never responding at all.
+          await Future<void>.delayed(Duration(milliseconds: timeoutMs));
+        }
+        if (key == null) {
+          throw FakeRpcError('pairing timed out', PearErrorCode.pairingTimeout);
+        }
+        return {'key': base64Encode(key)};
       default:
         throw FakeRpcError(
             'unknown method: $method', PearErrorCode.unknownMethod);
@@ -648,30 +1018,95 @@ class FakeBareWorklet implements WorkletIpc {
     return drive;
   }
 
+  _FakeBase _requireBase(String keyHex) {
+    final base = _bases[keyHex];
+    if (base == null) {
+      throw FakeRpcError('unknown base: $keyHex', PearErrorCode.unknownBase);
+    }
+    return base;
+  }
+
+  _FakeBase _requireOpenBase(String keyHex) {
+    final base = _requireBase(keyHex);
+    if (_closedBases.contains(keyHex)) {
+      throw FakeRpcError('base is closed: $keyHex', PearErrorCode.baseClosed);
+    }
+    return base;
+  }
+
+  /// This worklet's own writer identity for the base keyed by [baseKeyHex]
+  /// -- a real Autobase writer key (`base.local.key`) is namespaced
+  /// per-base, so the SAME worklet must get a DIFFERENT writerKey for each
+  /// distinct base it opens (unlike [peerKey], which is fixed per worklet).
+  /// Deterministic in both inputs: the same worklet reopening the same base
+  /// always derives the same writerKey, matching every other wrapper's
+  /// deterministic-reopen convention.
+  String _writerKeyFor(String baseKeyHex) =>
+      PearCrypto.hash(utf8.encode('$peerKey:writer:$baseKeyHex')).hex;
+
   void _connectTo(FakeBareWorklet other, String topicHex) {
     final peerHex = other.peerKey;
-    final isNew = !_connections.containsKey(peerHex);
+    // isNew is scoped per (peer, topic) -- NOT per peer alone -- mirroring
+    // pear-end/index.js's real `announce()` exactly: `t.connectedPeers` is
+    // a PER-TOPIC Set (`topics.get(topicHex)`), so a peer already connected
+    // via one shared topic still gets a fresh SWARM_CONNECTION + CONNECTED
+    // for a SECOND topic it's discovered on afterward (Hyperswarm shares
+    // one physical connection across every topic that finds it -- see
+    // pear-end/index.js's own comment on `info.topics`/`info.on('topic',
+    // ...)`). Set.add returns true only the first time topicHex is added
+    // for this peer, giving exactly that per-(peer,topic) semantics.
+    // Both the event AND the state gate on it (E6.5 conformance fix) so a
+    // redundant FakeSwarmHub.join() call for an ALREADY-connected (peer,
+    // topic) pair (e.g. a test simulating the OTHER peer's reconnect) never
+    // emits a spurious extra CONNECTED transition for a side that was
+    // never actually dropped.
+    final isNew =
+        _connectionTopics.putIfAbsent(peerHex, () => <String>{}).add(topicHex);
     _connections[peerHex] = other;
-    _connectionTopics.putIfAbsent(peerHex, () => <String>{}).add(topicHex);
     if (isNew) {
       _emitEvent(
           PearEventName.swarmConnection, {'topic': topicHex, 'peer': peerHex});
+      _sendState(topicHex, PearSwarmState.connected);
     }
-    _sendState(topicHex, PearSwarmState.connected);
   }
 
   /// Simulates this peer disconnecting from [other] -- the in-memory
   /// equivalent of a real Hyperswarm connection ending. Emits
   /// [PearEventName.connectionClose] on this side only; call it on both
   /// sides to simulate a mutual disconnect, or one side only to simulate
-  /// whichever peer detects the drop first.
+  /// whichever peer detects the drop first. If this was the last peer THIS
+  /// worklet was connected to on a shared, still-joined topic, also sends
+  /// [PearSwarmState.reconnecting] for that topic (E6.5) -- mirrors
+  /// pear-end/index.js's own `conn.on('close', ...)` handler exactly
+  /// (`if (t.connectedPeers.size === 0) sendState(topicHex, RECONNECTING)`).
+  /// A later [FakeSwarmHub.join]/[_connectTo] call for the same or a
+  /// different peer on that topic re-emits [PearEventName.swarmConnection]
+  /// + [PearSwarmState.connected] -- the same "ephemeral connection object,
+  /// state reflects reconnecting->connected" contract the real worklet
+  /// gives, matching this fake's own conformance-consumer mandate.
   void disconnectFrom(FakeBareWorklet other) {
     final peerHex = other.peerKey;
     if (_connections.remove(peerHex) == null) return;
     final topics = _connectionTopics.remove(peerHex) ?? const <String>{};
     for (final topicHex in topics) {
+      // Both the event AND the reconnecting state gate on the SAME
+      // still-joined check -- mirrors pear-end/index.js's conn.on('close',
+      // ...) handler exactly (`const t = topics.get(topicHex); if (!t ||
+      // ...) continue` skips BOTH the CONNECTION_CLOSE send and the
+      // RECONNECTING state together once a topic has been left via
+      // swarm.leave, which deletes it from `topics`). Without this check,
+      // a topic already left via [FakeSwarmHub.leave] (which deliberately
+      // leaves existing peer connections alone, per its own doc) would
+      // still get a spurious connectionClose event the real worklet would
+      // never send for it.
+      if (!_joinedTopics.contains(topicHex)) continue;
       _emitEvent(PearEventName.connectionClose,
           {'topic': topicHex, 'peer': peerHex});
+      final stillConnected =
+          _connectionTopics.values.any((t) => t.contains(topicHex));
+      if (!stillConnected) {
+        _sendState(topicHex, PearSwarmState.reconnecting);
+      }
     }
   }
 
@@ -861,6 +1296,226 @@ String _joinDrivePath(String localDir, String virtualPath) {
       ? localDir.substring(0, localDir.length - 1)
       : localDir;
   return '$base$virtualPath';
+}
+
+/// E5.6 -- one in-memory blind-pairing invite's worth of state, shared via
+/// [FakeSwarmHub.invites] (see that field's doc for why this needs no
+/// per-worklet merge machinery, unlike [_FakeCore]/[_FakeBee]/[_FakeDrive]).
+class _FakeInvite {
+  _FakeInvite(this.id, this.expiresAt, this.owner);
+
+  final String id;
+
+  /// Epoch milliseconds; 0 means never expires.
+  final int expiresAt;
+
+  /// The worklet that created this invite -- `PearMethod.pairingAcceptInvite`
+  /// emits [PearEventName.pairingCandidate] on this one specifically.
+  final FakeBareWorklet owner;
+
+  /// Candidates awaiting `PearMethod.pairingConfirmCandidate`, by candidateId.
+  final Map<String, _FakePendingCandidate> pending = {};
+
+  /// Set by `PearMethod.pairingRevoke` -- see that case's handling for why
+  /// this doesn't remove the invite outright.
+  bool revoked = false;
+}
+
+/// One `PearMethod.pairingAcceptInvite` call waiting on
+/// `PearMethod.pairingConfirmCandidate` -- [confirmed] completes with the
+/// confirmed key, or is left incomplete forever if the invite is revoked or
+/// nobody ever confirms (the accept side's own bounded timeout is what
+/// turns that into a clean failure instead of a real hang, mirroring
+/// blind-pairing's own unbounded polling loop -- see
+/// `PearMethod.pairingAcceptInvite`'s handling).
+class _FakePendingCandidate {
+  _FakePendingCandidate(this.userData);
+
+  final Uint8List userData;
+  final Completer<Uint8List?> confirmed = Completer<Uint8List?>();
+}
+
+/// E5.8 -- one in-memory Autobase's worth of state, covering all three
+/// [PearRecipe]s with the SAME class (dispatched on [recipe] by the
+/// methods that touch it) since a base's identity/replication/writer-
+/// admission mechanics are identical regardless of recipe -- only the
+/// merge/materialization logic differs.
+///
+/// UNLIKE [_FakeCore]/[_FakeBee]/[_FakeDrive] (single writer; merging two
+/// views throws unless one is a clean prefix/subset of the other -- see
+/// [_isPrefix]/[_isSubsetWithMatchingValues]), a base is GENUINELY
+/// multi-writer by design: two independently-evolved views are EXPECTED to
+/// diverge and must merge, never be rejected. Each recipe's merge (see
+/// [_mergeBases]) is a simple, always-safe operation (lww: highest-seq-wins
+/// per key; orderedLog: sort-by-seq interleave; crdtMap: a plain OR-Set
+/// union) -- there's no data-loss failure mode a `StateError` guard would
+/// even need to catch here, unlike the single-writer wrappers' fakes.
+///
+/// Only the fields the open [recipe] actually uses are ever non-empty.
+class _FakeBase {
+  _FakeBase(this.keyHex, this.recipe);
+
+  final String keyHex;
+  final PearRecipe recipe;
+  final Set<FakeBareWorklet> _owners = {};
+  final List<_FakeBaseWatch> _watches = [];
+
+  /// Admitted writers, by [FakeBareWorklet._writerKeyFor] -- a SET, unlike
+  /// core/bee/drive's single immutable `writer` field, since a base can
+  /// admit more than one (see `PearMethod.baseAppend`'s addWriter/
+  /// removeWriter handling).
+  final Set<String> writers = {};
+
+  /// The subset of [writers] that also participate in quorum signing --
+  /// mirrors the real recipes module's `{indexer}` flag on an addWriter op
+  /// (default true unless explicitly `false`). Autobase itself refuses to
+  /// remove the last remaining indexer; `PearMethod.baseAppend`'s
+  /// removeWriter handling mirrors that refusal.
+  final Set<String> indexers = {};
+
+  /// Per-writer local append counter for THIS base -- mirrors the real
+  /// crdtMap/lww recipes' use of `node.length` (a writer's own local
+  /// sequence number, never comparable across DIFFERENT writers as a
+  /// causal "happened later" signal -- see autobase-recipes.js's `isNewer`
+  /// doc). Used (with a writer-key tiebreak on an exact tie) so a lww/
+  /// crdtMap conflict resolves the SAME way regardless of which peer's
+  /// test code happens to call append() first -- unlike a hub-wide
+  /// call-order counter, which the real system has no equivalent of.
+  final Map<String, int> writerSeq = {};
+
+  /// lww only: key hex -> current entry. `seq`/`writer` are this entry's
+  /// author's OWN local seq (see [writerSeq]) -- never a hub-wide counter.
+  final Map<String, ({Uint8List? value, bool deleted, int seq, String writer})>
+      lwwEntries = {};
+
+  /// orderedLog only: every entry ever appended, tagged with the hub-wide
+  /// seq it was applied at (see [FakeSwarmHub._nextBaseOpSeq]) so two
+  /// independently-grown logs can be merged into one deterministic order.
+  /// Unlike lww/crdtMap, exact interleave order isn't part of this
+  /// recipe's real contract (only the merged SET of entries is), so a
+  /// hub-wide counter is a fine stand-in here.
+  final List<({Uint8List entry, int seq})> log = [];
+
+  /// crdtMap only: key hex -> {tag -> value}, mirroring the real recipe's
+  /// OR-Set-of-(tag,value)-per-key shape. Tags are `'writer:localSeq'`
+  /// (see [writerSeq]), matching the real recipe's `writerHex:node.length`
+  /// exactly.
+  final Map<String, Map<String, Uint8List>> crdtTags = {};
+
+  /// crdtMap only: every tag ever removed, hub-wide -- checked before any
+  /// tag is allowed to (re)appear in [crdtTags], same reorder-safety
+  /// rationale as the real recipe's tombstone check.
+  final Set<String> crdtTombstones = {};
+
+  void _notify() {
+    for (final w in _watches.toList()) {
+      w.owner._emitEvent(PearEventName.baseUpdate, {'base': keyHex, 'watch': w.watchId});
+    }
+  }
+}
+
+/// E5.8 -- one outstanding `PearMethod.baseWatch` subscription.
+class _FakeBaseWatch {
+  _FakeBaseWatch(this.owner, this.watchId, this.base);
+
+  final FakeBareWorklet owner;
+  final String watchId;
+
+  /// Mutable, not final -- a `PearMethod.baseReplicate` merge repoints
+  /// this to the canonical object (see that handling above), same
+  /// rationale as [_FakeBeeWatch.bee].
+  _FakeBase base;
+}
+
+/// A crdtMap tag (`'writer:localSeq'`) split into its parts -- see
+/// [_FakeBase.crdtTags]'s doc.
+({String writer, int seq}) _parseTag(String tag) {
+  final sep = tag.lastIndexOf(':');
+  return (writer: tag.substring(0, sep), seq: int.parse(tag.substring(sep + 1)));
+}
+
+/// Whether tag [a] is the canonical pick over tag [b] among an
+/// already-converged, still-live set of crdtMap tags for the same key --
+/// mirrors autobase-recipes.js's `isNewer` EXACTLY (higher writer-LOCAL seq
+/// wins; an exact tie breaks on the writer's own hex string, greater wins)
+/// so the fake picks the same representative the real recipe would for the
+/// identical writer-history, regardless of which peer's test code happens
+/// to call append() first (see [_FakeBase.writerSeq]'s doc for why that
+/// matters).
+bool _tagIsNewer(String a, String b) {
+  final pa = _parseTag(a), pb = _parseTag(b);
+  if (pa.seq != pb.seq) return pa.seq > pb.seq;
+  return pa.writer.compareTo(pb.writer) > 0;
+}
+
+/// A cheap proxy for "how much data does this base hold", used only to
+/// decide whether a merge actually changed anything (see
+/// `PearMethod.baseReplicate`'s handling) -- same "did the count change"
+/// precision level as coreReplicate/beeReplicate's own change-detection, not
+/// a full content diff (an update that replaces an existing lww/crdtMap
+/// entry's VALUE without changing the entry count would be missed, same
+/// caveat those wrappers already accept).
+int _baseDataSize(_FakeBase b) {
+  switch (b.recipe) {
+    case PearRecipe.lww:
+      return b.lwwEntries.length;
+    case PearRecipe.orderedLog:
+      return b.log.length;
+    case PearRecipe.crdtMap:
+      return b.crdtTags.values.fold(0, (n, tags) => n + tags.length) +
+          b.crdtTombstones.length;
+  }
+}
+
+/// Merges two independently-evolved views of the SAME base into one
+/// canonical object -- see [_FakeBase]'s own doc for why this is always
+/// safe (a plain union/interleave, never a "does one subsume the other"
+/// check).
+_FakeBase _mergeBases(_FakeBase a, _FakeBase b) {
+  final canonical = _FakeBase(a.keyHex, a.recipe)
+    ..writers.addAll(a.writers)
+    ..writers.addAll(b.writers)
+    ..indexers.addAll(a.indexers)
+    ..indexers.addAll(b.indexers);
+
+  // Each writer's own local counter only ever grows -- take the max either
+  // side has observed for it, so an append after this merge continues from
+  // the right point instead of restarting at 0 (see writerSeq's doc).
+  for (final side in [a.writerSeq, b.writerSeq]) {
+    for (final e in side.entries) {
+      final existing = canonical.writerSeq[e.key];
+      if (existing == null || e.value > existing) canonical.writerSeq[e.key] = e.value;
+    }
+  }
+
+  switch (a.recipe) {
+    case PearRecipe.lww:
+      for (final entry in [...a.lwwEntries.entries, ...b.lwwEntries.entries]) {
+        final existing = canonical.lwwEntries[entry.key];
+        if (existing == null ||
+            entry.value.seq > existing.seq ||
+            (entry.value.seq == existing.seq &&
+                entry.value.writer.compareTo(existing.writer) > 0)) {
+          canonical.lwwEntries[entry.key] = entry.value;
+        }
+      }
+    case PearRecipe.orderedLog:
+      final merged = [...a.log, ...b.log]
+        ..sort((x, y) => x.seq.compareTo(y.seq));
+      canonical.log.addAll(merged);
+    case PearRecipe.crdtMap:
+      canonical.crdtTombstones
+        ..addAll(a.crdtTombstones)
+        ..addAll(b.crdtTombstones);
+      for (final entry in [...a.crdtTags.entries, ...b.crdtTags.entries]) {
+        final tags = canonical.crdtTags.putIfAbsent(entry.key, () => {});
+        tags.addAll(entry.value);
+      }
+      for (final tags in canonical.crdtTags.values) {
+        tags.removeWhere((tag, _) => canonical.crdtTombstones.contains(tag));
+      }
+  }
+  return canonical;
 }
 
 /// Whether every entry in [subset] is present in [full] with an identical

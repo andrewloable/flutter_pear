@@ -94,8 +94,17 @@ class FlutterPearBarePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         when (call.method) {
             "start" -> {
                 try {
-                    startWorklet()
-                    result.success(null)
+                    // E6.3: whether this call reattached to an already-running
+                    // worklet (a Dart hot restart) or booted a fresh one is
+                    // otherwise invisible to Dart -- both `BareWorklet.start()`
+                    // calls look identical from the Dart side. Reporting it
+                    // lets Pear.start's attach.info health probe use a SHORT
+                    // bound only for the reattach case (where an unresponsive
+                    // worklet really is suspicious) and the normal, longer
+                    // bound for a genuine cold boot (real JS engine + native
+                    // module init that legitimately takes real time).
+                    val reattached = startWorklet()
+                    result.success(mapOf("reattached" to reattached))
                 } catch (e: Throwable) {
                     // Throwable, not Exception: native/JNI failures (e.g. a
                     // missing or ABI-mismatched libbare-kit.so) surface as
@@ -123,12 +132,13 @@ class FlutterPearBarePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-    private fun startWorklet() {
+    /** Returns true if this call reattached to an already-running worklet, false if it booted a fresh one. */
+    private fun startWorklet(): Boolean {
         // Hot-restart safe: Dart state resets but the native worklet keeps
         // running — just re-point the read loop at the (new) Dart-side ipc.
         if (worklet != null) {
             relayFromWorklet()
-            return
+            return true
         }
 
         // Read via AssetManager (not Worklet's InputStream overload, which
@@ -183,6 +193,7 @@ class FlutterPearBarePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         worklet = w
         workletIpc = IPC(w)
         relayFromWorklet()
+        return false
     }
 
     /**

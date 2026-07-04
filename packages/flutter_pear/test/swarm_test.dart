@@ -182,6 +182,95 @@ void main() {
     await sub.cancel();
   });
 
+  test(
+      'PearRpc.notifyWorkletSuspended(true) transitions state to suspended '
+      '(E6.2)', () async {
+    final swarm = await joinSwarm();
+    final states = <PearSwarmStatus>[];
+    final sub = swarm.state.listen(states.add);
+
+    sendLifecycle(PearSwarmState.connected.name);
+    // notifyWorkletSuspended reaches PearSwarm one stream-hop sooner than a
+    // worklet-sent frame does (_incoming -> _onFrame -> _events -> listener
+    // vs. _workletSuspendedChanges -> listener directly) -- await here so
+    // "connected" is fully delivered before "suspended" is triggered,
+    // matching the order these two calls actually happen in real usage.
+    await Future<void>.delayed(Duration.zero);
+    rpc.notifyWorkletSuspended(true);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(states.map((s) => s.state),
+        [PearSwarmState.connected, PearSwarmState.suspended]);
+    expect(swarm.currentState.state, PearSwarmState.suspended);
+    await sub.cancel();
+  });
+
+  test(
+      'PearRpc.notifyWorkletSuspended(false) resumes to connected if a peer '
+      'is still tracked (E6.2)', () async {
+    final swarm = await joinSwarm();
+    final peerKey = PearCrypto.topicFromString('peer-under-test');
+    final states = <PearSwarmStatus>[];
+    final sub = swarm.state.listen(states.add);
+
+    worklet.sendJsonFrame({
+      'ev': PearEventName.swarmConnection,
+      'p': {'topic': topic.hex, 'peer': peerKey.hex},
+    });
+    await swarm.connections.first;
+    rpc.notifyWorkletSuspended(true);
+    rpc.notifyWorkletSuspended(false);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(states.map((s) => s.state),
+        [PearSwarmState.suspended, PearSwarmState.connected]);
+    await sub.cancel();
+  });
+
+  test(
+      'PearRpc.notifyWorkletSuspended(false) resumes to reconnecting if this '
+      'swarm was connected before, but has no tracked peer now (E6.2)',
+      () async {
+    final swarm = await joinSwarm();
+    final states = <PearSwarmStatus>[];
+    final sub = swarm.state.listen(states.add);
+
+    // Reaches connected (setting _everConnected), then loses its only
+    // peer, before ever suspending -- so PearSwarmState.reconnecting's own
+    // "was connected at least once" contract is genuinely satisfied here,
+    // unlike a swarm that suspends while still discovering.
+    sendLifecycle(PearSwarmState.connected.name);
+    await Future<void>.delayed(Duration.zero);
+    rpc.notifyWorkletSuspended(true);
+    rpc.notifyWorkletSuspended(false);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(states.map((s) => s.state), [
+      PearSwarmState.connected,
+      PearSwarmState.suspended,
+      PearSwarmState.reconnecting,
+    ]);
+    await sub.cancel();
+  });
+
+  test(
+      'PearRpc.notifyWorkletSuspended(false) resumes to discovering, not '
+      'reconnecting, if this swarm was never connected before suspending '
+      '(E6.2 -- reconnecting requires having been connected at least once)',
+      () async {
+    final swarm = await joinSwarm();
+    final states = <PearSwarmStatus>[];
+    final sub = swarm.state.listen(states.add);
+
+    rpc.notifyWorkletSuspended(true);
+    rpc.notifyWorkletSuspended(false);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(states.map((s) => s.state),
+        [PearSwarmState.suspended, PearSwarmState.discovering]);
+    await sub.cancel();
+  });
+
   test('an unrecognized lifecycle state is ignored, not a crash', () async {
     final swarm = await joinSwarm();
     final states = <PearSwarmStatus>[];
@@ -219,15 +308,16 @@ void main() {
     });
     await Future<void>.delayed(Duration.zero);
 
-    final future = conn.write(Uint8List.fromList([1, 2, 3]));
-    worklet.respond(worklet.lastRequestId, err: {
-      'message': 'unknown peer: ${peerKey.hex}',
-      'code': PearErrorCode.unknownPeer,
-    });
+    // write() now fails LOCALLY (E6.5) the moment this connection's own
+    // data stream has closed -- it never even reaches the RPC layer, so
+    // there's no worklet response to simulate here anymore. That's the
+    // point: asking the worklet would be unreliable anyway if the SAME
+    // peer had already reconnected as a brand-new connection by the time
+    // this call went out (see PearConnection's own doc for why).
     await expectLater(
-      future,
+      conn.write(Uint8List.fromList([1, 2, 3])),
       throwsA(isA<PearConnectionException>()
-          .having((e) => e.code, 'code', PearErrorCode.unknownPeer)),
+          .having((e) => e.code, 'code', PearErrorCode.connectionClosed)),
     );
   });
 
@@ -275,5 +365,136 @@ void main() {
           .having((e) => e.code, 'code', PearErrorCode.udpBlocked),
     );
     await fakeRpc.dispose();
+  });
+
+  test(
+      'the full reconnect cycle: a dropped peer connection is ephemeral (a '
+      'NEW PearConnection arrives on reconnect, never the old one reused) '
+      'and state goes connected -> reconnecting -> connected (E6.5)',
+      () async {
+    // This is RECONNECT_CONTRACT.md's decision, end to end: PearSwarm
+    // itself adds no reconnect logic of its own -- Hyperswarm's own
+    // automatic re-announce/re-discovery is what produces a fresh
+    // PearEventName.swarmConnection after a drop; FakeSwarmHub.join()
+    // (called again for an already-joined pair) is this fake's stand-in
+    // for that automatic rediscovery.
+    final hub = FakeSwarmHub();
+    final workletA = FakeBareWorklet(hub: hub);
+    final workletB = FakeBareWorklet(hub: hub);
+    final rpcA = PearRpc(workletA);
+    final rpcB = PearRpc(workletB);
+    await rpcA.call(PearMethod.attachInfo);
+    await rpcB.call(PearMethod.attachInfo);
+
+    final swarmB = await PearSwarm.join(rpcB, topic);
+    final states = <PearSwarmStatus>[];
+    final sub = swarmB.state.listen(states.add);
+    final firstConnB = swarmB.connections.first;
+    await PearSwarm.join(rpcA, topic);
+    final originalConn = await firstConnB;
+
+    workletB.disconnectFrom(workletA);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(states.map((s) => s.state),
+        [PearSwarmState.connected, PearSwarmState.reconnecting]);
+    var dataClosed = false;
+    originalConn.data.listen((_) {}, onDone: () => dataClosed = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(dataClosed, isTrue,
+        reason: 'the dropped PearConnection must close, never silently '
+            'keep working');
+    // The old connection object must refuse to write even AFTER the same
+    // peer reconnects (checked further down) -- but it must already refuse
+    // right here, before any reconnect, since PearMethod.connectionWrite is
+    // keyed only by peer public key and would otherwise have no way to
+    // tell "stale object" apart from "peer not connected at all".
+    await expectLater(
+      originalConn.write(Uint8List.fromList([1])),
+      throwsA(isA<PearConnectionException>()
+          .having((e) => e.code, 'code', PearErrorCode.connectionClosed)),
+    );
+
+    // Simulate Hyperswarm's own automatic re-discovery finding B again.
+    final secondConnB = swarmB.connections.first;
+    hub.join(topic.hex, workletB);
+    await Future<void>.delayed(Duration.zero);
+    final reconnectedConn = await secondConnB;
+
+    expect(states.map((s) => s.state), [
+      PearSwarmState.connected,
+      PearSwarmState.reconnecting,
+      PearSwarmState.connected,
+    ]);
+    expect(identical(reconnectedConn, originalConn), isFalse,
+        reason: 'a reconnect is a NEW PearConnection object, never the old '
+            '(already-closed) one reused -- connections are ephemeral');
+    expect(reconnectedConn.remotePublicKey, originalConn.remotePublicKey,
+        reason: 'same remote peer, new connection object');
+    // The OLD connection must still refuse to write even now that the SAME
+    // peer has a live, reconnected connection -- this is exactly the case
+    // PearMethod.connectionWrite's peer-hex keying alone could not catch
+    // (it would happily deliver to the peer's new connection instead).
+    await expectLater(
+      originalConn.write(Uint8List.fromList([2])),
+      throwsA(isA<PearConnectionException>()
+          .having((e) => e.code, 'code', PearErrorCode.connectionClosed)),
+    );
+    // The NEW connection, meanwhile, must work normally.
+    await reconnectedConn.write(Uint8List.fromList([3]));
+
+    await sub.cancel();
+    await rpcA.dispose();
+    await rpcB.dispose();
+  });
+
+  test(
+      'a peer already connected via one shared topic still gets connected '
+      'on a SECOND shared topic -- FakeBareWorklet.isNew is scoped per '
+      '(peer, topic), not per peer alone (E6.5 conformance fix)', () async {
+    // Hyperswarm shares ONE physical connection across every topic that
+    // finds it (see PearSwarm._wire's own doc, and pear-end/index.js's
+    // info.topics/info.on('topic', ...) handling) -- so pear-end's real
+    // announce() fires its own fresh SWARM_CONNECTION + CONNECTED for
+    // EACH topic a peer is discovered on, even ones discovered after an
+    // already-live connection to that same peer. A worklet that instead
+    // gated this on "have I ever connected to this PEER before" (ignoring
+    // which topic) would silently strand every topic after the first.
+    final hub = FakeSwarmHub();
+    final workletA = FakeBareWorklet(hub: hub);
+    final workletB = FakeBareWorklet(hub: hub);
+    final rpcA = PearRpc(workletA);
+    final rpcB = PearRpc(workletB);
+    await rpcA.call(PearMethod.attachInfo);
+    await rpcB.call(PearMethod.attachInfo);
+
+    final topic1 = topic;
+    final topic2 = PearCrypto.topicFromString('swarm-test-second-topic');
+
+    final swarm1B = await PearSwarm.join(rpcB, topic1);
+    final firstConn1B = swarm1B.connections.first;
+    await PearSwarm.join(rpcA, topic1);
+    await firstConn1B; // topic1 connects normally first
+
+    final swarm2B = await PearSwarm.join(rpcB, topic2);
+    final states2 = <PearSwarmStatus>[];
+    final sub2 = swarm2B.state.listen(states2.add);
+    final firstConn2B = swarm2B.connections.first;
+    await PearSwarm.join(rpcA, topic2);
+    final conn2 = await firstConn2B.timeout(const Duration(seconds: 2));
+    // connections.first resolving only proves the swarmConnection event
+    // arrived -- _connectTo emits the swarmLifecycle CONNECTED event right
+    // after it, but that's a separate stream hop (PearRpc._onFrame ->
+    // PearRpc.events -> PearSwarm's own listener) that isn't guaranteed to
+    // have finished routing yet just because connections.first's Future
+    // already settled.
+    await Future<void>.delayed(Duration.zero);
+
+    expect(states2.map((s) => s.state), [PearSwarmState.connected]);
+    expect(conn2.remotePublicKey.hex, workletA.peerKey);
+
+    await sub2.cancel();
+    await rpcA.dispose();
+    await rpcB.dispose();
   });
 }

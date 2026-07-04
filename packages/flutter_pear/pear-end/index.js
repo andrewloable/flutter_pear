@@ -22,6 +22,11 @@ const Corestore = require('corestore')
 const Hyperbee = require('hyperbee')
 const Hyperdrive = require('hyperdrive')
 const Localdrive = require('localdrive')
+const Autobase = require('autobase')
+const { RECIPES, validateAddWriter, validateRemoveWriter } = require('./autobase-recipes')
+const BlindPairing = require('blind-pairing')
+const Protomux = require('protomux')
+const c = require('compact-encoding')
 const crypto = require('hypercore-crypto')
 const fs = require('bare-fs')
 const path = require('bare-path')
@@ -104,6 +109,16 @@ Bare.on('unhandledRejection', (reason) => reportCrash('unhandledRejection', reas
 
 const swarm = new Hyperswarm()
 const connections = new Map() // peer public key (hex) -> connection, shared across topics
+// peer hex -> Protomux message sender for Method.CONNECTION_WRITE -- see the
+// Protomux.from(conn) comment in swarm.on('connection', ...) below for why
+// this can't just be conn.write() directly once BlindPairing (E5.6) is in
+// the picture.
+const connectionChannels = new Map()
+
+// E5.6 -- blind-pairing wrapper (PearPairing). Reuses the SAME swarm every
+// other capability shares (blind-pairing listens for its own 'connection'
+// events on it, exactly like the swarm.on('connection', ...) below).
+const pairing = new BlindPairing(swarm)
 
 // Topics Dart has asked to join, by hex -- Hyperswarm itself tracks join
 // state internally (per-topic PeerDiscovery in its own `_discovery` map);
@@ -141,15 +156,37 @@ swarm.on('connection', (conn, info) => {
   for (const topicBuf of info.topics) announce(topicBuf)
   info.on('topic', announce)
 
-  conn.on('data', (data) => {
-    const payload = data.toString('base64')
-    for (const topicBuf of info.topics) {
-      const topicHex = topicBuf.toString('hex')
-      if (topics.has(topicHex)) {
-        send({ ev: EventName.CONNECTION_DATA, p: { topic: topicHex, peer, data: payload } })
+  // Method.CONNECTION_DATA/CONNECTION_WRITE's raw app-data pass-through must
+  // go through a Protomux channel, not conn.on('data')/conn.write()
+  // directly (E5.6 review fix). BlindPairing wraps EVERY connection in a
+  // Protomux instance the moment it connects (its own getMuxer, which does
+  // `Protomux.from(stream)` and caches the result on `stream.userData`) --
+  // a second, independent raw 'data' listener on that same stream sees
+  // bytes Protomux's own framing doesn't recognize and destroys the whole
+  // connection on the first parse failure (confirmed by tracing
+  // protomux/index.js's _ondata -> _safeDestroy -> stream.destroy). Calling
+  // Protomux.from(conn) here reuses that SAME shared instance (the
+  // stream.userData cache works regardless of which side constructs it
+  // first) instead of attaching a second, conflicting listener -- exactly
+  // the pattern Hypercore's own replicate() uses to coexist with
+  // BlindPairing on one connection.
+  const mux = Protomux.from(conn)
+  const channel = mux.createChannel({ protocol: 'pear-connection-data' })
+  const message = channel.addMessage({
+    encoding: c.buffer,
+    onmessage (data) {
+      const payload = data.toString('base64')
+      for (const topicBuf of info.topics) {
+        const topicHex = topicBuf.toString('hex')
+        if (topics.has(topicHex)) {
+          send({ ev: EventName.CONNECTION_DATA, p: { topic: topicHex, peer, data: payload } })
+        }
       }
     }
   })
+  channel.open()
+  connectionChannels.set(peer, message)
+
   conn.on('close', () => {
     // Identity-checked: if `peer` already reconnected (a new `conn` for the
     // same public key raced this stale one's close), this is a stale
@@ -158,6 +195,7 @@ swarm.on('connection', (conn, info) => {
     // (still-live) peer disconnected.
     if (connections.get(peer) !== conn) return
     connections.delete(peer)
+    connectionChannels.delete(peer)
     replicationStreams.delete(peer) // E5.2: the chained replicate() stream dies with its connection
     for (const topicBuf of info.topics) {
       const topicHex = topicBuf.toString('hex')
@@ -285,6 +323,22 @@ async function withStorageErrors (fn) {
   }
 }
 
+// E5.6's own analog of withStorageErrors above -- a pairing failure isn't a
+// storage-substrate issue (schema.dart categorizes every explicit E5.6 code
+// as .connection, never .storage), so an uncoded blind-pairing/Protomux
+// error (e.g. a malformed confirm key) gets PAIRING_FAILED instead of
+// STORAGE_UNAVAILABLE (E5.6 review fix -- using withStorageErrors here would
+// silently surface as the wrong exception category, PearStorageException
+// instead of PearConnectionException).
+async function withPairingErrors (fn) {
+  try {
+    return await fn()
+  } catch (err) {
+    if (!err.code) err.code = ErrorCode.PAIRING_FAILED
+    throw err
+  }
+}
+
 // E5.3 -- Hyperbee KV wrapper (PearBee). Its own registry, independent of
 // `cores` above: a bee wraps a hypercore in B-tree-encoded blocks, which is
 // a different (and incompatible) use of that same underlying core than
@@ -351,6 +405,55 @@ function getOpenDriveOrThrow (keyHex) {
     throw err
   }
   return drive
+}
+
+// E5.6 -- blind-pairing wrapper (PearPairing). One entry per invite this
+// worklet generation created via Method.PAIRING_CREATE_INVITE -- unlike
+// cores/bees/drives, an invite has no name/key-based reopen (each
+// PAIRING_CREATE_INVITE call always makes a genuinely new invite), so
+// there's no closedInvites-style set: PAIRING_REVOKE just deletes the
+// entry outright.
+const invites = new Map() // invite id hex -> { member, candidates: Map<candidateId hex, { request, resolve }> }
+
+function getInviteOrThrow (inviteIdHex) {
+  const invite = invites.get(inviteIdHex)
+  if (!invite) {
+    const err = new Error('unknown invite: ' + inviteIdHex)
+    err.code = ErrorCode.UNKNOWN_INVITE
+    throw err
+  }
+  return invite
+}
+
+// E5.8 -- Autobase wrapper (PearBase). Its own registry, same independence
+// rationale as bees/drives above -- an Autobase instance owns its OWN
+// writer/system/view cores inside a per-base NAMESPACED session of `store`
+// (see BASE_OPEN below for why namespacing is required at all: Autobase
+// always derives its local writer core as store.get({name: 'local'})
+// internally, so two DIFFERENT bases sharing the same un-namespaced store
+// would silently collide on the identical writer core).
+const bases = new Map() // base key hex -> { base, recipe }
+const closedBases = new Set() // base key hex -- see Method.BASE_CLOSE
+const baseWatchers = new Map() // watchId -> { unlisten, baseKeyHex } -- see Method.BASE_WATCH/BASE_UNWATCH
+
+function getBaseOrThrow (keyHex) {
+  const entry = bases.get(keyHex)
+  if (!entry) {
+    const err = new Error('unknown base: ' + keyHex)
+    err.code = ErrorCode.UNKNOWN_BASE
+    throw err
+  }
+  return entry
+}
+
+function getOpenBaseOrThrow (keyHex) {
+  const entry = getBaseOrThrow(keyHex)
+  if (closedBases.has(keyHex)) {
+    const err = new Error('base is closed: ' + keyHex)
+    err.code = ErrorCode.BASE_CLOSED
+    throw err
+  }
+  return entry
 }
 
 // E4.4 fix: accumulates bytes across deliveries and splits on the 4-byte
@@ -445,13 +548,16 @@ async function handle ({ m, p }) {
       return { left: p.topic }
     }
     case Method.CONNECTION_WRITE: {
-      const conn = connections.get(p.peer)
-      if (!conn) {
+      // Sent over the shared Protomux channel (see connectionChannels' doc
+      // above), not conn.write() directly -- required for this connection
+      // to coexist with BlindPairing (E5.6).
+      const message = connectionChannels.get(p.peer)
+      if (!message) {
         const err = new Error('unknown peer: ' + p.peer)
         err.code = ErrorCode.UNKNOWN_PEER
         throw err
       }
-      conn.write(Buffer.from(p.data, 'base64'))
+      message.send(Buffer.from(p.data, 'base64'))
       return null
     }
     // File-path bulk seam (E4.4, codex #4 LOCKED) -- see Method.BULK_WRITE_FILE's
@@ -815,6 +921,373 @@ async function handle ({ m, p }) {
         if (!closedDrives.has(p.drive)) {
           closedDrives.add(p.drive)
           await drive.close()
+        }
+        return null
+      })
+    }
+    // E5.6 -- blind-pairing wrapper. See schema.dart's PearMethod doc
+    // comments for the full contract of each of these. `key` in
+    // CONFIRM_CANDIDATE/ACCEPT_INVITE's response is fixed at exactly 32
+    // bytes by blind-pairing-core's own wire format (ResponsePayload
+    // encodes it as a mandatory fixed32) -- not a limitation this wrapper
+    // adds, which is why PearPairingCandidate.confirm takes a PearKey
+    // rather than arbitrary bytes.
+    case Method.PAIRING_CREATE_INVITE: {
+      return withPairingErrors(async () => {
+        // The invite's own "resource key" only exists to derive a unique
+        // discovery channel -- this wrapper has no data structure to tie
+        // an invite to (unlike the README's Autobase example), so a fresh
+        // random key per invite is all that's needed.
+        const resourceKey = crypto.randomBytes(32)
+        const { invite, id, publicKey, discoveryKey } = BlindPairing.createInvite(resourceKey, {
+          expires: p.expiresAt || 0
+        })
+        const inviteIdHex = id.toString('hex')
+        const candidates = new Map()
+        const member = pairing.addMember({
+          discoveryKey,
+          onadd: (request) => {
+            // onadd's returned promise is awaited internally by
+            // blind-pairing before it moves on -- resolving it is exactly
+            // what "wait for Method.PAIRING_CONFIRM_CANDIDATE" means here.
+            return new Promise((resolve) => {
+              try {
+                request.open(publicKey)
+              } catch (err) {
+                // A malformed/tampered pairing request -- request.open()
+                // throws synchronously on a decrypt/signature-verify
+                // failure (blind-pairing-core's openAuth). Left uncaught,
+                // this propagates through blind-pairing's own
+                // Member._addRequest into Protomux's per-message rejection
+                // handling, which destroys the WHOLE peer connection, not
+                // just this one bad candidate (E5.6 review fix). Dropping
+                // the request here (no candidate event, nothing further to
+                // confirm) rejects just this one candidate instead.
+                diagnostic('pairing request rejected', { error: String(err) })
+                resolve()
+                return
+              }
+              const candidateId = crypto.randomBytes(16).toString('hex')
+              candidates.set(candidateId, { request, resolve })
+              send({
+                ev: EventName.PAIRING_CANDIDATE,
+                p: {
+                  inviteId: inviteIdHex,
+                  candidateId,
+                  userData: request.userData ? request.userData.toString('base64') : ''
+                }
+              })
+            })
+          }
+        })
+        await member.ready()
+        await member.flushed()
+        invites.set(inviteIdHex, { member, candidates })
+        return { invite: invite.toString('base64'), inviteId: inviteIdHex }
+      })
+    }
+    case Method.PAIRING_CONFIRM_CANDIDATE: {
+      return withPairingErrors(async () => {
+        const inviteEntry = getInviteOrThrow(p.inviteId)
+        const candidateEntry = inviteEntry.candidates.get(p.candidateId)
+        if (!candidateEntry) {
+          const err = new Error('unknown candidate: ' + p.candidateId)
+          err.code = ErrorCode.UNKNOWN_CANDIDATE
+          throw err
+        }
+        // confirm() first, delete only once it succeeds (E5.6 review fix):
+        // confirm() can throw synchronously (e.g. a wrong-length key --
+        // blind-pairing-core's ResponsePayload encodes `key` as a mandatory
+        // fixed32). Deleting beforehand meant a failed confirm permanently
+        // discarded the candidate -- a retry with a corrected key got
+        // UNKNOWN_CANDIDATE instead of succeeding, and the candidate's own
+        // onadd promise was left resolved-never, leaking a pending request
+        // inside blind-pairing's Member.
+        candidateEntry.request.confirm({ key: Buffer.from(p.key, 'base64') })
+        inviteEntry.candidates.delete(p.candidateId)
+        candidateEntry.resolve()
+        return null
+      })
+    }
+    case Method.PAIRING_REVOKE: {
+      return withPairingErrors(async () => {
+        const inviteEntry = invites.get(p.inviteId)
+        if (inviteEntry) {
+          invites.delete(p.inviteId)
+          // Unblock any candidate still awaiting confirmation BEFORE
+          // closing the member (E5.6 review fix): blind-pairing's own
+          // Member._addRequest awaits each candidate's onadd() promise
+          // before its internal poll loop can terminate, so
+          // member.close() below would otherwise hang forever on an
+          // invite with an announced-but-not-yet-confirmed candidate.
+          // Resolving without calling request.confirm() leaves that
+          // candidate's own acceptInvite() unconfirmed -- it still times
+          // out via its own bound, same as any other revoked invite.
+          for (const candidateEntry of inviteEntry.candidates.values()) {
+            candidateEntry.resolve()
+          }
+          inviteEntry.candidates.clear()
+          await inviteEntry.member.close()
+        }
+        return null
+      })
+    }
+    case Method.PAIRING_ACCEPT_INVITE: {
+      return withPairingErrors(async () => {
+        const inviteBytes = Buffer.from(p.invite, 'base64')
+        let decoded
+        try {
+          decoded = BlindPairing.decodeInvite(inviteBytes)
+        } catch (decodeErr) {
+          const err = new Error('invalid invite: ' + String(decodeErr))
+          err.code = ErrorCode.INVALID_INVITE
+          throw err
+        }
+        // Enforced here, not by blind-pairing itself -- confirmed by
+        // reading blind-pairing-core's source: `expires` is encoded into
+        // the invite bytes verbatim but never checked by the library's
+        // own pairing flow.
+        if (decoded.expires && Date.now() > decoded.expires) {
+          const err = new Error('invite expired')
+          err.code = ErrorCode.INVITE_EXPIRED
+          throw err
+        }
+        const userData = p.userData ? Buffer.from(p.userData, 'base64') : Buffer.alloc(0)
+        const candidate = pairing.addCandidate({ invite: inviteBytes, userData })
+        await candidate.ready()
+        // candidate.pairing never resolves on its own if nobody ever
+        // confirms (blind-pairing's own polling loop has no built-in
+        // bound) -- this is also what makes a revoked invite "block
+        // accept" rather than erroring immediately: revoking just means
+        // nothing is left to confirm, so this bound is what eventually
+        // surfaces that as a clean, typed failure instead of a silent
+        // hang.
+        // `!= null`, not `||` (E5.6 review fix): an explicit timeoutMs of 0
+        // (fail-fast) is falsy in JS, so `||` silently substituted the
+        // 30s default for it instead of honoring "return immediately".
+        const timeoutMs = p.timeoutMs != null ? p.timeoutMs : 30000
+        let timedOut = false
+        const timeout = new Promise((resolve) => {
+          setTimeout(() => {
+            timedOut = true
+            resolve(null)
+          }, timeoutMs)
+        })
+        const paired = await Promise.race([candidate.pairing, timeout])
+        if (timedOut || !paired) {
+          await candidate.close()
+          const err = new Error('pairing timed out')
+          err.code = ErrorCode.PAIRING_TIMEOUT
+          throw err
+        }
+        return { key: paired.key.toString('base64') }
+      })
+    }
+    // E5.8 -- Autobase wrapper. See schema.dart's PearMethod doc comments
+    // for the full contract of each of these. Uses withStorageErrors, not
+    // its own wrapper, unlike E5.6 pairing -- every explicit E5.8 error
+    // code is .storage category, matching every other data-structure
+    // wrapper (base is a corestore-backed structure, unlike pairing's
+    // handshake protocol).
+    case Method.BASE_OPEN: {
+      return withStorageErrors(async () => {
+        if ((p.key == null) === (p.name == null)) {
+          const err = new Error('base.open needs exactly one of name/key')
+          err.code = ErrorCode.STORAGE_UNAVAILABLE
+          throw err
+        }
+        const recipe = RECIPES[p.recipe]
+        if (!recipe) {
+          const err = new Error('unknown recipe: ' + p.recipe)
+          err.code = ErrorCode.UNKNOWN_RECIPE
+          throw err
+        }
+        // Autobase always derives its own local writer core as
+        // store.get({name: 'local'}) INTERNALLY (confirmed against the
+        // real package) -- so every base needs its OWN namespaced session
+        // of `store`, or two different bases (by name or by key) would
+        // silently collide on the identical writer core. Namespaced by
+        // the name/key itself so the SAME name/key always resolves to the
+        // SAME namespace (deterministic reopen, matching every other
+        // wrapper's convention).
+        const namespaceSeed = p.key || p.name
+        let keyHex
+        if (p.key) {
+          keyHex = p.key
+        } else {
+          // A cheap scratch read of the SAME core Autobase would derive
+          // internally, just to learn its key before deciding whether a
+          // redundant reopen needs a fresh Autobase at all (E5.2/E5.5's
+          // session-leak lesson applied proactively -- see DRIVE_OPEN's
+          // own comment for the precedent this mirrors).
+          const scratch = store.namespace(namespaceSeed).get({ name: 'local' })
+          await scratch.ready()
+          keyHex = scratch.key.toString('hex')
+          await scratch.close()
+        }
+        if (!bases.has(keyHex) || closedBases.has(keyHex)) {
+          const base = new Autobase(store.namespace(namespaceSeed), p.key ? Buffer.from(p.key, 'hex') : null, {
+            open: recipe.open,
+            apply: recipe.apply,
+            valueEncoding: 'json'
+          })
+          await base.ready()
+          // Autobase's own default for an apply()-time error with no
+          // 'error' listener is crashSoon() -- kill the WHOLE worklet
+          // process (confirmed against node_modules/autobase/index.js's
+          // _onError: with zero 'error' listeners it calls crashSoon(err)
+          // instead of this.close()+emit('error', err)). That's the right
+          // call for a MALFORMED_OP (see autobase-recipes.js's doc), but
+          // wrong for a genuine operational constraint local to just THIS
+          // base (e.g. removeWriter refusing to remove the last indexer,
+          // see handleWriterOp's comment) -- registering a listener here
+          // makes _onError just close this one base instead, so every
+          // other open core/bee/drive/base in this worklet generation
+          // survives.
+          base.on('error', () => {
+            closedBases.add(keyHex)
+            for (const [watchId, entry] of baseWatchers) {
+              if (entry.baseKeyHex === keyHex) {
+                baseWatchers.delete(watchId)
+                entry.unlisten()
+              }
+            }
+          })
+          bases.set(keyHex, { base, recipe, appendQueue: Promise.resolve() })
+          closedBases.delete(keyHex)
+        }
+        // writerKey: this worklet generation's OWN local writer identity
+        // for this base -- the caller shares it (out of band, e.g. via
+        // PearPairing) with whichever peer they want to admit via a
+        // BASE_APPEND addWriter op.
+        return { key: keyHex, writerKey: bases.get(keyHex).base.local.key.toString('hex') }
+      })
+    }
+    case Method.BASE_REPLICATE: {
+      return withStorageErrors(async () => {
+        const { base } = getOpenBaseOrThrow(p.base)
+        // base.replicate(streamOrConn) matches Hypercore/Corestore's own
+        // replicate() signature exactly (confirmed against autobase's
+        // source: it just delegates to this.store.replicate(...)), so the
+        // same chained-stream helper every other E5.x wrapper shares works
+        // here unchanged.
+        replicateOverPeer(base, p.peer)
+        return null
+      })
+    }
+    case Method.BASE_APPEND: {
+      return withStorageErrors(async () => {
+        const entry = getOpenBaseOrThrow(p.base)
+        // Serializes concurrent appends on the SAME base: crdtMap's
+        // normalizeAppend below does a genuine async read of the current
+        // view to auto-fill a del's `removes`, and Autobase's own append()
+        // has multiple await points before a node is actually linearized
+        // into the view -- with no per-base ordering, an overlapping
+        // put-then-del on the same key could have the del's read run
+        // before the put it's meant to observe is applied, silently
+        // dropping nothing instead of the intended value. Chaining every
+        // append off the base's own queue (which never rejects, so a
+        // failed append doesn't wedge the ones behind it) makes BASE_APPEND
+        // calls on one base strictly FIFO regardless of arrival order.
+        const task = entry.appendQueue.catch(() => {}).then(async () => {
+          const { base, recipe } = entry
+          const value = recipe.normalizeAppend ? await recipe.normalizeAppend(base.view, p.value) : p.value
+          // Validate BEFORE ever appending (see autobase-recipes.js's top
+          // doc comment for why this must happen here, not just inside
+          // apply()): apply() only SKIPS a MALFORMED_OP node so one writer's
+          // shape bug can never brick the base, but that means a caller
+          // who never validates gets no signal at all that their op was
+          // silently dropped. Mirrors handleWriterOp's own dispatch order
+          // (addWriter/removeWriter first, else the recipe's own op shape).
+          if (value && typeof value === 'object' && value.addWriter != null) {
+            validateAddWriter(value)
+          } else if (value && typeof value === 'object' && value.removeWriter != null) {
+            validateRemoveWriter(value)
+          } else {
+            recipe.validate(value)
+          }
+          await base.append(value)
+          return null
+        })
+        entry.appendQueue = task.catch(() => {})
+        return task
+      })
+    }
+    case Method.BASE_GET: {
+      return withStorageErrors(async () => {
+        const { base, recipe } = getOpenBaseOrThrow(p.base)
+        if (!recipe.get) {
+          const err = new Error('base.get is not supported by the ' + p.base + ' recipe')
+          err.code = ErrorCode.STORAGE_UNAVAILABLE
+          throw err
+        }
+        return recipe.get(base.view, p.key)
+      })
+    }
+    case Method.BASE_RANGE: {
+      return withStorageErrors(async () => {
+        const { base, recipe } = getOpenBaseOrThrow(p.base)
+        if (recipe !== RECIPES.orderedLog) {
+          const err = new Error('base.range is only supported by the orderedLog recipe')
+          err.code = ErrorCode.STORAGE_UNAVAILABLE
+          throw err
+        }
+        const start = p.start || 0
+        const end = p.end != null ? p.end : base.view.length
+        const entries = []
+        for (let i = start; i < end; i++) {
+          entries.push((await base.view.get(i)).toString('base64'))
+        }
+        return { entries }
+      })
+    }
+    case Method.BASE_WATCH: {
+      return withStorageErrors(async () => {
+        const { base, recipe } = getOpenBaseOrThrow(p.base)
+        const cores = recipe.viewCores(base.view)
+        const onAppend = () => {
+          send({ ev: EventName.BASE_UPDATE, p: { base: p.base, watch: p.watch } })
+        }
+        for (const core of cores) core.on('append', onAppend)
+        baseWatchers.set(p.watch, {
+          unlisten: () => { for (const core of cores) core.off('append', onAppend) },
+          baseKeyHex: p.base
+        })
+        return null
+      })
+    }
+    case Method.BASE_UNWATCH: {
+      return withStorageErrors(async () => {
+        const entry = baseWatchers.get(p.watch)
+        if (entry) {
+          // Scoped by base, same as BASE_CLOSE's cleanup loop below -- a
+          // watchId naming the wrong base is a caller bug, not a silent
+          // "sure, I'll unwatch whatever this id happens to point at".
+          if (entry.baseKeyHex !== p.base) {
+            const err = new Error('watch ' + p.watch + ' does not belong to base ' + p.base)
+            err.code = ErrorCode.UNKNOWN_BASE
+            throw err
+          }
+          baseWatchers.delete(p.watch)
+          entry.unlisten()
+        }
+        return null
+      })
+    }
+    case Method.BASE_CLOSE: {
+      return withStorageErrors(async () => {
+        const { base } = getBaseOrThrow(p.base)
+        if (!closedBases.has(p.base)) {
+          closedBases.add(p.base)
+          // Closing a base also stops every watch still open on it -- same
+          // as BEE_CLOSE/DRIVE_CLOSE's precedent.
+          for (const [watchId, entry] of baseWatchers) {
+            if (entry.baseKeyHex === p.base) {
+              baseWatchers.delete(watchId)
+              entry.unlisten()
+            }
+          }
+          await base.close()
         }
         return null
       })

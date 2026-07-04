@@ -64,6 +64,8 @@ class PearRpc {
   final Map<int, Timer> _timers = {};
   final StreamController<PearEvent> _events =
       StreamController<PearEvent>.broadcast();
+  final StreamController<bool> _workletSuspendedChanges =
+      StreamController<bool>.broadcast();
 
   static final Random _idRandom = Random();
 
@@ -73,6 +75,27 @@ class PearRpc {
 
   /// All worklet-emitted events (swarm connections, watch notifications, …).
   Stream<PearEvent> get events => _events.stream;
+
+  /// Broadcasts `true` when `Pear.suspend` suspends the worklet, `false`
+  /// when `Pear.resume` resumes it (E6.2) — every `PearSwarm` sharing this
+  /// [PearRpc] listens so it can reflect suspension on its own
+  /// `PearSwarm.state`, since pear-end itself can never emit anything while
+  /// genuinely suspended (a paused worklet can't run JS at all, so there's
+  /// no JS-side event to relay). [PearRpc] is the natural shared object for
+  /// this — a `Pear` and every `PearSwarm` it creates already hold the same
+  /// instance, unlike `Pear`/`PearSwarm` themselves, which are separate
+  /// libraries with no private access into each other.
+  Stream<bool> get workletSuspendedChanges => _workletSuspendedChanges.stream;
+
+  /// Called by `Pear.suspend`/`Pear.resume` — not meant to be called
+  /// directly. A no-op after [dispose] — defensive, since `Pear.dispose`
+  /// itself already waits for any in-flight suspend/resume to finish
+  /// before disposing this [PearRpc], but a stray call must never throw
+  /// trying to add to an already-closed broadcast stream.
+  void notifyWorkletSuspended(bool suspended) {
+    if (_disposed) return;
+    _workletSuspendedChanges.add(suspended);
+  }
 
   /// Sends a request and completes with its result, or throws a
   /// [PearException] — including [PearErrorCode.rpcTimeout] if the worklet
@@ -352,5 +375,6 @@ class PearRpc {
       );
     }
     await _events.close();
+    await _workletSuspendedChanges.close();
   }
 }

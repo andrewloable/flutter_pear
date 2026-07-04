@@ -46,10 +46,146 @@ void main() {
     expect(w.state, WorkletState.stopped);
   });
 
+  test(
+      'start() while already running (same isolate) reattaches to the SAME '
+      'instance -- native "start" is never invoked a second time (E6.3)',
+      () async {
+    // NOTE: this only proves the Dart-side singleton guard (BareWorklet.
+    // _instance) within ONE isolate -- a real Dart hot restart resets that
+    // static field to null, so the actual "detect and reattach to an
+    // already-running NATIVE worklet across a hot restart" guarantee lives
+    // entirely in FlutterPearBarePlugin.kt's companion-object worklet/
+    // workletIpc persistence (see its own doc comment), which no Dart-only
+    // mocked-platform-channel test can exercise -- that needs a real
+    // device/integration test.
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(control, (call) async {
+      calls.add(call.method);
+      return {'reattached': false};
+    });
+
+    final first = await BareWorklet.start();
+    final second = await BareWorklet.start();
+
+    expect(identical(first, second), isTrue,
+        reason: 'within the SAME isolate generation a second start() call '
+            'must reattach to the already-running worklet, not reboot it');
+    expect(calls, ['start']);
+    await first.terminate();
+  });
+
+  test(
+      'start() surfaces whether native reattached to an existing worklet or '
+      'booted a fresh one, via BareWorklet.reattached (E6.3)', () async {
+    messenger.setMockMethodCallHandler(
+        control, (_) async => {'reattached': true});
+    final reattached = await BareWorklet.start();
+    expect(reattached.reattached, isTrue);
+    await reattached.terminate();
+
+    messenger.setMockMethodCallHandler(
+        control, (_) async => {'reattached': false});
+    final fresh = await BareWorklet.start();
+    expect(fresh.reattached, isFalse);
+    await fresh.terminate();
+  });
+
   test('send while not running throws', () async {
     final w = await BareWorklet.start();
     await w.terminate();
     await expectLater(w.send(Uint8List(0)), throwsStateError);
+  });
+
+  test('suspend() → suspended, resume() → running (E6.1)', () async {
+    final w = await BareWorklet.start();
+    expect(w.state, WorkletState.running);
+
+    await w.suspend();
+    expect(w.state, WorkletState.suspended);
+
+    await w.resume();
+    expect(w.state, WorkletState.running);
+
+    await w.terminate();
+  });
+
+  test(
+      'suspend() while already suspended is a no-op -- native "suspend" is '
+      'never invoked a second time (E6.1 idempotency)', () async {
+    final w = await BareWorklet.start();
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(control, (call) async {
+      calls.add(call.method);
+      return null;
+    });
+
+    await w.suspend();
+    await w.suspend();
+    await w.suspend();
+
+    expect(w.state, WorkletState.suspended);
+    expect(calls, ['suspend']);
+    await w.terminate();
+  });
+
+  test(
+      'resume() while already running is a no-op -- native "resume" is '
+      'never invoked (E6.1 idempotency)', () async {
+    final w = await BareWorklet.start();
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(control, (call) async {
+      calls.add(call.method);
+      return null;
+    });
+
+    await w.resume();
+    await w.resume();
+
+    expect(w.state, WorkletState.running);
+    expect(calls, isEmpty);
+    await w.terminate();
+  });
+
+  test(
+      'suspend()/resume() while stopped are no-ops -- neither reaches the '
+      'native side (E6.1 idempotency)', () async {
+    final w = await BareWorklet.start();
+    await w.terminate();
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(control, (call) async {
+      calls.add(call.method);
+      return null;
+    });
+
+    await w.suspend();
+    await w.resume();
+
+    expect(w.state, WorkletState.stopped);
+    expect(calls, isEmpty);
+  });
+
+  test(
+      'a native onWorkletExit while suspended still stops the worklet -- '
+      'the E2.6 backstop is not gated on state (E6.1)', () async {
+    final w = await BareWorklet.start();
+    await w.suspend();
+    expect(w.state, WorkletState.suspended);
+
+    var incomingClosed = false;
+    w.incoming.listen((_) {}, onDone: () => incomingClosed = true);
+
+    const codec = StandardMethodCodec();
+    const call = MethodCall(
+        'onWorkletExit', {'reason': 'worklet IPC ended unexpectedly'});
+    await messenger.handlePlatformMessage(
+      'flutter_pear_bare/control',
+      codec.encodeMethodCall(call),
+      (_) {},
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(w.state, WorkletState.stopped);
+    expect(incomingClosed, isTrue);
   });
 
   test('send() prefixes the frame with its 4-byte big-endian length '

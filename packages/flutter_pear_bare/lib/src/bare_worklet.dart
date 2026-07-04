@@ -80,6 +80,7 @@ class BareWorklet implements WorkletIpc {
   final StreamController<WorkletCrash> _crash =
       StreamController<WorkletCrash>.broadcast();
   WorkletState _state = WorkletState.stopped;
+  bool _reattached = false;
 
   // Bytes received but not yet resolved into a complete frame -- see
   // _onIpc's doc for why this accumulator exists at all.
@@ -87,6 +88,16 @@ class BareWorklet implements WorkletIpc {
 
   /// Current lifecycle state.
   WorkletState get state => _state;
+
+  /// Whether [start] reattached to an already-running native worklet (a
+  /// Dart hot restart) rather than booting a fresh one (E6.3) — the native
+  /// side is the only place this distinction can be observed (both cases
+  /// look identical from Dart otherwise), which is why `Pear.start`'s
+  /// attach.info health probe needs this exposed: a short timeout only
+  /// makes sense against a possibly-already-running worklet, never against
+  /// one known to have just cold-booted (real JS engine + native module
+  /// init legitimately takes real time).
+  bool get reattached => _reattached;
 
   /// Frames emitted by the worklet (its `IPC.write` on the pear-end side).
   @override
@@ -111,7 +122,9 @@ class BareWorklet implements WorkletIpc {
     _instance = w;
     _ipc.setMessageHandler(w._onIpc);
     _control.setMethodCallHandler(w._onControlCall);
-    await _control.invokeMethod<void>('start', {'bundlePath': bundlePath});
+    final result = await _control
+        .invokeMethod<Map<Object?, Object?>>('start', {'bundlePath': bundlePath});
+    w._reattached = result?['reattached'] == true;
     w._state = WorkletState.running;
     return w;
   }
