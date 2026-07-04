@@ -26,10 +26,22 @@ void main() {
     final tmp = Directory.systemTemp.createTempSync('fp_pack_bundle');
     addTearDown(() => tmp.deleteSync(recursive: true));
     Directory('${tmp.path}/pear-end').createSync(recursive: true);
-    File('${realPearEnd.path}/index.js').copySync('${tmp.path}/pear-end/index.js');
-    File('${realPearEnd.path}/schema.js').copySync('${tmp.path}/pear-end/schema.js');
-    File('${realPearEnd.path}/package-lock.json')
-        .copySync('${tmp.path}/pear-end/package-lock.json');
+    // Every top-level *.js/*.json file, not a hand-picked list (E5.7
+    // review fix): index.js grew a same-directory sibling module
+    // (autobase-recipes.js) that a fixed copy list silently left out of
+    // this test's bundle attempt -- bare-pack then failed to resolve
+    // index.js's `require('./autobase-recipes')` with MODULE_NOT_FOUND,
+    // and nothing caught it because this whole test skips silently
+    // whenever bare-pack isn't on PATH (see the try/catch above). A glob
+    // over pear-end/*.js{,on} can't go stale the same way the next time a
+    // new sibling module is added.
+    for (final entity in realPearEnd.listSync()) {
+      if (entity is! File) continue;
+      final name = entity.uri.pathSegments.last;
+      if (name.endsWith('.js') || name.endsWith('.json')) {
+        entity.copySync('${tmp.path}/pear-end/$name');
+      }
+    }
     // Symlinked, not copied: index.js now requires real npm packages
     // (hyperswarm et al.), and bare-pack needs them resolvable to bundle.
     Link('${tmp.path}/pear-end/node_modules').createSync(realNodeModules.path);

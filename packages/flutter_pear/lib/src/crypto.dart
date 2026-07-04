@@ -5,7 +5,13 @@ import 'package:crypto/crypto.dart';
 
 /// A 32-byte Pear key — a public key, discovery topic, or hash.
 ///
-/// Value type: two keys with the same bytes are equal and hash alike.
+/// Value type: two keys with the same bytes are equal and hash alike. Only
+/// ever holds a PUBLIC key from Dart's side — private keys are generated
+/// and held entirely inside the worklet's own Corestore storage, never
+/// crossing the RPC boundary (E5.9, see `SECURITY_POSTURE.md` for the full
+/// key-persistence/backup/reinstall posture). [toString] deliberately
+/// truncates to the first 8 hex characters as defense-in-depth against an
+/// accidental future log call exposing the full key.
 class PearKey {
   /// Wraps 32 raw bytes.
   PearKey(this.bytes) : assert(bytes.length == 32, 'Pear keys are 32 bytes');

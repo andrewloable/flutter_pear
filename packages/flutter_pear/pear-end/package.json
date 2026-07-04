@@ -6,10 +6,12 @@
   "main": "index.js",
   "comment": "Pin these and publish a compatibility table (plugin ↔ Bare Kit ↔ Hyper*). Versions below are placeholders for M1.",
   "dependencies": {
+    "autobase": "^7.28.1",
     "bare-fs": "^4.7.3",
     "bare-path": "^3.0.1",
     "blind-pairing": "^2.3.1",
     "blind-pairing-core": "^2.10.1",
+    "compact-encoding": "^3.3.0",
     "corestore": "^7.11.0",
     "hyperbee": "^2.27.3",
     "hypercore-crypto": "^3.4.0",
@@ -17,6 +19,7 @@
     "hyperswarm": "^4.8.0",
     "localdrive": "^2.2.1",
     "mirror-drive": "^1.14.2",
+    "protomux": "^3.11.0",
     "streamx": "^2.28.0"
   }
 }

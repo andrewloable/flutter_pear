@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  E5.9 — excludes the Corestore/Hypercore storage directory (identity keys,
+  replicated data) from Android's cloud backup and device-to-device transfer
+  on API 31+ (the dataExtractionRules replacement for the legacy
+  full_backup_content.xml, which still applies below for devices/apps that
+  don't qualify for dataExtractionRules — see that file's own comment for
+  the exact targetSdkVersion + device API gating). "file" domain =
+  Context.getFilesDir(); "pear-corestore" is the exact subdirectory name
+  pear-end/index.js passes to `new Corestore(...)` (Bare.argv[0], which the
+  native plugin sets to applicationContext.filesDir.absolutePath) — see
+  FlutterPearBarePlugin.kt's own comment on argv[0] for that wiring.
+  Auto-merges into any consuming app's manifest via AndroidManifest.xml's
+  android:dataExtractionRules attribute — no manual step for app devs,
+  unless the app ALREADY declares its own dataExtractionRules/
+  fullBackupContent, in which case Gradle's manifest merger will surface a
+  conflict requiring tools:replace (the same situation any two libraries
+  setting this attribute would hit — not unique to flutter_pear).
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="pear-corestore"/>
+        <exclude domain="file" path="pear-bulk"/>
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="pear-corestore"/>
+        <exclude domain="file" path="pear-bulk"/>
+    </device-transfer>
+</data-extraction-rules>

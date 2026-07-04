@@ -64,7 +64,17 @@ const Method = {
   PAIRING_CREATE_INVITE: 'pairing.createInvite',
   PAIRING_ACCEPT_INVITE: 'pairing.acceptInvite',
   PAIRING_CONFIRM_CANDIDATE: 'pairing.confirmCandidate',
-  PAIRING_REVOKE: 'pairing.revoke'
+  PAIRING_REVOKE: 'pairing.revoke',
+  // E5.8 -- Autobase wrapper. See schema.dart's PearMethod for full doc on
+  // each of these.
+  BASE_OPEN: 'base.open',
+  BASE_REPLICATE: 'base.replicate',
+  BASE_APPEND: 'base.append',
+  BASE_GET: 'base.get',
+  BASE_RANGE: 'base.range',
+  BASE_WATCH: 'base.watch',
+  BASE_UNWATCH: 'base.unwatch',
+  BASE_CLOSE: 'base.close'
 }
 
 const EventName = {
@@ -85,7 +95,10 @@ const EventName = {
   BEE_UPDATE: 'bee.update',
   // A new candidate wants to pair on a PAIRING_CREATE_INVITE'd invite --
   // E5.6.
-  PAIRING_CANDIDATE: 'pairing.candidate'
+  PAIRING_CANDIDATE: 'pairing.candidate',
+  // A base's merged view changed within an active BASE_WATCH's subscription
+  // -- E5.8.
+  BASE_UPDATE: 'base.update'
 }
 
 const ErrorCode = {
@@ -117,7 +130,26 @@ const ErrorCode = {
   INVITE_EXPIRED: 'INVITE_EXPIRED',
   PAIRING_TIMEOUT: 'PAIRING_TIMEOUT',
   UNKNOWN_INVITE: 'UNKNOWN_INVITE',
-  UNKNOWN_CANDIDATE: 'UNKNOWN_CANDIDATE'
+  UNKNOWN_CANDIDATE: 'UNKNOWN_CANDIDATE',
+  // Generic fallback for an E5.6 pairing failure none of the above cover.
+  PAIRING_FAILED: 'PAIRING_FAILED',
+  // E5.7 -- an Autobase recipe's apply() rejected an op it couldn't
+  // interpret, thrown before mutating the view.
+  MALFORMED_OP: 'MALFORMED_OP',
+  // E5.8 -- Autobase wrapper error codes.
+  UNKNOWN_RECIPE: 'UNKNOWN_RECIPE',
+  UNKNOWN_BASE: 'UNKNOWN_BASE',
+  BASE_CLOSED: 'BASE_CLOSED'
+}
+
+// Which built-in Autobase merge recipe a PearBase.open call (E5.8) picks --
+// mirrors schema.dart's PearRecipe enum; each Dart member's `.name` IS the
+// wire string below, and the pear-end recipes module (E5.7) exports one
+// entry per value here.
+const Recipe = {
+  LWW: 'lww',
+  ORDERED_LOG: 'orderedLog',
+  CRDT_MAP: 'crdtMap'
 }
 
 // PearSwarm connection-state vocabulary (E2.7) -- the `state` field of a
@@ -150,4 +182,4 @@ const HandshakeField = {
   ENVELOPE_NONCE: 'n'
 }
 
-module.exports = { Method, EventName, ErrorCode, SwarmState, FrameType, HandshakeField }
+module.exports = { Method, EventName, ErrorCode, SwarmState, FrameType, HandshakeField, Recipe }

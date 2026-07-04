@@ -16,6 +16,16 @@ typedef PearSwarmStatus = ({PearSwarmState state, PearException? error});
 
 /// One peer connection: a duplex byte pipe, Noise/secret-stream encrypted inside
 /// the worklet.
+///
+/// EPHEMERAL, not a durable session (E6.5, see `RECONNECT_CONTRACT.md` for
+/// the full decision): when this connection drops, [data] closes and
+/// [write] starts failing — it never silently recovers. A reconnect to the
+/// same peer arrives as a BRAND-NEW [PearConnection] on
+/// [PearSwarm.connections], never this same object revived. There is also
+/// NO message-delivery guarantee here: a byte in flight when the connection
+/// drops is simply lost, with no retry/replay at this layer — an app
+/// needing delivery/ordering guarantees across a reconnect needs a
+/// Hypercore/Autobase-backed structure (E5.2–E5.8), not raw [write]/[data].
 class PearConnection {
   PearConnection._(this._rpc, this.remotePublicKey);
 
@@ -26,21 +36,43 @@ class PearConnection {
 
   final StreamController<Uint8List> _data =
       StreamController<Uint8List>.broadcast();
+  bool _closed = false;
 
-  /// Bytes received from the peer.
+  /// Bytes received from the peer. Closes when this connection drops — see
+  /// this class's own doc for why that's never silently recovered.
   Stream<Uint8List> get data => _data.stream;
 
   void _add(Uint8List bytes) => _data.add(bytes);
 
-  /// Sends [bytes] to the peer.
-  Future<void> write(Uint8List bytes) => _rpc.call(PearMethod.connectionWrite, {
-        'peer': remotePublicKey.hex,
-        // ponytail: base64 works for chat-sized messages today; M3 swaps in a
-        // raw-payload frame so Hyperdrive bulk doesn't inflate through JSON.
-        'data': base64Encode(bytes),
-      });
+  /// Sends [bytes] to the peer — no delivery/ordering guarantee if this
+  /// connection drops mid-flight (see this class's own doc). Fails with
+  /// [PearErrorCode.connectionClosed] once this connection has closed —
+  /// checked LOCALLY, by this specific object, so a stale reference held
+  /// past a drop can never silently resume delivering over a later
+  /// reconnect's different `PearConnection` (the underlying
+  /// `PearMethod.connectionWrite` RPC is keyed only by peer public key, so
+  /// without this check a write on an old, already-closed object would
+  /// otherwise reach the peer's NEW connection once it reconnects).
+  Future<void> write(Uint8List bytes) {
+    if (_closed) {
+      return Future.error(pearExceptionFor(
+        'cannot write: this PearConnection has already closed (the peer '
+        'may have reconnected as a new PearConnection instead)',
+        code: PearErrorCode.connectionClosed,
+      ));
+    }
+    return _rpc.call(PearMethod.connectionWrite, {
+      'peer': remotePublicKey.hex,
+      // ponytail: base64 works for chat-sized messages today; M3 swaps in a
+      // raw-payload frame so Hyperdrive bulk doesn't inflate through JSON.
+      'data': base64Encode(bytes),
+    });
+  }
 
-  Future<void> _close() => _data.close();
+  Future<void> _close() {
+    _closed = true;
+    return _data.close();
+  }
 }
 
 /// Membership in a Hyperswarm [topic] and the peer connections it yields.
@@ -58,12 +90,15 @@ class PearSwarm {
       StreamController<PearSwarmStatus>.broadcast();
   final Map<String, PearConnection> _byKey = {};
   late final StreamSubscription<PearEvent> _eventSub;
+  late final StreamSubscription<bool> _suspendSub;
   Timer? _joinTimer;
   bool _everConnected = false;
   PearSwarmStatus _currentState =
       (state: PearSwarmState.discovering, error: null);
 
-  /// New peer connections discovered on this topic.
+  /// New peer connections discovered on this topic — including a fresh
+  /// [PearConnection] for a peer reconnecting after a drop (E6.5, see
+  /// [PearConnection]'s own doc for the full ephemeral-connection contract).
   Stream<PearConnection> get connections => _connections.stream;
 
   /// The state as of right now — starts at [PearSwarmState.discovering] the
@@ -129,6 +164,35 @@ class PearSwarm {
           _applyLifecycle(p);
       }
     });
+    // E6.2: a suspended worklet can't run JS at all, so pear-end can never
+    // itself emit a swarmLifecycle transition for this -- PearRpc.
+    // notifyWorkletSuspended is the Dart-local substitute (see its own doc
+    // for why PearRpc, not a direct Pear<->PearSwarm link, carries this).
+    _suspendSub = _rpc.workletSuspendedChanges.listen((suspended) {
+      if (suspended) {
+        _setState(PearSwarmState.suspended, null);
+        return;
+      }
+      // Resuming doesn't itself prove anything about connectivity --
+      // pear-end may or may not notice a real change (e.g. the OS actually
+      // dropped every socket while backgrounded) once it's running again,
+      // and reports that separately, in its own time, as an ordinary
+      // swarmLifecycle transition. This is just the immediate, best-effort
+      // signal that gets `state` OFF of `suspended` right away, from
+      // whatever this swarm already knows locally. PearSwarmState.
+      // reconnecting's own doc requires having been connected at least
+      // once -- a swarm suspended while still discovering (never
+      // connected) must resume back to discovering, not reconnecting.
+      final PearSwarmState resumedState;
+      if (_byKey.isNotEmpty) {
+        resumedState = PearSwarmState.connected;
+      } else if (_everConnected) {
+        resumedState = PearSwarmState.reconnecting;
+      } else {
+        resumedState = PearSwarmState.discovering;
+      }
+      _setState(resumedState, null);
+    });
   }
 
   void _applyLifecycle(Map<Object?, Object?> p) {
@@ -171,6 +235,7 @@ class PearSwarm {
     _joinTimer?.cancel();
     await _rpc.call(PearMethod.swarmLeave, {'topic': topic.hex});
     await _eventSub.cancel();
+    await _suspendSub.cancel();
     for (final c in _byKey.values) {
       await c._close();
     }

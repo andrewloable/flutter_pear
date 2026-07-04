@@ -20,12 +20,22 @@ which we depend on).
 
 | MIT | Apache-2.0 |
 |---|---|
-| hypercore, hyperbee, hyperswarm, hyperdht, protomux, hypercore-crypto, corestore¹, sodium-native, streamx | bare, bare-kit, hyperdrive, autobase, compact-encoding, blind-pairing, localdrive, mirror-drive, hyperblobs, hyperschema, hyperdispatch, b4a |
+| hypercore, hyperbee, hyperswarm, hyperdht, protomux, hypercore-crypto, corestore¹, sodium-native, streamx, dht-rpc, kademlia-routing-table | bare, bare-kit, hyperdrive, autobase, compact-encoding, blind-pairing, blind-pairing-core, localdrive, mirror-drive, hyperblobs, hyperschema, hyperdispatch, b4a, hypercore-storage, rocksdb-native² |
 
 ¹ corestore ships no `LICENSE` file, but its `package.json` declares MIT.
 secret-stream is pulled in transitively via hyperswarm. The build-time collector
 (below) is the source of truth — it captures whatever the resolved tree actually
 contains.
+
+² rocksdb-native (Autobase/Hypercore's storage engine, E5.7) fetches external
+C++ source at build time via CMake (`holepunchto/librocksdb`,
+`holepunchto/libjstl`) — outside `node_modules`, so the JS-based
+`THIRD_PARTY_LICENSES` collector can't see it. Both are confirmed **Apache-2.0**
+on GitHub. This matters specifically because upstream Facebook RocksDB is
+dual-licensed **Apache-2.0 / GPLv2** — the `holepunchto` fork/mirror fetched
+here is the Apache-2.0 branch, not GPLv2, so the permissive guarantee holds,
+but call this out explicitly since it's the one native addon in this tree
+pulling in an external build-time dependency rather than a plain npm package.
 
 > GitHub may label some upstream repos `NOASSERTION` — that's a **markdown-formatted
 > Apache-2.0** the SPDX matcher can't byte-match, not a custom license.
