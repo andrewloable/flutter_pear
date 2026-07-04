@@ -7,8 +7,44 @@ import 'package:flutter/services.dart';
 import 'package:flutter_pear/flutter_pear.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import 'file_drop_screen.dart' show FileDropScreen;
 import 'main.dart' show ChatScreen, PrejoinedSwarmWiring;
 import 'qr_scanner_channel.dart';
+
+/// Which demo screen the QR/invite pairing flow
+/// ([StartRoomScreen]/[JoinRoomScreen]) hands off to once pairing succeeds.
+/// Both demos ride the exact same invite/QR exchange -- this only picks
+/// which already-paired [Pear]/[PearSwarm] consumer to land on afterward.
+enum PairingDestination {
+  /// Land on [ChatScreen.joined].
+  chat,
+
+  /// Land on [FileDropScreen.joined].
+  fileDrop,
+}
+
+/// Builds the screen [destination] lands on once pairing produces [pear],
+/// [swarm], and its [wiring] -- shared by [StartRoomScreen] and
+/// [JoinRoomScreen] so the two never drift on how a [PairingDestination]
+/// maps to a screen.
+Widget _buildDestinationScreen(
+  PairingDestination destination,
+  Pear pear,
+  PearSwarm swarm,
+  PrejoinedSwarmWiring wiring,
+) =>
+    switch (destination) {
+      PairingDestination.chat => ChatScreen.joined(
+          prejoinedPear: pear,
+          prejoinedSwarm: swarm,
+          prejoinedWiring: wiring,
+        ),
+      PairingDestination.fileDrop => FileDropScreen.joined(
+          prejoinedPear: pear,
+          prejoinedSwarm: swarm,
+          prejoinedWiring: wiring,
+        ),
+    };
 
 /// Generates a fresh, cryptographically random 32-byte [PearKey] to use as
 /// the shared swarm topic for one pairing session. Deliberately NOT
@@ -36,12 +72,16 @@ PearKey _randomTopicKey() {
 ///
 /// On the first candidate to scan the invite, generates a fresh random
 /// topic key ([_randomTopicKey]), confirms the candidate with it, joins
-/// that topic on this device too, and hands off to [ChatScreen.joined] --
-/// both devices land in chat over the same freshly-derived topic, never
-/// the demo's shared-string shortcut.
+/// that topic on this device too, and hands off to [destination] -- both
+/// devices land on the same demo screen over the same freshly-derived
+/// topic, never the demo's shared-string shortcut.
 class StartRoomScreen extends StatefulWidget {
-  /// Creates the "start a room" screen.
-  const StartRoomScreen({super.key});
+  /// Creates the "start a room" screen, handing off to [destination]
+  /// (chat by default) once pairing succeeds.
+  const StartRoomScreen({super.key, this.destination = PairingDestination.chat});
+
+  /// Which demo screen to land on once pairing succeeds.
+  final PairingDestination destination;
 
   @override
   State<StartRoomScreen> createState() => _StartRoomScreenState();
@@ -140,13 +180,15 @@ class _StartRoomScreenState extends State<StartRoomScreen> {
         return;
       }
       _handedOff = true;
+      // Rebound to new final locals: the builder closure below can't inherit
+      // the null-promotion already established for the mutable swarm/wiring
+      // captured above.
+      final joinedSwarm = swarm;
+      final joinedWiring = wiring;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => ChatScreen.joined(
-            prejoinedPear: pear,
-            prejoinedSwarm: swarm,
-            prejoinedWiring: wiring,
-          ),
+          builder: (_) => _buildDestinationScreen(
+              widget.destination, pear, joinedSwarm, joinedWiring),
         ),
       );
     } on PearException catch (e) {
@@ -262,10 +304,15 @@ class _StartRoomScreenState extends State<StartRoomScreen> {
 /// [CameraPermissionStatus.permanentlyDenied]/[CameraPermissionStatus.notDetermined])
 /// currently applies. Either path decodes the same base64 invite-code bytes
 /// [StartRoomScreen] displays and calls [Pear.acceptInvite] then
-/// [Pear.join], landing in the same [ChatScreen.joined] destination.
+/// [Pear.join], landing on the same [PairingDestination] the other device
+/// resolves to.
 class JoinRoomScreen extends StatefulWidget {
-  /// Creates the "join a room" screen.
-  const JoinRoomScreen({super.key});
+  /// Creates the "join a room" screen, handing off to [destination] (chat
+  /// by default) once pairing succeeds.
+  const JoinRoomScreen({super.key, this.destination = PairingDestination.chat});
+
+  /// Which demo screen to land on once pairing succeeds.
+  final PairingDestination destination;
 
   @override
   State<JoinRoomScreen> createState() => _JoinRoomScreenState();
@@ -398,11 +445,8 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
       }
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => ChatScreen.joined(
-            prejoinedPear: pear!,
-            prejoinedSwarm: swarm,
-            prejoinedWiring: wiring,
-          ),
+          builder: (_) => _buildDestinationScreen(
+              widget.destination, pear!, swarm, wiring),
         ),
       );
     } on PearException catch (e) {

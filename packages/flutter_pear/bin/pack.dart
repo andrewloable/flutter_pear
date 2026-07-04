@@ -25,6 +25,15 @@ Future<void> main(List<String> args) async {
   // doesn't point at bin/pack.dart on disk. Run from the package root (as
   // documented: `dart run flutter_pear:pack` from packages/flutter_pear).
   final pkgRoot = Directory.current.path;
+
+  // --version-only: just (re)write the gitignored pear-end/version.js that
+  // index.js unconditionally requires -- skips bare-pack, so CI can call
+  // this without installing it just to run the pear-end JS test suite.
+  if (args.contains('--version-only')) {
+    writeBundleVersion(pkgRoot, computeBundleVersion(pkgRoot));
+    return;
+  }
+
   final code = await buildBundle(pkgRoot);
   if (code != 0) exit(code);
   await collectThirdPartyLicenses(pkgRoot);

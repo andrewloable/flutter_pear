@@ -51,14 +51,36 @@ class _DemoHomeScreen extends StatelessWidget {
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const StartRoomScreen()),
                 ),
-                child: const Text('Start Room (QR)'),
+                child: const Text('Start Room (QR) — Chat'),
               ),
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const JoinRoomScreen()),
                 ),
-                child: const Text('Join Room (QR)'),
+                child: const Text('Join Room (QR) — Chat'),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const StartRoomScreen(
+                      destination: PairingDestination.fileDrop,
+                    ),
+                  ),
+                ),
+                child: const Text('Start Room (QR) — File drop'),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const JoinRoomScreen(
+                      destination: PairingDestination.fileDrop,
+                    ),
+                  ),
+                ),
+                child: const Text('Join Room (QR) — File drop'),
               ),
             ],
           ),
