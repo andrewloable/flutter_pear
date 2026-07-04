@@ -8,7 +8,7 @@ import 'rpc.dart';
 import 'schema.dart';
 
 /// One connection-state transition for a joined topic (see [PearSwarm.state]
-/// and [PearSwarmState]). [error] is set only when [state] is
+/// and [PearSwarmState]). `error` is set only when `state` is
 /// [PearSwarmState.failed] — the reason (e.g. [PearErrorCode.connectTimeout]
 /// or [PearErrorCode.udpBlocked]) travels as a typed [PearException], not
 /// just a bare code string, matching every other typed failure in this API.
@@ -76,6 +76,17 @@ class PearConnection {
 }
 
 /// Membership in a Hyperswarm [topic] and the peer connections it yields.
+///
+/// ```dart
+/// final pear = await Pear.start();
+/// final topic = PearCrypto.unsafeTopicFromString('my-secret-room');
+/// final swarm = await pear.join(topic);
+///
+/// swarm.connections.listen((conn) {
+///   conn.data.listen((bytes) => print('peer: ${utf8.decode(bytes)}'));
+///   conn.write(utf8.encode('hello'));
+/// });
+/// ```
 class PearSwarm {
   PearSwarm._(this._rpc, this.topic);
 
@@ -89,6 +100,7 @@ class PearSwarm {
   final StreamController<PearSwarmStatus> _state =
       StreamController<PearSwarmStatus>.broadcast();
   final Map<String, PearConnection> _byKey = {};
+  final List<PearConnection> _established = [];
   late final StreamSubscription<PearEvent> _eventSub;
   late final StreamSubscription<bool> _suspendSub;
   Timer? _joinTimer;
@@ -100,6 +112,18 @@ class PearSwarm {
   /// [PearConnection] for a peer reconnecting after a drop (E6.5, see
   /// [PearConnection]'s own doc for the full ephemeral-connection contract).
   Stream<PearConnection> get connections => _connections.stream;
+
+  /// Every connection seen so far, in arrival order — this class's
+  /// synchronous-snapshot equivalent of [currentState], but for
+  /// [connections]. A plain broadcast stream can't replay a past event to a
+  /// listener that subscribes late, so a peer connecting faster than a
+  /// caller gets around to `.connections.listen(...)` (plausible on a fast
+  /// network, and always true against a fake worklet with zero discovery
+  /// delay) would otherwise be missed permanently. Read this right after
+  /// subscribing to catch anything that already arrived; includes
+  /// connections that have since closed.
+  List<PearConnection> get establishedConnections =>
+      List.unmodifiable(_established);
 
   /// The state as of right now — starts at [PearSwarmState.discovering] the
   /// instant [join] is called. Read this first if you need to know where
@@ -155,6 +179,7 @@ class PearSwarm {
           final key = PearKey.fromHex(p['peer'] as String);
           final conn = PearConnection._(_rpc, key);
           _byKey[key.hex] = conn;
+          _established.add(conn);
           _connections.add(conn);
         case PearEventName.connectionData:
           _byKey[p['peer']]?._add(base64Decode(p['data'] as String));
@@ -197,9 +222,13 @@ class PearSwarm {
 
   void _applyLifecycle(Map<Object?, Object?> p) {
     final wireState = p['state'];
-    if (wireState is! String) return; // an ad hoc notice, not a state transition
+    if (wireState is! String) {
+      return; // an ad hoc notice, not a state transition
+    }
     final parsed = PearSwarmState.values.asNameMap()[wireState];
-    if (parsed == null) return; // a state name this version of the schema doesn't know
+    if (parsed == null) {
+      return; // a state name this version of the schema doesn't know
+    }
     if (parsed == PearSwarmState.connected) {
       _everConnected = true;
       _joinTimer?.cancel();

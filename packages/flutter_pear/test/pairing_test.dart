@@ -29,10 +29,11 @@ void main() {
     await rpcB.dispose();
   });
 
-  test('create/accept round trip yields linked peers -- B gets the key A '
+  test(
+      'create/accept round trip yields linked peers -- B gets the key A '
       'confirms with', () async {
     final invite = await PearPairing.createInvite(rpcA);
-    final sharedKey = PearCrypto.topicFromString('shared-topic-key');
+    final sharedKey = PearCrypto.unsafeTopicFromString('shared-topic-key');
 
     invite.candidates.listen((candidate) => candidate.confirm(sharedKey));
 
@@ -42,7 +43,7 @@ void main() {
 
   test('the candidate userData is visible to the inviter', () async {
     final invite = await PearPairing.createInvite(rpcA);
-    final sharedKey = PearCrypto.topicFromString('shared-topic-key');
+    final sharedKey = PearCrypto.unsafeTopicFromString('shared-topic-key');
 
     // Kicked off before awaiting the candidates stream below -- it won't
     // resolve until the inviter confirms further down.
@@ -56,7 +57,8 @@ void main() {
     expect(await accepted, sharedKey);
   });
 
-  test('garbage invite bytes throw a typed PearConnectionException with '
+  test(
+      'garbage invite bytes throw a typed PearConnectionException with '
       'INVALID_INVITE, not a hang', () async {
     await expectLater(
       PearPairing.acceptInvite(rpcB, _b('not a real invite')),
@@ -65,7 +67,8 @@ void main() {
     );
   });
 
-  test('an invite past its ttl throws a typed PearConnectionException with '
+  test(
+      'an invite past its ttl throws a typed PearConnectionException with '
       'INVITE_EXPIRED', () async {
     final invite = await PearPairing.createInvite(rpcA,
         ttl: const Duration(milliseconds: 1));
@@ -78,7 +81,8 @@ void main() {
     );
   });
 
-  test('revoke blocks accept -- a revoked invite times out rather than '
+  test(
+      'revoke blocks accept -- a revoked invite times out rather than '
       'hanging or succeeding', () async {
     final invite = await PearPairing.createInvite(rpcA);
     await invite.revoke();
@@ -104,7 +108,8 @@ void main() {
     );
   });
 
-  test('confirming an unknown candidate id on a real invite throws '
+  test(
+      'confirming an unknown candidate id on a real invite throws '
       'UNKNOWN_CANDIDATE', () async {
     final invite = await PearPairing.createInvite(rpcA);
 
@@ -112,7 +117,7 @@ void main() {
       rpcA.call(PearMethod.pairingConfirmCandidate, {
         'inviteId': invite.id,
         'candidateId': 'does-not-exist',
-        'key': base64Encode(PearCrypto.topicFromString('x').bytes),
+        'key': base64Encode(PearCrypto.unsafeTopicFromString('x').bytes),
       }),
       throwsA(isA<PearConnectionException>()
           .having((e) => e.code, 'code', PearErrorCode.unknownCandidate)),
@@ -124,14 +129,15 @@ void main() {
       rpcA.call(PearMethod.pairingConfirmCandidate, {
         'inviteId': 'never-created',
         'candidateId': 'does-not-exist',
-        'key': base64Encode(PearCrypto.topicFromString('x').bytes),
+        'key': base64Encode(PearCrypto.unsafeTopicFromString('x').bytes),
       }),
       throwsA(isA<PearConnectionException>()
           .having((e) => e.code, 'code', PearErrorCode.unknownInvite)),
     );
   });
 
-  test('confirming a candidate after the invite was revoked throws '
+  test(
+      'confirming a candidate after the invite was revoked throws '
       'UNKNOWN_INVITE instead of stale success', () async {
     final invite = await PearPairing.createInvite(rpcA);
     final acceptFuture = PearPairing.acceptInvite(rpcB, invite.invite,
@@ -140,7 +146,7 @@ void main() {
     await invite.revoke();
 
     await expectLater(
-      candidate.confirm(PearCrypto.topicFromString('shared-topic-key')),
+      candidate.confirm(PearCrypto.unsafeTopicFromString('shared-topic-key')),
       throwsA(isA<PearConnectionException>()
           .having((e) => e.code, 'code', PearErrorCode.unknownInvite)),
     );
@@ -155,14 +161,15 @@ void main() {
     );
   });
 
-  test('a different worklet cannot confirm someone else\'s candidate -- '
+  test(
+      'a different worklet cannot confirm someone else\'s candidate -- '
       'no shared-hub privacy leak', () async {
     final invite = await PearPairing.createInvite(rpcA);
     final acceptFuture = PearPairing.acceptInvite(rpcB, invite.invite,
         timeout: const Duration(milliseconds: 50));
 
-    final event =
-        await rpcA.events.firstWhere((e) => e.name == PearEventName.pairingCandidate);
+    final event = await rpcA.events
+        .firstWhere((e) => e.name == PearEventName.pairingCandidate);
     final candidateId = (event.payload as Map)['candidateId'] as String;
 
     final rpcC = PearRpc(FakeBareWorklet(hub: hub));
@@ -172,7 +179,7 @@ void main() {
       rpcC.call(PearMethod.pairingConfirmCandidate, {
         'inviteId': invite.id,
         'candidateId': candidateId,
-        'key': base64Encode(PearCrypto.topicFromString('x').bytes),
+        'key': base64Encode(PearCrypto.unsafeTopicFromString('x').bytes),
       }),
       throwsA(isA<PearConnectionException>()
           .having((e) => e.code, 'code', PearErrorCode.unknownInvite)),

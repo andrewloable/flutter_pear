@@ -277,26 +277,39 @@ class PearRpc {
         // timing out with an unhelpful RPC_TIMEOUT instead of the real
         // reason.
         //
-        // This is a knowing, bounded trade-off, not a closed hole: _ipc and
-        // _control (bare_worklet.dart) are STATIC channels shared across
-        // BareWorklet instances, and Flutter buffers a channel message that
-        // arrives with no handler registered for later delivery to
-        // whichever handler is registered next -- so a stale worklet
-        // generation's crash report, delayed in flight past a kill+restart
-        // (Pear.start's version-mismatch path), could in principle reach
-        // a brand new, healthy PearRpc while its own _currentNonce is still
-        // null and wrongly fail its pending calls. Accepted because the
-        // failure mode is loud (WORKLET_CRASHED, immediately actionable),
-        // not silent, and the same channel-reassignment risk class already
-        // exists, unaddressed, in the native onCrash backstop's control
-        // channel too -- see flutter_pear-7be.6's closing notes for the
-        // follow-up ticket that tracks hardening this properly.
+        // This is a knowing, PERMANENTLY bounded trade-off, not a closed
+        // hole (flutter_pear-3vh re-evaluated it and chose not to close this
+        // specific corner -- see that ticket's closing notes for the
+        // control-channel half it DID close): _ipc (bare_worklet.dart) is a
+        // STATIC channel shared across BareWorklet instances, and Flutter
+        // buffers a channel message that arrives with no handler registered
+        // for later delivery to whichever handler is registered next -- so a
+        // stale worklet generation's crash report, delayed in flight past a
+        // kill+restart (Pear.start's version-mismatch path), could in
+        // principle reach a brand new, healthy PearRpc while its own
+        // _currentNonce is still null and wrongly fail its pending calls.
+        //
+        // Unlike the control channel's onWorkletExit (now generation-tagged
+        // at the platform-channel layer itself -- see bare_worklet.dart's
+        // _generationId), closing this specific gap would mean tagging
+        // EVERY IPC data-channel byte at the native/platform layer, not just
+        // this JSON envelope -- the hot path for all worklet traffic, not a
+        // rare crash/exit signal. Accepted permanently, not just as an
+        // E2.6-scoped trade-off, because: (1) the failure mode is loud
+        // (WORKLET_CRASHED, immediately actionable) and recoverable (retry
+        // Pear.start), never silent or data-corrupting; (2) it requires TWO
+        // independently unlikely events to coincide -- the OLD worklet
+        // genuinely crashing AND that crash report's platform-channel
+        // delivery being delayed past the exact moment Dart reassigns the
+        // handler to a new generation; (3) the alternative (removing the
+        // pre-session exemption) reintroduces the strictly worse failure
+        // this exemption exists to prevent -- a genuine boot-time crash
+        // silently becoming an uninformative RPC_TIMEOUT instead.
         final p = decoded['p'];
         final kind = p is Map ? p['kind']?.toString() ?? 'unknown' : 'unknown';
         final message = p is Map ? p['message']?.toString() : null;
         final stack = p is Map ? p['stack']?.toString() : null;
-        _onCrash(kind,
-            detail: stack != null ? '$message\n$stack' : message);
+        _onCrash(kind, detail: stack != null ? '$message\n$stack' : message);
         return;
       }
       // Ordinary events have no id to correlate against, so unlike

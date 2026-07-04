@@ -17,7 +17,8 @@ Uint8List _b(String s) => Uint8List.fromList(utf8.encode(s));
 // Uint8List/Iterable). Comparing the whole record directly would silently
 // pass/fail on object identity instead of byte content, so every assertion
 // below compares fields separately.
-void _expectGet(PearBaseGetResult actual, {required bool exists, Uint8List? value}) {
+void _expectGet(PearBaseGetResult actual,
+    {required bool exists, Uint8List? value}) {
   expect(actual.exists, exists);
   if (value == null) {
     expect(actual.value, isNull);
@@ -40,14 +41,18 @@ void main() {
 
   test('open() by name opens a fresh base, as the sole initial writer',
       () async {
-    final base = await PearBase.open(rpc, recipe: PearRecipe.lww, name: 'my-base');
+    final base =
+        await PearBase.open(rpc, recipe: PearRecipe.lww, name: 'my-base');
     _expectGet(await base.get(_b('missing')), exists: false, value: null);
   });
 
-  test('open() by name is idempotent -- the same name always resolves to '
+  test(
+      'open() by name is idempotent -- the same name always resolves to '
       'the same key', () async {
-    final first = await PearBase.open(rpc, recipe: PearRecipe.lww, name: 'my-base');
-    final second = await PearBase.open(rpc, recipe: PearRecipe.lww, name: 'my-base');
+    final first =
+        await PearBase.open(rpc, recipe: PearRecipe.lww, name: 'my-base');
+    final second =
+        await PearBase.open(rpc, recipe: PearRecipe.lww, name: 'my-base');
     expect(second.key, first.key);
   });
 
@@ -65,7 +70,8 @@ void main() {
   });
 
   test('orderedLog: append() entries come back in order via range()', () async {
-    final base = await PearBase.open(rpc, recipe: PearRecipe.orderedLog, name: 'log');
+    final base =
+        await PearBase.open(rpc, recipe: PearRecipe.orderedLog, name: 'log');
     await base.append(_b('e0'));
     await base.append(_b('e1'));
     await base.append(_b('e2'));
@@ -73,7 +79,8 @@ void main() {
   });
 
   test('orderedLog: range(start, end) reads a sub-range', () async {
-    final base = await PearBase.open(rpc, recipe: PearRecipe.orderedLog, name: 'log');
+    final base =
+        await PearBase.open(rpc, recipe: PearRecipe.orderedLog, name: 'log');
     for (var i = 0; i < 5; i++) {
       await base.append(_b('e$i'));
     }
@@ -81,13 +88,15 @@ void main() {
   });
 
   test('crdtMap: put() then get() round-trips the value', () async {
-    final base = await PearBase.open(rpc, recipe: PearRecipe.crdtMap, name: 'crdt');
+    final base =
+        await PearBase.open(rpc, recipe: PearRecipe.crdtMap, name: 'crdt');
     await base.put(_b('k1'), _b('v1'));
     _expectGet(await base.get(_b('k1')), exists: true, value: _b('v1'));
   });
 
   test('crdtMap: del() removes a key; get() then reports not-exists', () async {
-    final base = await PearBase.open(rpc, recipe: PearRecipe.crdtMap, name: 'crdt');
+    final base =
+        await PearBase.open(rpc, recipe: PearRecipe.crdtMap, name: 'crdt');
     await base.put(_b('k1'), _b('v1'));
     await base.del(_b('k1'));
     _expectGet(await base.get(_b('k1')), exists: false, value: null);
@@ -95,14 +104,16 @@ void main() {
 
   test('get() is rejected for orderedLog with a typed, non-crashing error',
       () async {
-    final base = await PearBase.open(rpc, recipe: PearRecipe.orderedLog, name: 'log');
+    final base =
+        await PearBase.open(rpc, recipe: PearRecipe.orderedLog, name: 'log');
     await expectLater(
       base.get(_b('k')),
       throwsA(isA<PearStorageException>()),
     );
   });
 
-  test('range() is rejected for lww with a typed, non-crashing error', () async {
+  test('range() is rejected for lww with a typed, non-crashing error',
+      () async {
     final base = await PearBase.open(rpc, recipe: PearRecipe.lww, name: 'lww');
     await expectLater(
       base.range().toList(),
@@ -110,13 +121,15 @@ void main() {
     );
   });
 
-  test('opening with an unrecognized recipe name throws a typed '
+  test(
+      'opening with an unrecognized recipe name throws a typed '
       'UNKNOWN_RECIPE error, not a crash', () async {
     // Bypasses the typed PearRecipe enum (which can't express an invalid
     // value) to exercise the worklet's own validation directly, matching
     // this ticket's VALIDATION requirement.
     await expectLater(
-      rpc.call(PearMethod.baseOpen, {'recipe': 'not-a-real-recipe', 'name': 'x'}),
+      rpc.call(
+          PearMethod.baseOpen, {'recipe': 'not-a-real-recipe', 'name': 'x'}),
       throwsA(isA<PearStorageException>()
           .having((e) => e.code, 'code', PearErrorCode.unknownRecipe)),
     );
@@ -154,7 +167,8 @@ void main() {
     /// a writer via A's [PearBase.addWriter], and replicates both ways --
     /// the full setup every "two writers converge" scenario below needs.
     Future<PearBase> admitAndReplicate(PearBase baseA) async {
-      final topic = PearCrypto.topicFromString('base-test-${baseA.key.hex}');
+      final topic =
+          PearCrypto.unsafeTopicFromString('base-test-${baseA.key.hex}');
       final swarmA = await PearSwarm.join(rpcA, topic);
       final firstConnA = swarmA.connections.first;
       final swarmB = await PearSwarm.join(rpcB, topic);
@@ -178,13 +192,16 @@ void main() {
       await baseA.put(_b('before'), _b('from-a'));
       final baseB = await admitAndReplicate(baseA);
 
-      _expectGet(await baseB.get(_b('before')), exists: true, value: _b('from-a'));
+      _expectGet(await baseB.get(_b('before')),
+          exists: true, value: _b('from-a'));
 
       await baseB.put(_b('after'), _b('from-b'));
       await Future<void>.delayed(Duration.zero);
 
-      _expectGet(await baseA.get(_b('after')), exists: true, value: _b('from-b'));
-      _expectGet(await baseB.get(_b('after')), exists: true, value: _b('from-b'));
+      _expectGet(await baseA.get(_b('after')),
+          exists: true, value: _b('from-b'));
+      _expectGet(await baseB.get(_b('after')),
+          exists: true, value: _b('from-b'));
     });
 
     test('lww: watch() fires when the peer\'s write replicates in', () async {
@@ -204,7 +221,8 @@ void main() {
       await sub.cancel();
     });
 
-    test('orderedLog: two writers interleaving entries converge to the '
+    test(
+        'orderedLog: two writers interleaving entries converge to the '
         'identical merged content on both sides', () async {
       final baseA = await PearBase.open(rpcA,
           recipe: PearRecipe.orderedLog, name: 'shared-log');
@@ -220,10 +238,11 @@ void main() {
       expect(entriesA, {'a0', 'b0'});
     });
 
-    test('crdtMap: a concurrent, not-yet-observed put survives a delete '
+    test(
+        'crdtMap: a concurrent, not-yet-observed put survives a delete '
         '(add wins)', () async {
-      final baseA =
-          await PearBase.open(rpcA, recipe: PearRecipe.crdtMap, name: 'shared-crdt');
+      final baseA = await PearBase.open(rpcA,
+          recipe: PearRecipe.crdtMap, name: 'shared-crdt');
       await baseA.put(_b('x'), _b('from-a'));
       final baseB = await admitAndReplicate(baseA);
       _expectGet(await baseB.get(_b('x')), exists: true, value: _b('from-a'));

@@ -28,7 +28,8 @@ void main() {
     expect(core.length, 0);
   });
 
-  test('get() by name is idempotent -- the same name always resolves to the '
+  test(
+      'get() by name is idempotent -- the same name always resolves to the '
       'same key', () async {
     final first = await store.get(name: 'my-log');
     final second = await store.get(name: 'my-log');
@@ -51,7 +52,8 @@ void main() {
     expect(utf8.decode(await core.get(0)), 'hello');
   });
 
-  test('get(index) at or past length throws a typed PearStorageException '
+  test(
+      'get(index) at or past length throws a typed PearStorageException '
       'with INDEX_OUT_OF_RANGE', () async {
     final core = await store.get(name: 'my-log');
     await core.append([Uint8List.fromList(utf8.encode('only one block'))]);
@@ -63,8 +65,7 @@ void main() {
     );
   });
 
-  test('updates fires the new length every time a block is appended',
-      () async {
+  test('updates fires the new length every time a block is appended', () async {
     final core = await store.get(name: 'my-log');
     final lengths = <int>[];
     core.updates.listen(lengths.add);
@@ -99,7 +100,8 @@ void main() {
     );
   });
 
-  test('a core reopened after close() works again, not permanently locked '
+  test(
+      'a core reopened after close() works again, not permanently locked '
       'out', () async {
     final first = await store.get(name: 'my-log');
     await first.append([Uint8List.fromList(utf8.encode('one'))]);
@@ -112,13 +114,14 @@ void main() {
     // The critical regression this guards: a naive reopen implementation
     // can leave the key permanently marked closed, so this append must
     // succeed, not throw CORE_CLOSED forever.
-    final length = await reopened.append(
-        [Uint8List.fromList(utf8.encode('two'))]);
+    final length =
+        await reopened.append([Uint8List.fromList(utf8.encode('two'))]);
     expect(length, 2);
     expect(utf8.decode(await reopened.get(1)), 'two');
   });
 
-  test('two different peers calling get(name:) with the same name never '
+  test(
+      'two different peers calling get(name:) with the same name never '
       'collide on the same key', () async {
     final hub = FakeSwarmHub();
     final rpcA = PearRpc(FakeBareWorklet(hub: hub));
@@ -135,7 +138,8 @@ void main() {
     await rpcB.dispose();
   });
 
-  test('append() on a core opened by key (not owned by this worklet) '
+  test(
+      'append() on a core opened by key (not owned by this worklet) '
       'throws a typed PearStorageException -- only the creating peer can '
       'write', () async {
     final hub = FakeSwarmHub();
@@ -159,7 +163,8 @@ void main() {
     await rpcB.dispose();
   });
 
-  test('replicate() called by only ONE side never syncs data -- both '
+  test(
+      'replicate() called by only ONE side never syncs data -- both '
       'peers must call it, matching real Hypercore', () async {
     final hub = FakeSwarmHub();
     final workletA = FakeBareWorklet(hub: hub);
@@ -172,7 +177,7 @@ void main() {
     final coreA = await PearStore(rpcA).get(name: 'one-sided-log');
     await coreA.append([Uint8List.fromList(utf8.encode('data'))]);
 
-    final topic = PearCrypto.topicFromString('store-one-sided-replicate');
+    final topic = PearCrypto.unsafeTopicFromString('store-one-sided-replicate');
     final swarmA = await PearSwarm.join(rpcA, topic);
     final firstConnA = swarmA.connections.first;
     final swarmB = await PearSwarm.join(rpcB, topic);
@@ -192,10 +197,12 @@ void main() {
     await rpcB.dispose();
   });
 
-  test('replicate() against a peer with no open connection throws a typed '
+  test(
+      'replicate() against a peer with no open connection throws a typed '
       'PearConnectionException with UNKNOWN_PEER', () async {
     final core = await store.get(name: 'my-log');
-    final topic = PearCrypto.topicFromString('store-replicate-unknown-peer');
+    final topic =
+        PearCrypto.unsafeTopicFromString('store-replicate-unknown-peer');
     final swarm = await PearSwarm.join(rpc, topic);
 
     // Fabricate a connection that was never actually established.
@@ -218,8 +225,7 @@ void main() {
 
   test(
       'two peers replicate a core -- B reads a block A appended before '
-      'replicating, and sees updates for one appended after',
-      () async {
+      'replicating, and sees updates for one appended after', () async {
     final hub = FakeSwarmHub();
     final workletA = FakeBareWorklet(hub: hub);
     final workletB = FakeBareWorklet(hub: hub);
@@ -231,7 +237,7 @@ void main() {
     final coreA = await PearStore(rpcA).get(name: 'shared-log');
     await coreA.append([Uint8List.fromList(utf8.encode('before'))]);
 
-    final topic = PearCrypto.topicFromString('store-replicate-test');
+    final topic = PearCrypto.unsafeTopicFromString('store-replicate-test');
     final swarmA = await PearSwarm.join(rpcA, topic);
     final firstConnA = swarmA.connections.first;
     final swarmB = await PearSwarm.join(rpcB, topic);

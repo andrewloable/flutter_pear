@@ -21,7 +21,8 @@ void main() {
 
   tearDown(() => rpc.dispose());
 
-  test('simulateNativeCrash fails all pending calls with WORKLET_CRASHED '
+  test(
+      'simulateNativeCrash fails all pending calls with WORKLET_CRASHED '
       '(E2.6)', () async {
     final pending = rpc.call('never.answers');
     final expectation = expectLater(
@@ -33,7 +34,8 @@ void main() {
     await expectation;
   });
 
-  test('swallowNextRequest causes PearRpc.call() to time out instead of '
+  test(
+      'swallowNextRequest causes PearRpc.call() to time out instead of '
       'ever hanging silently (E2.2)', () async {
     worklet.swallowNextRequest();
     await expectLater(
@@ -43,7 +45,8 @@ void main() {
     );
   });
 
-  test('swallowNextRequest is one-shot -- a later request is answered '
+  test(
+      'swallowNextRequest is one-shot -- a later request is answered '
       'normally', () async {
     worklet.swallowNextRequest();
     await expectLater(
@@ -56,17 +59,19 @@ void main() {
     expect(result, isNotNull);
   });
 
-  test('sendStaleNonceEvent is silently dropped once a session is '
+  test(
+      'sendStaleNonceEvent is silently dropped once a session is '
       'established (E2.5)', () async {
     final events = <PearEvent>[];
     rpc.events.listen(events.add);
-    worklet.sendStaleNonceEvent(PearEventName.swarmLifecycle,
-        {'topic': 'abc', 'state': 'discovering'});
+    worklet.sendStaleNonceEvent(
+        PearEventName.swarmLifecycle, {'topic': 'abc', 'state': 'discovering'});
     await Future<void>.delayed(Duration.zero);
     expect(events, isEmpty);
   });
 
-  test('sendRawFrame surfaces an unrecognized frame type as a diagnostic, '
+  test(
+      'sendRawFrame surfaces an unrecognized frame type as a diagnostic, '
       'not silently dropped (E2.4)', () async {
     final events = <PearEvent>[];
     rpc.events.listen(events.add);
@@ -76,13 +81,15 @@ void main() {
     expect(events.single.name, PearEventName.rpcDiagnostic);
   });
 
-  test('disconnectFrom drops a connection mid-stream -- with data already '
+  test(
+      'disconnectFrom drops a connection mid-stream -- with data already '
       'flowing, not just idle -- still closing the local PearConnection '
       'data stream', () async {
     final other = FakeBareWorklet(hub: worklet.hub);
     final rpcOther = PearRpc(other);
     await rpcOther.call(PearMethod.attachInfo);
-    final topic = PearCrypto.topicFromString('failure-injection-drop-test');
+    final topic =
+        PearCrypto.unsafeTopicFromString('failure-injection-drop-test');
 
     final swarm = await PearSwarm.join(rpc, topic);
     final firstConn = swarm.connections.first;
@@ -109,9 +116,11 @@ void main() {
     await rpcOther.dispose();
   });
 
-  test('simulateSwarmFailure reaches PearSwarmState.failed with the given '
+  test(
+      'simulateSwarmFailure reaches PearSwarmState.failed with the given '
       'reason (E2.7/E4.4)', () async {
-    final topic = PearCrypto.topicFromString('failure-injection-blocked-test');
+    final topic =
+        PearCrypto.unsafeTopicFromString('failure-injection-blocked-test');
     final swarm = await PearSwarm.join(rpc, topic);
 
     final states = <PearSwarmStatus>[];

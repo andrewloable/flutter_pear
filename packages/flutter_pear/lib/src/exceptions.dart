@@ -1,3 +1,4 @@
+import 'error_catalog.dart';
 import 'schema.dart';
 
 /// Base class for all errors surfaced from the Pear worklet.
@@ -17,8 +18,24 @@ class PearException implements Exception {
   /// The JS stack trace from the worklet, when available.
   final String? stack;
 
+  /// The full diagnostic detail this exception carries -- [message] plus
+  /// the JS [stack] when available. Deliberately NOT part of [toString]
+  /// (which leads with [PearErrorCatalog]'s problem/cause/fix instead);
+  /// read this when you need the raw detail, e.g. attaching it to a bug
+  /// report.
+  String get details => stack == null ? message : '$message\n$stack';
+
   @override
-  String toString() => '$runtimeType${code == null ? '' : '($code)'}: $message';
+  String toString() {
+    final entry = code == null ? null : PearErrorCatalog.entries[code];
+    if (entry == null) {
+      return '$runtimeType${code == null ? '' : '($code)'}: $message';
+    }
+    return '$runtimeType($code): ${entry.problem} '
+        'Cause: ${entry.cause} '
+        'Fix: ${entry.fix} '
+        'Docs: ${anchorFor(code!)}';
+  }
 }
 
 /// A swarm connection failed or dropped.

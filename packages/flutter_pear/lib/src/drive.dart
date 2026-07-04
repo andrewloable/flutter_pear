@@ -19,6 +19,13 @@ typedef PearDriveMirrorResult = ({int added, int changed, int removed});
 /// payload of any size crosses the RPC envelope as two path strings, never
 /// as file bytes, so a multi-hundred-MB transfer can't exhaust memory by
 /// inflating through JSON/base64 the way an in-channel design would.
+///
+/// ```dart
+/// final pear = await Pear.start();
+/// final drive = await pear.drive(name: 'shared-files');
+/// await drive.put('/photo.jpg', '/local/path/to/photo.jpg');
+/// await drive.get('/photo.jpg', '/local/path/to/downloaded.jpg');
+/// ```
 class PearDrive {
   PearDrive._(this._rpc, this.key);
 
@@ -49,7 +56,11 @@ class PearDrive {
   /// [virtualPath], overwriting any existing content there.
   Future<void> put(String virtualPath, String localSourcePath) => _rpc.call(
         PearMethod.drivePut,
-        {'drive': key.hex, 'path': virtualPath, 'localSourcePath': localSourcePath},
+        {
+          'drive': key.hex,
+          'path': virtualPath,
+          'localSourcePath': localSourcePath
+        },
       );
 
   /// Streams the content at [virtualPath] to the local file
@@ -72,22 +83,22 @@ class PearDrive {
 
   /// Whether [virtualPath] exists in this drive.
   Future<bool> exists(String virtualPath) async {
-    final result = await _rpc
-        .call(PearMethod.driveExists, {'drive': key.hex, 'path': virtualPath}) as Map;
+    final result = await _rpc.call(
+        PearMethod.driveExists, {'drive': key.hex, 'path': virtualPath}) as Map;
     return result['exists'] as bool;
   }
 
   /// Deletes [virtualPath]. A no-op, not an error, if it isn't present.
-  Future<void> delete(String virtualPath) =>
-      _rpc.call(PearMethod.driveDelete, {'drive': key.hex, 'path': virtualPath});
+  Future<void> delete(String virtualPath) => _rpc
+      .call(PearMethod.driveDelete, {'drive': key.hex, 'path': virtualPath});
 
   /// Every virtual path under [folder] as a single bounded snapshot, taken
   /// at the moment this call reaches the worklet — same
   /// fetched-in-one-round-trip-then-emitted shape as `PearBee.range`, with
   /// the same caveat about very large listings.
   Stream<String> list({String folder = '/'}) async* {
-    final result = await _rpc
-        .call(PearMethod.driveList, {'drive': key.hex, 'folder': folder}) as Map;
+    final result = await _rpc.call(
+        PearMethod.driveList, {'drive': key.hex, 'folder': folder}) as Map;
     for (final path in (result['paths'] as List).cast<String>()) {
       yield path;
     }
@@ -106,8 +117,8 @@ class PearDrive {
   /// changed files actually copy (diff-aware, via the Pear ecosystem's own
   /// `mirror-drive`, not a naive whole-drive re-copy).
   Future<PearDriveMirrorResult> mirrorToDisk(String localDir) async {
-    final result = await _rpc
-        .call(PearMethod.driveMirrorToDisk, {'drive': key.hex, 'localDir': localDir}) as Map;
+    final result = await _rpc.call(PearMethod.driveMirrorToDisk,
+        {'drive': key.hex, 'localDir': localDir}) as Map;
     return (
       added: result['added'] as int,
       changed: result['changed'] as int,

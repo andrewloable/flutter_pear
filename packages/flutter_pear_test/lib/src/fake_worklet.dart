@@ -39,6 +39,9 @@ class FakeRpcError implements Exception {
 /// them talk to each other; each gets its own private hub by default, so
 /// unrelated tests can't cross-connect by accident.
 class FakeSwarmHub {
+  /// Creates an empty hub with no topics or invites yet.
+  FakeSwarmHub();
+
   final Map<String, Set<FakeBareWorklet>> _topics = {};
 
   // E5.6 -- blind-pairing conformance. Unlike cores/bees/drives, an invite
@@ -104,7 +107,26 @@ class FakeSwarmHub {
 /// before even reading the other side's stream) can still race past this
 /// window on a real, slower network. Subscribe to `.connections` for every
 /// side immediately after its own `PearSwarm.join(...)` resolves, with
-/// nothing else awaited in between, before awaiting any of them.
+/// nothing else awaited in between, before awaiting any of them -- or sidestep
+/// the ordering entirely with `PearSwarm.establishedConnections`, a
+/// synchronous snapshot that can't be raced by subscription timing.
+///
+/// ```dart
+/// import 'package:flutter_pear/flutter_pear.dart';
+/// import 'package:flutter_pear/src/rpc.dart';
+/// import 'package:flutter_pear/src/schema.dart';
+///
+/// final hub = FakeSwarmHub();
+/// final rpcA = PearRpc(FakeBareWorklet(hub: hub));
+/// final rpcB = PearRpc(FakeBareWorklet(hub: hub));
+/// await rpcA.call(PearMethod.attachInfo);
+/// await rpcB.call(PearMethod.attachInfo);
+///
+/// final topic = PearCrypto.unsafeTopicFromString('test-topic');
+/// final swarmA = await PearSwarm.join(rpcA, topic);
+/// final swarmB = await PearSwarm.join(rpcB, topic);
+/// // swarmA/swarmB now see each other via swarmA.connections/swarmB.connections.
+/// ```
 class FakeBareWorklet implements WorkletIpc {
   /// Creates a fake worklet, optionally sharing [hub] with other instances
   /// so they can discover and connect to each other. Each instance gets its
@@ -282,9 +304,10 @@ class FakeBareWorklet implements WorkletIpc {
         // (store.get(key:)), never a shared name.
         final keyHex =
             keyParam ?? PearCrypto.hash(utf8.encode('$peerKey:$nameParam')).hex;
-        _closedCores.remove(keyHex); // a fresh session, even if a prior one closed
-        final core =
-            _cores.putIfAbsent(keyHex, () => _FakeCore(keyHex).._owners.add(this));
+        _closedCores
+            .remove(keyHex); // a fresh session, even if a prior one closed
+        final core = _cores.putIfAbsent(
+            keyHex, () => _FakeCore(keyHex).._owners.add(this));
         // Only a name:-derived open ever claims writer status -- a
         // key:-derived open attaches to a (possibly remote) core exactly
         // like a real non-owning Corestore session: read-only until it
@@ -296,8 +319,7 @@ class FakeBareWorklet implements WorkletIpc {
         final keyHex = params['key'] as String;
         final core = _requireOpenCore(keyHex);
         if (!identical(core.writer, this)) {
-          throw FakeRpcError(
-              'core is not writable from this worklet: $keyHex',
+          throw FakeRpcError('core is not writable from this worklet: $keyHex',
               PearErrorCode.storageUnavailable);
         }
         core.append((params['data'] as List)
@@ -386,13 +408,16 @@ class FakeBareWorklet implements WorkletIpc {
         // handling above.
         final beeKeyHex =
             keyParam ?? PearCrypto.hash(utf8.encode('$peerKey:$nameParam')).hex;
-        _closedBees.remove(beeKeyHex); // a fresh session, even if a prior one closed
-        final bee = _bees.putIfAbsent(beeKeyHex, () => _FakeBee(beeKeyHex).._owners.add(this));
+        _closedBees
+            .remove(beeKeyHex); // a fresh session, even if a prior one closed
+        final bee = _bees.putIfAbsent(
+            beeKeyHex, () => _FakeBee(beeKeyHex).._owners.add(this));
         if (keyParam == null) bee.writer ??= this;
         return {'key': beeKeyHex};
       case PearMethod.beeGet:
         final bee = _requireOpenBee(params['bee'] as String);
-        final value = bee.entries[_hexOf(base64Decode(params['key'] as String))];
+        final value =
+            bee.entries[_hexOf(base64Decode(params['key'] as String))];
         return value == null
             ? {'found': false}
             : {'found': true, 'value': base64Encode(value)};
@@ -460,8 +485,8 @@ class FakeBareWorklet implements WorkletIpc {
             // permanently registered on `canonical` (E5.3 review fix).
             w.bee = canonical;
             if (changed) {
-              w.owner._emitEvent(
-                  PearEventName.beeUpdate, {'bee': beeKeyHex, 'watch': w.watchId});
+              w.owner._emitEvent(PearEventName.beeUpdate,
+                  {'bee': beeKeyHex, 'watch': w.watchId});
             }
           }
         }
@@ -472,7 +497,10 @@ class FakeBareWorklet implements WorkletIpc {
         return {
           'entries': [
             for (final e in entries)
-              {'key': base64Encode(_bytesOf(e.key)), 'value': base64Encode(e.value)}
+              {
+                'key': base64Encode(_bytesOf(e.key)),
+                'value': base64Encode(e.value)
+              }
           ]
         };
       case PearMethod.beeWatch:
@@ -501,8 +529,9 @@ class FakeBareWorklet implements WorkletIpc {
         final beeKeyHex = params['bee'] as String;
         _requireBee(beeKeyHex); // throws unknownBee if never opened
         if (_closedBees.add(beeKeyHex)) {
-          for (final watchId
-              in _beeWatches.keys.where((id) => _beeWatches[id]!.bee.keyHex == beeKeyHex).toList()) {
+          for (final watchId in _beeWatches.keys
+              .where((id) => _beeWatches[id]!.bee.keyHex == beeKeyHex)
+              .toList()) {
             final watch = _beeWatches.remove(watchId);
             watch?.bee._watches.remove(watch);
           }
@@ -517,7 +546,8 @@ class FakeBareWorklet implements WorkletIpc {
         }
         final driveKeyHex =
             keyParam ?? PearCrypto.hash(utf8.encode('$peerKey:$nameParam')).hex;
-        _closedDrives.remove(driveKeyHex); // a fresh session, even if a prior one closed
+        _closedDrives
+            .remove(driveKeyHex); // a fresh session, even if a prior one closed
         final drive = _drives.putIfAbsent(
             driveKeyHex, () => _FakeDrive(driveKeyHex).._owners.add(this));
         if (keyParam == null) drive.writer ??= this;
@@ -529,7 +559,8 @@ class FakeBareWorklet implements WorkletIpc {
               'drive is not writable from this worklet: ${drive.keyHex}',
               PearErrorCode.storageUnavailable);
         }
-        final bytes = await File(params['localSourcePath'] as String).readAsBytes();
+        final bytes =
+            await File(params['localSourcePath'] as String).readAsBytes();
         drive.files[params['path'] as String] = bytes;
         return null;
       case PearMethod.driveGet:
@@ -537,7 +568,8 @@ class FakeBareWorklet implements WorkletIpc {
         final virtualPath = params['path'] as String;
         final bytes = drive.files[virtualPath];
         if (bytes == null) {
-          throw FakeRpcError('file not found: $virtualPath', PearErrorCode.fileNotFound);
+          throw FakeRpcError(
+              'file not found: $virtualPath', PearErrorCode.fileNotFound);
         }
         await File(params['destinationPath'] as String).writeAsBytes(bytes);
         return null;
@@ -643,11 +675,12 @@ class FakeBareWorklet implements WorkletIpc {
         // putIfAbsent below then silently keeps the original recipe,
         // exactly like the real worklet silently keeps the original
         // Autobase instance's open/apply pair).
-        final baseKeyHex = keyParam ??
-            PearCrypto.hash(utf8.encode('$peerKey:$nameParam')).hex;
-        _closedBases.remove(baseKeyHex); // a fresh session, even if a prior one closed
-        final base = _bases.putIfAbsent(
-            baseKeyHex, () => _FakeBase(baseKeyHex, recipe!).._owners.add(this));
+        final baseKeyHex =
+            keyParam ?? PearCrypto.hash(utf8.encode('$peerKey:$nameParam')).hex;
+        _closedBases
+            .remove(baseKeyHex); // a fresh session, even if a prior one closed
+        final base = _bases.putIfAbsent(baseKeyHex,
+            () => _FakeBase(baseKeyHex, recipe!).._owners.add(this));
         // writerKey: derived per (worklet, base) -- a real Autobase writer
         // key (base.local.key) is namespaced per-base, so the SAME worklet
         // opening two DIFFERENT bases must get two DIFFERENT writerKeys
@@ -757,7 +790,8 @@ class FakeBareWorklet implements WorkletIpc {
           case PearRecipe.lww:
             // This writer's OWN local seq -- never a hub-wide counter, see
             // writerSeq's doc for why that distinction is load-bearing.
-            final seq = (base.writerSeq[myWriterKey] = (base.writerSeq[myWriterKey] ?? 0) + 1);
+            final seq = (base.writerSeq[myWriterKey] =
+                (base.writerSeq[myWriterKey] ?? 0) + 1);
             final type = value['type'] as String;
             final keyHex = _hexOf(base64Decode(value['key'] as String));
             base.lwwEntries[keyHex] = type == 'put'
@@ -774,7 +808,8 @@ class FakeBareWorklet implements WorkletIpc {
             base.log
                 .add((entry: base64Decode(value['entry'] as String), seq: seq));
           case PearRecipe.crdtMap:
-            final seq = (base.writerSeq[myWriterKey] = (base.writerSeq[myWriterKey] ?? 0) + 1);
+            final seq = (base.writerSeq[myWriterKey] =
+                (base.writerSeq[myWriterKey] ?? 0) + 1);
             final type = value['type'] as String;
             final keyHex = _hexOf(base64Decode(value['key'] as String));
             if (type == 'put') {
@@ -798,7 +833,8 @@ class FakeBareWorklet implements WorkletIpc {
         return null;
       case PearMethod.baseGet:
         final base = _requireOpenBase(params['base'] as String);
-        if (base.recipe != PearRecipe.lww && base.recipe != PearRecipe.crdtMap) {
+        if (base.recipe != PearRecipe.lww &&
+            base.recipe != PearRecipe.crdtMap) {
           throw FakeRpcError(
               'base.get is not supported by the ${base.recipe.name} recipe',
               PearErrorCode.storageUnavailable);
@@ -830,8 +866,10 @@ class FakeBareWorklet implements WorkletIpc {
         final start = params['start'] as int? ?? 0;
         final end = params['end'] as int? ?? base.log.length;
         return {
-          'entries':
-              base.log.sublist(start, end).map((e) => base64Encode(e.entry)).toList(),
+          'entries': base.log
+              .sublist(start, end)
+              .map((e) => base64Encode(e.entry))
+              .toList(),
         };
       case PearMethod.baseWatch:
         final base = _requireOpenBase(params['base'] as String);
@@ -892,14 +930,17 @@ class FakeBareWorklet implements WorkletIpc {
         // hub-wide with no such privacy, so the owner check reproduces it
         // (E5.6 review fix -- both gaps let the fake diverge from the real
         // worklet).
-        if (invite == null || invite.revoked || !identical(invite.owner, this)) {
-          throw FakeRpcError('unknown invite: $inviteId', PearErrorCode.unknownInvite);
+        if (invite == null ||
+            invite.revoked ||
+            !identical(invite.owner, this)) {
+          throw FakeRpcError(
+              'unknown invite: $inviteId', PearErrorCode.unknownInvite);
         }
         final candidateId = params['candidateId'] as String;
         final candidate = invite.pending.remove(candidateId);
         if (candidate == null) {
-          throw FakeRpcError(
-              'unknown candidate: $candidateId', PearErrorCode.unknownCandidate);
+          throw FakeRpcError('unknown candidate: $candidateId',
+              PearErrorCode.unknownCandidate);
         }
         candidate.confirmed.complete(base64Decode(params['key'] as String));
         return null;
@@ -1100,8 +1141,8 @@ class FakeBareWorklet implements WorkletIpc {
       // still get a spurious connectionClose event the real worklet would
       // never send for it.
       if (!_joinedTopics.contains(topicHex)) continue;
-      _emitEvent(PearEventName.connectionClose,
-          {'topic': topicHex, 'peer': peerHex});
+      _emitEvent(
+          PearEventName.connectionClose, {'topic': topicHex, 'peer': peerHex});
       final stillConnected =
           _connectionTopics.values.any((t) => t.contains(topicHex));
       if (!stillConnected) {
@@ -1209,7 +1250,8 @@ class _FakeBee {
   _FakeBee(this.keyHex);
 
   final String keyHex;
-  final SplayTreeMap<String, Uint8List> entries = SplayTreeMap<String, Uint8List>();
+  final SplayTreeMap<String, Uint8List> entries =
+      SplayTreeMap<String, Uint8List>();
   final Set<FakeBareWorklet> _owners = {};
   final Set<_FakeBeeWatch> _watches = {};
 
@@ -1409,7 +1451,8 @@ class _FakeBase {
 
   void _notify() {
     for (final w in _watches.toList()) {
-      w.owner._emitEvent(PearEventName.baseUpdate, {'base': keyHex, 'watch': w.watchId});
+      w.owner._emitEvent(
+          PearEventName.baseUpdate, {'base': keyHex, 'watch': w.watchId});
     }
   }
 }
@@ -1431,7 +1474,10 @@ class _FakeBaseWatch {
 /// [_FakeBase.crdtTags]'s doc.
 ({String writer, int seq}) _parseTag(String tag) {
   final sep = tag.lastIndexOf(':');
-  return (writer: tag.substring(0, sep), seq: int.parse(tag.substring(sep + 1)));
+  return (
+    writer: tag.substring(0, sep),
+    seq: int.parse(tag.substring(sep + 1))
+  );
 }
 
 /// Whether tag [a] is the canonical pick over tag [b] among an
@@ -1484,7 +1530,9 @@ _FakeBase _mergeBases(_FakeBase a, _FakeBase b) {
   for (final side in [a.writerSeq, b.writerSeq]) {
     for (final e in side.entries) {
       final existing = canonical.writerSeq[e.key];
-      if (existing == null || e.value > existing) canonical.writerSeq[e.key] = e.value;
+      if (existing == null || e.value > existing) {
+        canonical.writerSeq[e.key] = e.value;
+      }
     }
   }
 

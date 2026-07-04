@@ -9,7 +9,8 @@ import 'schema.dart';
 /// One incoming pairing attempt on a [PearInvite] — surfaced via
 /// [PearInvite.candidates].
 class PearPairingCandidate {
-  PearPairingCandidate._(this._rpc, this._inviteId, this._candidateId, this.userData);
+  PearPairingCandidate._(
+      this._rpc, this._inviteId, this._candidateId, this.userData);
 
   final PearRpc _rpc;
   final String _inviteId;
@@ -26,7 +27,8 @@ class PearPairingCandidate {
   /// fixes it at that size (not a limitation this wrapper adds) — a
   /// natural fit for sharing a swarm topic or another data-structure key
   /// the two devices will use next.
-  Future<void> confirm(PearKey key) => _rpc.call(PearMethod.pairingConfirmCandidate, {
+  Future<void> confirm(PearKey key) =>
+      _rpc.call(PearMethod.pairingConfirmCandidate, {
         'inviteId': _inviteId,
         'candidateId': _candidateId,
         'key': base64Encode(key.bytes),
@@ -59,7 +61,8 @@ class PearInvite {
   /// immediately — it fails with [PearErrorCode.pairingTimeout] once its
   /// own bound elapses, since revoking has nothing left to confirm rather
   /// than an explicit "you were revoked" signal to reach across to it with.
-  Future<void> revoke() => _rpc.call(PearMethod.pairingRevoke, {'inviteId': id});
+  Future<void> revoke() =>
+      _rpc.call(PearMethod.pairingRevoke, {'inviteId': id});
 }
 
 /// Blind pairing — invites and device linking (E5.6) — wrapper 4 of 5 in
@@ -79,6 +82,18 @@ class PearInvite {
 /// the decided v0.1 answer to that part of E5.9's own pinned question —
 /// see `SECURITY_POSTURE.md` for the full key-persistence/backup/reinstall
 /// picture this is one piece of.
+///
+/// ```dart
+/// // Device A: create an invite and wait for a peer to scan it.
+/// final invite = await pear.createInvite();
+/// invite.candidates.listen((candidate) {
+///   candidate.confirm(PearCrypto.unsafeTopicFromString('shared-room'));
+/// });
+/// shareAsQrCode(invite.invite); // app-provided
+///
+/// // Device B: scan the QR code, then accept it.
+/// final sharedTopic = await pear.acceptInvite(scannedInviteBytes);
+/// ```
 class PearPairing {
   PearPairing._();
 
@@ -87,7 +102,8 @@ class PearPairing {
   /// before sharing the invite bytes with anyone.
   static Future<PearInvite> createInvite(PearRpc rpc, {Duration? ttl}) async {
     final result = await rpc.call(PearMethod.pairingCreateInvite, {
-      if (ttl != null) 'expiresAt': DateTime.now().add(ttl).millisecondsSinceEpoch,
+      if (ttl != null)
+        'expiresAt': DateTime.now().add(ttl).millisecondsSinceEpoch,
     }) as Map;
     final inviteId = result['inviteId'] as String;
 

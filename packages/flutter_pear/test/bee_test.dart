@@ -29,7 +29,8 @@ void main() {
     expect(await bee.get(_b('missing')), isNull);
   });
 
-  test('open() by name is idempotent -- the same name always resolves to '
+  test(
+      'open() by name is idempotent -- the same name always resolves to '
       'the same key', () async {
     final first = await PearBee.open(rpc, name: 'my-bee');
     final second = await PearBee.open(rpc, name: 'my-bee');
@@ -106,7 +107,8 @@ void main() {
     await sub.cancel();
   });
 
-  test('canceling watch() unsubscribes worklet-side -- the JS-side listener '
+  test(
+      'canceling watch() unsubscribes worklet-side -- the JS-side listener '
       'count drops back to zero', () async {
     final bee = await PearBee.open(rpc, name: 'my-bee');
     final sub = bee.watch().listen((_) {});
@@ -119,7 +121,8 @@ void main() {
     expect(worklet.activeBeeWatchCount(bee.key.hex), 0);
   });
 
-  test('canceling and immediately re-listening on the same watch() Stream '
+  test(
+      'canceling and immediately re-listening on the same watch() Stream '
       'keeps the fresh subscription alive -- the stale cancel must not '
       'kill it', () async {
     final bee = await PearBee.open(rpc, name: 'my-bee');
@@ -150,7 +153,8 @@ void main() {
     await sub2.cancel();
   });
 
-  test('get() on a closed bee throws a typed PearStorageException with '
+  test(
+      'get() on a closed bee throws a typed PearStorageException with '
       'BEE_CLOSED', () async {
     final bee = await PearBee.open(rpc, name: 'my-bee');
     await bee.close();
@@ -185,7 +189,8 @@ void main() {
     expect(worklet.activeBeeWatchCount(bee.key.hex), 0);
   });
 
-  test('unwatch naming the wrong bee for a real watchId throws UNKNOWN_BEE '
+  test(
+      'unwatch naming the wrong bee for a real watchId throws UNKNOWN_BEE '
       'instead of silently closing the other bee\'s watch', () async {
     final beeA = await PearBee.open(rpc, name: 'bee-a');
     final beeB = await PearBee.open(rpc, name: 'bee-b');
@@ -194,7 +199,8 @@ void main() {
     // which always sends a matching bee/watch pair) to construct a
     // mismatched pair the way a wire-level bug could produce one.
     const watchId = 'test-watch-id';
-    await rpc.call(PearMethod.beeWatch, {'bee': beeA.key.hex, 'watch': watchId});
+    await rpc
+        .call(PearMethod.beeWatch, {'bee': beeA.key.hex, 'watch': watchId});
     expect(worklet.activeBeeWatchCount(beeA.key.hex), 1);
 
     await expectLater(
@@ -206,7 +212,8 @@ void main() {
     expect(worklet.activeBeeWatchCount(beeA.key.hex), 1);
   });
 
-  test('a bee reopened after close() works again, not permanently locked '
+  test(
+      'a bee reopened after close() works again, not permanently locked '
       'out', () async {
     final first = await PearBee.open(rpc, name: 'my-bee');
     await first.put(_b('k1'), _b('v1'));
@@ -220,7 +227,8 @@ void main() {
     expect(await reopened.get(_b('k2')), _b('v2'));
   });
 
-  test('two different peers calling open(name:) with the same name never '
+  test(
+      'two different peers calling open(name:) with the same name never '
       'collide on the same key', () async {
     final hub = FakeSwarmHub();
     final rpcA = PearRpc(FakeBareWorklet(hub: hub));
@@ -237,7 +245,8 @@ void main() {
     await rpcB.dispose();
   });
 
-  test('put() on a bee opened by key (not owned by this worklet) throws a '
+  test(
+      'put() on a bee opened by key (not owned by this worklet) throws a '
       'typed PearStorageException -- only the creating peer can write',
       () async {
     final hub = FakeSwarmHub();
@@ -259,7 +268,8 @@ void main() {
     await rpcB.dispose();
   });
 
-  test('replicate() called by only ONE side never syncs data -- both peers '
+  test(
+      'replicate() called by only ONE side never syncs data -- both peers '
       'must call it', () async {
     final hub = FakeSwarmHub();
     final workletA = FakeBareWorklet(hub: hub);
@@ -272,7 +282,7 @@ void main() {
     final beeA = await PearBee.open(rpcA, name: 'one-sided-bee');
     await beeA.put(_b('k1'), _b('v1'));
 
-    final topic = PearCrypto.topicFromString('bee-one-sided-replicate');
+    final topic = PearCrypto.unsafeTopicFromString('bee-one-sided-replicate');
     final swarmA = await PearSwarm.join(rpcA, topic);
     final firstConnA = swarmA.connections.first;
     final swarmB = await PearSwarm.join(rpcB, topic);
@@ -290,7 +300,8 @@ void main() {
     await rpcB.dispose();
   });
 
-  test('two peers replicate a bee -- B reads a value A put before '
+  test(
+      'two peers replicate a bee -- B reads a value A put before '
       'replicating, and its watch fires for one put after', () async {
     final hub = FakeSwarmHub();
     final workletA = FakeBareWorklet(hub: hub);
@@ -303,7 +314,7 @@ void main() {
     final beeA = await PearBee.open(rpcA, name: 'shared-bee');
     await beeA.put(_b('k1'), _b('before'));
 
-    final topic = PearCrypto.topicFromString('bee-replicate-test');
+    final topic = PearCrypto.unsafeTopicFromString('bee-replicate-test');
     final swarmA = await PearSwarm.join(rpcA, topic);
     final firstConnA = swarmA.connections.first;
     final swarmB = await PearSwarm.join(rpcB, topic);

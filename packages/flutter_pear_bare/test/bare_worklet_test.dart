@@ -188,7 +188,8 @@ void main() {
     expect(incomingClosed, isTrue);
   });
 
-  test('send() prefixes the frame with its 4-byte big-endian length '
+  test(
+      'send() prefixes the frame with its 4-byte big-endian length '
       '(E4.4 framing)', () async {
     final w = await BareWorklet.start();
     const codec = StandardMessageCodec();
@@ -235,6 +236,86 @@ void main() {
   });
 
   test(
+      'a stale generation\'s onWorkletExit reaching a NEWER generation\'s '
+      'handler is dropped, not misattributed (flutter_pear-3vh)', () async {
+    // _control/_ipc are static, shared across every BareWorklet instance --
+    // Flutter buffers a channel message that arrives with no handler
+    // currently registered and replays it to whichever handler registers
+    // next, so a stale generation-1 exit report delayed past a kill+restart
+    // could otherwise land on generation 2's handler. This simulates
+    // exactly that delivery (not the race itself, which needs a real
+    // platform channel) to prove the generationId mismatch drops it.
+    messenger.setMockMethodCallHandler(
+        control, (_) async => {'reattached': false, 'generationId': 1});
+    final first = await BareWorklet.start();
+    await first.terminate();
+
+    messenger.setMockMethodCallHandler(
+        control, (_) async => {'reattached': false, 'generationId': 2});
+    final second = await BareWorklet.start();
+    expect(second.state, WorkletState.running);
+
+    final crashes = <WorkletCrash>[];
+    final crashSub = second.onCrash.listen(crashes.add);
+
+    const codec = StandardMethodCodec();
+    const staleCall =
+        MethodCall('onWorkletExit', {'reason': 'stale', 'generationId': 1});
+    await messenger.handlePlatformMessage(
+      'flutter_pear_bare/control',
+      codec.encodeMethodCall(staleCall),
+      (_) {},
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(second.state, WorkletState.running,
+        reason: 'a stale generation\'s exit report must not stop a newer, '
+            'healthy generation');
+    expect(crashes, isEmpty);
+
+    // A genuine exit naming generation 2's OWN id still works.
+    const genuineCall = MethodCall('onWorkletExit',
+        {'reason': 'worklet IPC ended unexpectedly', 'generationId': 2});
+    await messenger.handlePlatformMessage(
+      'flutter_pear_bare/control',
+      codec.encodeMethodCall(genuineCall),
+      (_) {},
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(second.state, WorkletState.stopped);
+    expect(crashes, hasLength(1));
+    await crashSub.cancel();
+  });
+
+  test(
+      'onWorkletExit with no generationId at all (older native / no-generation '
+      'fake) still works -- backward compatible when neither side sends one',
+      () async {
+    messenger.setMockMethodCallHandler(
+        control, (_) async => {'reattached': false});
+    final w = await BareWorklet.start();
+    expect(w.state, WorkletState.running);
+
+    final crashes = <WorkletCrash>[];
+    final crashSub = w.onCrash.listen(crashes.add);
+
+    const codec = StandardMethodCodec();
+    const call = MethodCall(
+        'onWorkletExit', {'reason': 'worklet IPC ended unexpectedly'});
+    await messenger.handlePlatformMessage(
+      'flutter_pear_bare/control',
+      codec.encodeMethodCall(call),
+      (_) {},
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(w.state, WorkletState.stopped);
+    expect(crashes, hasLength(1));
+    await crashSub.cancel();
+  });
+
+  test(
       'a frame split across two platform-channel deliveries is reassembled '
       '(E4.4 length-prefix framing)', () async {
     final w = await BareWorklet.start();
@@ -270,7 +351,10 @@ void main() {
     final sub = w.incoming.listen(frames.add);
 
     const codec = StandardMessageCodec();
-    final combined = Uint8List.fromList([..._framed([1, 2, 3]), ..._framed([4, 5])]);
+    final combined = Uint8List.fromList([
+      ..._framed([1, 2, 3]),
+      ..._framed([4, 5])
+    ]);
 
     await messenger.handlePlatformMessage(
         'flutter_pear_bare/ipc', codec.encodeMessage(combined), (_) {});

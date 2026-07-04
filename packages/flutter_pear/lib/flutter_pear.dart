@@ -12,9 +12,17 @@ export 'src/base.dart';
 export 'src/bee.dart';
 export 'src/crypto.dart';
 export 'src/drive.dart';
+export 'src/error_catalog.dart';
 export 'src/exceptions.dart';
 export 'src/lifecycle.dart';
 export 'src/pairing.dart';
 export 'src/pear.dart';
+// Only the pieces of the RPC schema that already appear in other exported
+// signatures (PearSwarm.state's PearSwarmStatus needs PearSwarmState to be
+// nameable; PearBase.open requires a PearRecipe; PearException.code is
+// compared against PearErrorCode) -- PearMethod/PearEventName/PearFrameType/
+// PearHandshakeField are wire-protocol internals no app dev needs.
+export 'src/schema.dart'
+    show PearSwarmState, PearRecipe, PearErrorCode, PearErrorCategory;
 export 'src/store.dart';
 export 'src/swarm.dart';

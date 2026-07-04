@@ -15,8 +15,8 @@ enum WorkletState {
   suspended,
 }
 
-/// A worklet's own report that it's gone (or about to be): a short [reason]
-/// category, plus [detail] (a message/stack) when the worklet managed to
+/// A worklet's own report that it's gone (or about to be): a short `reason`
+/// category, plus `detail` (a message/stack) when the worklet managed to
 /// self-report before dying -- null for the native-only backstop signal,
 /// which knows only that the worklet's IPC ended, not why.
 typedef WorkletCrash = ({String reason, String? detail});
@@ -53,6 +53,19 @@ abstract interface class WorkletIpc {
 ///
 /// One worklet per app. [start] is hot-restart-safe: after a Dart hot restart
 /// the native worklet keeps running and [start] reattaches to it.
+///
+/// Most app code never touches this directly — `package:flutter_pear`'s
+/// `Pear.start()` wraps it with the RPC contract, typed errors, and every
+/// data-structure wrapper. This is the raw byte-frame transport underneath:
+///
+/// ```dart
+/// final worklet = await BareWorklet.start();
+/// worklet.incoming.listen((frame) => print('frame: $frame'));
+/// worklet.onCrash.listen((crash) => print('crashed: ${crash.reason}'));
+/// await worklet.send(myFrame);
+/// // ... later
+/// await worklet.terminate();
+/// ```
 class BareWorklet implements WorkletIpc {
   BareWorklet._();
 
@@ -81,6 +94,16 @@ class BareWorklet implements WorkletIpc {
       StreamController<WorkletCrash>.broadcast();
   WorkletState _state = WorkletState.stopped;
   bool _reattached = false;
+
+  // The native side's id for the CURRENTLY RUNNING worklet process/IPC pair
+  // (bumped there on every fresh boot, unchanged across a reattach) --
+  // native echoes it back on [_onControlCall]'s `onWorkletExit` so this
+  // instance can tell a genuine exit of ITS OWN worklet apart from a stale
+  // straggler about some earlier generation (flutter_pear-3vh). Null if
+  // native didn't supply one (an older native build, or a fake/mock in
+  // tests) -- [_onControlCall] then falls back to the pre-3vh behavior of
+  // trusting every call, unchanged.
+  int? _generationId;
 
   // Bytes received but not yet resolved into a complete frame -- see
   // _onIpc's doc for why this accumulator exists at all.
@@ -122,9 +145,10 @@ class BareWorklet implements WorkletIpc {
     _instance = w;
     _ipc.setMessageHandler(w._onIpc);
     _control.setMethodCallHandler(w._onControlCall);
-    final result = await _control
-        .invokeMethod<Map<Object?, Object?>>('start', {'bundlePath': bundlePath});
+    final result = await _control.invokeMethod<Map<Object?, Object?>>(
+        'start', {'bundlePath': bundlePath});
     w._reattached = result?['reattached'] == true;
+    w._generationId = result?['generationId'] as int?;
     w._state = WorkletState.running;
     return w;
   }
@@ -175,7 +199,21 @@ class BareWorklet implements WorkletIpc {
     // after reporting an exit), but a second call landing here regardless
     // must not double-close already-closed streams.
     if (_state == WorkletState.stopped) return;
-    final reason = (call.arguments as Map)['reason'] as String;
+    final args = call.arguments as Map;
+    // flutter_pear-3vh: _control is a STATIC MethodChannel shared across
+    // every BareWorklet generation, and Flutter buffers a channel message
+    // that arrives with no handler currently registered, replaying it to
+    // whichever handler is registered next -- so a stale generation's
+    // onWorkletExit call, delayed in flight past a kill+restart
+    // (Pear.start's version-mismatch path), could otherwise reach a brand
+    // new, healthy worklet's handler instead of being dropped. Native
+    // stamps the generation id it captured at the moment it detected THIS
+    // exit (see FlutterPearBarePlugin.kt's reportUnexpectedExit) -- if it
+    // doesn't match ours, this call is about some earlier generation, not
+    // us; drop it silently, same as any other stale-generation message.
+    final callGeneration = args['generationId'] as int?;
+    if (_generationId != null && callGeneration != _generationId) return;
+    final reason = args['reason'] as String;
     _state = WorkletState.stopped;
     _ipc.setMessageHandler(null);
     _crash.add((reason: reason, detail: null));

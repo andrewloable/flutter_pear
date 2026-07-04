@@ -62,11 +62,12 @@ void main() {
     // plain module
     Directory('${nm.path}/hypercore').createSync();
     File('${nm.path}/hypercore/LICENSE').writeAsStringSync('MIT — hypercore');
-    File('${nm.path}/hypercore/package.json')
-        .writeAsStringSync('{"name":"hypercore","version":"1.0.0","license":"MIT"}');
+    File('${nm.path}/hypercore/package.json').writeAsStringSync(
+        '{"name":"hypercore","version":"1.0.0","license":"MIT"}');
 
     // scoped module with a NOTICE
-    Directory('${nm.path}/@hyperswarm/secret-stream').createSync(recursive: true);
+    Directory('${nm.path}/@hyperswarm/secret-stream')
+        .createSync(recursive: true);
     File('${nm.path}/@hyperswarm/secret-stream/LICENSE')
         .writeAsStringSync('MIT — secret-stream');
     File('${nm.path}/@hyperswarm/secret-stream/NOTICE')

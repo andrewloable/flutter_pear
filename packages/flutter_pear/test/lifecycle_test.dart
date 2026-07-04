@@ -21,7 +21,8 @@ void main() {
     return (lifecycle: lifecycle, calls: calls);
   }
 
-  testWidgets('auto policy: backgrounding past the linger window suspends '
+  testWidgets(
+      'auto policy: backgrounding past the linger window suspends '
       'exactly once', (tester) async {
     final t = makeLifecycle();
     t.lifecycle.didChangeAppLifecycleState(AppLifecycleState.paused);

@@ -66,7 +66,7 @@ void main() {
   setUp(() async {
     worklet = _FakeWorklet();
     rpc = PearRpc(worklet);
-    topic = PearCrypto.topicFromString('swarm-test-topic');
+    topic = PearCrypto.unsafeTopicFromString('swarm-test-topic');
     // Establish a session first -- PearRpc drops ordinary events (including
     // swarm.lifecycle) sent before the first response is ever seen (E2.5),
     // exactly like Pear.start's real attach.info round trip always does.
@@ -99,8 +99,7 @@ void main() {
     });
   }
 
-  test('join() starts in discovering state, readable synchronously',
-      () async {
+  test('join() starts in discovering state, readable synchronously', () async {
     final swarm = await joinSwarm();
     expect(swarm.currentState.state, PearSwarmState.discovering);
     expect(swarm.currentState.error, isNull);
@@ -109,7 +108,8 @@ void main() {
   test(
       'the happy-path state sequence reaches connected and cancels the join '
       'timeout', () async {
-    final swarm = await joinSwarm(joinTimeout: const Duration(milliseconds: 30));
+    final swarm =
+        await joinSwarm(joinTimeout: const Duration(milliseconds: 30));
     final states = <PearSwarmStatus>[];
     final sub = swarm.state.listen(states.add);
 
@@ -131,7 +131,8 @@ void main() {
   test(
       'the join timeout reaches failed with a typed CONNECT_TIMEOUT reason '
       'if connected is never reached -- never an infinite wait', () async {
-    final swarm = await joinSwarm(joinTimeout: const Duration(milliseconds: 20));
+    final swarm =
+        await joinSwarm(joinTimeout: const Duration(milliseconds: 20));
     final states = <PearSwarmStatus>[];
     final sub = swarm.state.listen(states.add);
 
@@ -209,7 +210,7 @@ void main() {
       'PearRpc.notifyWorkletSuspended(false) resumes to connected if a peer '
       'is still tracked (E6.2)', () async {
     final swarm = await joinSwarm();
-    final peerKey = PearCrypto.topicFromString('peer-under-test');
+    final peerKey = PearCrypto.unsafeTopicFromString('peer-under-test');
     final states = <PearSwarmStatus>[];
     final sub = swarm.state.listen(states.add);
 
@@ -294,7 +295,7 @@ void main() {
       'write() after the connection closes fails with a typed '
       'PearConnectionException, never a hang', () async {
     final swarm = await joinSwarm();
-    final peerKey = PearCrypto.topicFromString('peer-under-test');
+    final peerKey = PearCrypto.unsafeTopicFromString('peer-under-test');
 
     worklet.sendJsonFrame({
       'ev': PearEventName.swarmConnection,
@@ -321,9 +322,44 @@ void main() {
     );
   });
 
+  test(
+      'establishedConnections captures a connection that arrived before '
+      'any .connections subscription -- the same late-subscriber race '
+      'currentState already solves for the state stream', () async {
+    final swarm = await joinSwarm();
+    final peerKey = PearCrypto.unsafeTopicFromString('peer-under-test');
+
+    // Nothing has subscribed to .connections at all -- a plain broadcast
+    // stream would have already lost this event permanently.
+    worklet.sendJsonFrame({
+      'ev': PearEventName.swarmConnection,
+      'p': {'topic': topic.hex, 'peer': peerKey.hex},
+    });
+    await Future<void>.delayed(Duration.zero);
+
+    expect(swarm.establishedConnections, hasLength(1));
+    expect(swarm.establishedConnections.single.remotePublicKey, peerKey);
+
+    // Still present after the connection closes -- this is a history of
+    // everything seen so far, not a live "currently connected" set.
+    worklet.sendJsonFrame({
+      'ev': PearEventName.connectionClose,
+      'p': {'topic': topic.hex, 'peer': peerKey.hex},
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(swarm.establishedConnections, hasLength(1));
+
+    // A defensive copy -- callers can't mutate the swarm's own history.
+    expect(
+        () => swarm.establishedConnections
+            .add(swarm.establishedConnections.single),
+        throwsUnsupportedError);
+  });
+
   test('leave() cancels the join timeout, so it never fires after leaving',
       () async {
-    final swarm = await joinSwarm(joinTimeout: const Duration(milliseconds: 20));
+    final swarm =
+        await joinSwarm(joinTimeout: const Duration(milliseconds: 20));
     // leave() itself issues the swarm.leave RPC; ack it inline like join's
     // own helper does.
     final leaveFuture = swarm.leave();
@@ -342,8 +378,7 @@ void main() {
 
   test(
       'E3.3 fake-driven variant: a real FakeBareWorklet swarm failure still '
-      'reaches PearSwarmState.failed with a typed reason (E2.7/X8)',
-      () async {
+      'reaches PearSwarmState.failed with a typed reason (E2.7/X8)', () async {
     // Same X8 spine behavior as this file's own hand-rolled-fake tests
     // above, proven again here against flutter_pear_test's shared,
     // conformance-tested fake.
@@ -370,8 +405,7 @@ void main() {
   test(
       'the full reconnect cycle: a dropped peer connection is ephemeral (a '
       'NEW PearConnection arrives on reconnect, never the old one reused) '
-      'and state goes connected -> reconnecting -> connected (E6.5)',
-      () async {
+      'and state goes connected -> reconnecting -> connected (E6.5)', () async {
     // This is RECONNECT_CONTRACT.md's decision, end to end: PearSwarm
     // itself adds no reconnect logic of its own -- Hyperswarm's own
     // automatic re-announce/re-discovery is what produces a fresh
@@ -469,7 +503,7 @@ void main() {
     await rpcB.call(PearMethod.attachInfo);
 
     final topic1 = topic;
-    final topic2 = PearCrypto.topicFromString('swarm-test-second-topic');
+    final topic2 = PearCrypto.unsafeTopicFromString('swarm-test-second-topic');
 
     final swarm1B = await PearSwarm.join(rpcB, topic1);
     final firstConn1B = swarm1B.connections.first;

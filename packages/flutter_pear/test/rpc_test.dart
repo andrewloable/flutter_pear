@@ -337,8 +337,7 @@ void main() {
     await sub.cancel();
   });
 
-  test('attach.info returns the worklet\'s nonce and bundle version',
-      () async {
+  test('attach.info returns the worklet\'s nonce and bundle version', () async {
     final future = rpc.call(PearMethod.attachInfo);
     worklet.respond(worklet.lastRequestId, ok: {
       PearHandshakeField.nonce: 'abc123',
@@ -416,8 +415,7 @@ void main() {
     await expectB;
   });
 
-  test('a native-detected crash is surfaced as a workletCrash event',
-      () async {
+  test('a native-detected crash is surfaced as a workletCrash event', () async {
     final events = <PearEvent>[];
     final sub = rpc.events.listen(events.add);
     worklet.simulateNativeCrash('worklet IPC ended unexpectedly');
@@ -500,8 +498,7 @@ void main() {
     await sub.cancel();
   });
 
-  test('call() after a crash fails immediately with WORKLET_CRASHED',
-      () async {
+  test('call() after a crash fails immediately with WORKLET_CRASHED', () async {
     worklet.simulateNativeCrash('worklet IPC ended unexpectedly');
     // onCrash is a broadcast stream; delivery to _crashSub's listener is
     // scheduled as a microtask, not synchronous -- give it a turn so
@@ -591,8 +588,7 @@ void main() {
 
   test(
       'E3.3 fake-driven variant: a real FakeBareWorklet swallowing a '
-      'request still times out with RPC_TIMEOUT, never hangs (E2.2)',
-      () async {
+      'request still times out with RPC_TIMEOUT, never hangs (E2.2)', () async {
     final fakeWorklet = FakeBareWorklet();
     final fakeRpc = PearRpc(fakeWorklet);
     await fakeRpc.call(PearMethod.attachInfo);
