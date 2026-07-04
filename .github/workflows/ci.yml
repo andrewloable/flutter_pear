@@ -39,6 +39,10 @@ jobs:
           dart run tool/extract_snippets.dart ../../README.md README.md \
             docs/concepts.md docs/howto-chat.md docs/howto-filesync.md docs/howto-pairing.md
 
+      - name: Generate pear-end/version.js (gitignored; index.js requires it)
+        working-directory: packages/flutter_pear
+        run: dart run flutter_pear:pack --version-only
+
       - name: pear-end JS-level tests (flutter_pear-pcg)
         # node --test with an explicit directory-path argument doesn't
         # auto-discover on the Node versions checked (see
