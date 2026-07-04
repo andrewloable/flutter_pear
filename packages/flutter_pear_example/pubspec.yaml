@@ -12,6 +12,8 @@ dependencies:
     sdk: flutter
   flutter_pear:
     path: ../flutter_pear
+  path_provider: ^2.1.6
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:

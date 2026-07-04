@@ -1,6 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- INTERNET is declared in flutter_pear_bare's library manifest and
          merges in automatically; not duplicated here. -->
+    <!-- E7.2 QR scanner: CAMERA is a dangerous permission, requested at
+         runtime by MainActivity's "flutter_pear_example/qr_scanner" channel;
+         declaring it here is only what makes the runtime request legal.
+         The uses-feature required=false below keeps this app installable on
+         camera-less devices/emulators (manual-code fallback still works). -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <application
         android:label="flutter_pear_example"
         android:name="${applicationName}"
@@ -27,6 +34,14 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- E7.2 QR scanner activity, launched via the modern Activity
+             Result API from MainActivity's scanQrCode() method channel
+             handler; never started from outside this app. -->
+        <activity
+            android:name=".QrScannerActivity"
+            android:exported="false"
+            android:theme="@style/LaunchTheme"
+            android:screenOrientation="portrait" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

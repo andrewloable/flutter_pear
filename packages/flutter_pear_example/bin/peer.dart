@@ -35,10 +35,16 @@ Future<void> main(List<String> args) async {
   final packageRoot = Directory.fromUri(libUri).parent;
   final peerJs = File('${packageRoot.path}/tool/peer.js').absolute.path;
 
-  final process = await Process.start(
-    'node',
-    [peerJs, ...args],
-    mode: ProcessStartMode.inheritStdio,
-  );
-  exitCode = await process.exitCode;
+  try {
+    final process = await Process.start(
+      'node',
+      [peerJs, ...args],
+      mode: ProcessStartMode.inheritStdio,
+    );
+    exitCode = await process.exitCode;
+  } on ProcessException catch (e) {
+    stderr.writeln('Could not run peer.js: $e');
+    stderr.writeln('Is Node.js installed and on PATH?');
+    exit(1);
+  }
 }
