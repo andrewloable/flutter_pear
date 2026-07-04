@@ -424,7 +424,7 @@ function getOpenDriveOrThrow (keyHex) {
 // PAIRING_CREATE_INVITE call always makes a genuinely new invite), so
 // there's no closedInvites-style set: PAIRING_REVOKE just deletes the
 // entry outright.
-const invites = new Map() // invite id hex -> { member, candidates: Map<candidateId hex, { request, resolve }> }
+const invites = new Map() // invite id hex -> { member, resourceKey, seed, candidates: Map<candidateId hex, { request, resolve }> }
 
 function getInviteOrThrow (inviteIdHex) {
   const invite = invites.get(inviteIdHex)
@@ -434,6 +434,29 @@ function getInviteOrThrow (inviteIdHex) {
     throw err
   }
   return invite
+}
+
+// See the WORKAROUND comment above Method.PAIRING_CREATE_INVITE for why
+// these exist: blind-pairing-core@2.10.1's compact-encoding round trip
+// (`optionalBuffer`) decodes ANY zero-length buffer back as `null` --
+// tripping it up wherever a value it treats as opaque bytes (candidate
+// userData, or the app's confirm key riding in `additional.data`) happens
+// to be empty. Every such byte string that crosses into blind-pairing gets
+// a 1-byte flag prefixed on the way in and stripped back off on the way
+// out, so a truly zero-length buffer never reaches the buggy path.
+const OPTIONAL_BUFFER_EMPTY = 0
+const OPTIONAL_BUFFER_PRESENT = 1
+
+function encodeOptionalBufferSafe (realBuffer) {
+  return Buffer.concat([
+    Buffer.from([realBuffer.length > 0 ? OPTIONAL_BUFFER_PRESENT : OPTIONAL_BUFFER_EMPTY]),
+    realBuffer
+  ])
+}
+
+function decodeOptionalBufferSafe (wireBuffer) {
+  if (!wireBuffer || wireBuffer.length === 0) return Buffer.alloc(0)
+  return wireBuffer[0] === OPTIONAL_BUFFER_PRESENT ? wireBuffer.subarray(1) : Buffer.alloc(0)
 }
 
 // E5.8 -- Autobase wrapper (PearBase). Its own registry, same independence
@@ -958,14 +981,60 @@ async function handle ({ m, p }) {
     // encodes it as a mandatory fixed32) -- not a limitation this wrapper
     // adds, which is why PearPairingCandidate.confirm takes a PearKey
     // rather than arbitrary bytes.
+    //
+    // WORKAROUND for a real upstream bug in blind-pairing-core@2.10.1
+    // (flutter_pear-qfz -- confirmed via an isolated repro against a local
+    // DHT testnet, independent of this file, and by intercepting sodium's
+    // own crypto_sign_verify_detached to prove the signature itself is
+    // valid): its compact-encoding round trip (`optionalBuffer`) decodes a
+    // ZERO-LENGTH buffer back as `null`, and `verifyReceipt` returns that
+    // decoded userData as its SUCCESS value -- so when a candidate's
+    // userData is empty, `verifyReceipt` returns `null`, and its caller
+    // (`openAuth`) misreads that success-with-a-falsy-value as failure via
+    // `if (!verifyReceipt(...))`, throwing 'Invalid reply'. Net effect:
+    // blind-pairing-core cannot complete ANY pairing whose candidate
+    // passes empty userData -- the common case, since most callers have no
+    // app data to attach. Fixed here, not in node_modules: never let a
+    // truly zero-length buffer reach blind-pairing's userData field.
+    // [encodeOptionalBufferSafe]/[decodeOptionalBufferSafe] prefix a 1-byte
+    // flag this wrapper controls (opaque to blind-pairing-core, invisible
+    // outside this file) so the buffer it actually sees is never empty;
+    // the flag is a separate leading byte, never mixed into real content,
+    // so even a genuine single zero-byte userData round-trips correctly.
     case Method.PAIRING_CREATE_INVITE: {
       return withPairingErrors(async () => {
         // The invite's own "resource key" only exists to derive a unique
         // discovery channel -- this wrapper has no data structure to tie
         // an invite to (unlike the README's Autobase example), so a fresh
         // random key per invite is all that's needed.
+        //
+        // resourceKey/seed are kept (see the invites.set(...) call below)
+        // for a SECOND reason, not just discovery: blind-pairing-core's own
+        // MemberRequest.confirm({key}) REQUIRES crypto.discoveryKey(key) to
+        // equal this invite's discoveryKey -- confirmed empirically
+        // (flutter_pear-qfz's follow-up investigation) by isolated repro:
+        // confirming with an unrelated key silently never resolves the
+        // candidate's acceptInvite (it just times out, no thrown error at
+        // all) as blind-pairing-core's own _openResponse rejects it. But
+        // PearPairingCandidate.confirm's OWN documented contract (and what
+        // flutter_pear_test's fake actually implements -- confirmed by
+        // reading it, since fake vs schema disagreements are resolved in
+        // the fake/schema's favor, never the real worklet's) is that the
+        // APP dev picks an arbitrary key to share next (e.g. a fresh swarm
+        // topic), with NO relationship to this invite's own internal
+        // resourceKey. Reconciled below: PAIRING_CONFIRM_CANDIDATE always
+        // confirms blind-pairing-core's required `key` with resourceKey
+        // (satisfying its internal check), and carries the app's actual
+        // chosen key in the `additional` field instead (signed with the
+        // invite's own seed-derived keypair, verified by blind-pairing-core
+        // itself on the candidate's side) -- PAIRING_ACCEPT_INVITE then
+        // returns THAT signed-and-verified app key, not resourceKey, to the
+        // Dart side. The wire contract (PAIRING_CONFIRM_CANDIDATE takes
+        // {key}, PAIRING_ACCEPT_INVITE returns {key}) is unchanged either
+        // way -- only this file's own use of blind-pairing-core's plumbing
+        // underneath it.
         const resourceKey = crypto.randomBytes(32)
-        const { invite, id, publicKey, discoveryKey } = BlindPairing.createInvite(resourceKey, {
+        const { invite, id, publicKey, discoveryKey, seed } = BlindPairing.createInvite(resourceKey, {
           expires: p.expiresAt || 0
         })
         const inviteIdHex = id.toString('hex')
@@ -1000,7 +1069,7 @@ async function handle ({ m, p }) {
                 p: {
                   inviteId: inviteIdHex,
                   candidateId,
-                  userData: request.userData ? request.userData.toString('base64') : ''
+                  userData: decodeOptionalBufferSafe(request.userData).toString('base64')
                 }
               })
             })
@@ -1008,7 +1077,7 @@ async function handle ({ m, p }) {
         })
         await member.ready()
         await member.flushed()
-        invites.set(inviteIdHex, { member, candidates })
+        invites.set(inviteIdHex, { member, candidates, resourceKey, seed })
         return { invite: invite.toString('base64'), inviteId: inviteIdHex }
       })
     }
@@ -1021,15 +1090,32 @@ async function handle ({ m, p }) {
           err.code = ErrorCode.UNKNOWN_CANDIDATE
           throw err
         }
+        // See PAIRING_CREATE_INVITE's own comment for why the app's actual
+        // key travels as `additional` (signed with the invite's own
+        // seed-derived keypair) rather than as blind-pairing-core's
+        // required `key` field -- resourceKey goes there instead, purely to
+        // satisfy blind-pairing-core's internal discoveryKey check.
+        //
+        // `additional.data` crosses the SAME buggy optionalBuffer encoding
+        // userData does (see encodeOptionalBufferSafe's own comment) --
+        // wrapped here too. A 32-byte PearKey is never actually empty in
+        // normal use, but nothing here should rely on the Dart-side
+        // assert-only length check (stripped in release builds) as the
+        // only thing standing between a malformed key and a confusing
+        // PAIRING_TIMEOUT instead of a clean rejection.
+        //
         // confirm() first, delete only once it succeeds (E5.6 review fix):
-        // confirm() can throw synchronously (e.g. a wrong-length key --
-        // blind-pairing-core's ResponsePayload encodes `key` as a mandatory
-        // fixed32). Deleting beforehand meant a failed confirm permanently
-        // discarded the candidate -- a retry with a corrected key got
-        // UNKNOWN_CANDIDATE instead of succeeding, and the candidate's own
-        // onadd promise was left resolved-never, leaking a pending request
-        // inside blind-pairing's Member.
-        candidateEntry.request.confirm({ key: Buffer.from(p.key, 'base64') })
+        // confirm() can throw synchronously. Deleting beforehand meant a
+        // failed confirm permanently discarded the candidate -- a retry
+        // with a corrected key got UNKNOWN_CANDIDATE instead of succeeding,
+        // and the candidate's own onadd promise was left resolved-never,
+        // leaking a pending request inside blind-pairing's Member.
+        const appKey = encodeOptionalBufferSafe(Buffer.from(p.key, 'base64'))
+        const inviteKeyPair = crypto.keyPair(inviteEntry.seed)
+        candidateEntry.request.confirm({
+          key: inviteEntry.resourceKey,
+          additional: { data: appKey, signature: crypto.sign(appKey, inviteKeyPair.secretKey) }
+        })
         inviteEntry.candidates.delete(p.candidateId)
         candidateEntry.resolve()
         return null
@@ -1078,8 +1164,8 @@ async function handle ({ m, p }) {
           err.code = ErrorCode.INVITE_EXPIRED
           throw err
         }
-        const userData = p.userData ? Buffer.from(p.userData, 'base64') : Buffer.alloc(0)
-        const candidate = pairing.addCandidate({ invite: inviteBytes, userData })
+        const realUserData = p.userData ? Buffer.from(p.userData, 'base64') : Buffer.alloc(0)
+        const candidate = pairing.addCandidate({ invite: inviteBytes, userData: encodeOptionalBufferSafe(realUserData) })
         await candidate.ready()
         // candidate.pairing never resolves on its own if nobody ever
         // confirms (blind-pairing's own polling loop has no built-in
@@ -1106,7 +1192,14 @@ async function handle ({ m, p }) {
           err.code = ErrorCode.PAIRING_TIMEOUT
           throw err
         }
-        return { key: paired.key.toString('base64') }
+        // paired.key is blind-pairing-core's own internal resourceKey (see
+        // PAIRING_CREATE_INVITE's comment) -- meaningless to the app.
+        // paired.data is the inviter's ACTUAL confirmed key, carried via
+        // `additional` and already signature-verified by blind-pairing-core
+        // itself before candidate.pairing ever resolves; unwrap the same
+        // optionalBuffer-safety flag PAIRING_CONFIRM_CANDIDATE prefixed it
+        // with.
+        return { key: decodeOptionalBufferSafe(paired.data).toString('base64') }
       })
     }
     // E5.8 -- Autobase wrapper. See schema.dart's PearMethod doc comments

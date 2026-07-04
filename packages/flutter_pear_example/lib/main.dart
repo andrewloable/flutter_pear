@@ -5,21 +5,64 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_pear/flutter_pear.dart';
 
+import 'file_drop_screen.dart';
+import 'pairing_screens.dart';
+
 void main() => runApp(const ChatApp());
 
-/// E7.1 -- the "clone this repo, run on two phones, chat" proof. Joins a
-/// topic over Hyperswarm and exchanges plaintext messages with every
-/// connected peer, with the swarm's connection state (X8) shown prominently
-/// -- this screen is as much an honesty demo (does flutter_pear tell you
-/// what's actually happening) as it is a chat app.
+/// The two promised demos (see `project_plan.md`): chat (E7.1/E7.2) and
+/// file-drop (E7.7, proving the E5.5 bulk-file path).
 class ChatApp extends StatelessWidget {
   /// Creates the demo app.
   const ChatApp({super.key});
 
   @override
   Widget build(BuildContext context) => const MaterialApp(
-        title: 'flutter_pear chat',
-        home: ChatScreen(),
+        title: 'flutter_pear demos',
+        home: _DemoHomeScreen(),
+      );
+}
+
+class _DemoHomeScreen extends StatelessWidget {
+  const _DemoHomeScreen();
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('flutter_pear demos')),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ChatScreen()),
+                ),
+                child: const Text('Chat demo'),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const FileDropScreen()),
+                ),
+                child: const Text('File drop demo'),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const StartRoomScreen()),
+                ),
+                child: const Text('Start Room (QR)'),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const JoinRoomScreen()),
+                ),
+                child: const Text('Join Room (QR)'),
+              ),
+            ],
+          ),
+        ),
       );
 }
 
@@ -52,10 +95,102 @@ class ChatLogLine {
   final bool isStateChange;
 }
 
+/// Buffers a freshly-joined [PearSwarm]'s `state`/`connections` events from
+/// the instant it's created, until something is ready to consume them.
+///
+/// Exists to close a subscription gap in the QR/invite pairing flow
+/// (`StartRoomScreen`/`JoinRoomScreen` in pairing_screens.dart): those
+/// screens create the [PearSwarm] well before `ChatScreen.joined` exists --
+/// `_ChatScreenState.initState` (where it would otherwise subscribe) only
+/// runs a full `Navigator.pushReplacement` plus a frame later. Without this,
+/// any state/connection event landing in that gap is silently and
+/// permanently missed (broadcast streams, same discipline as everywhere
+/// else in this codebase -- a late subscriber never sees what already
+/// fired). Construct this immediately after `join()` resolves, with no
+/// other `await` in between, exactly like every other subscribe-first site
+/// in this codebase.
+class PrejoinedSwarmWiring {
+  /// Starts buffering [swarm]'s events right away.
+  PrejoinedSwarmWiring(PearSwarm swarm)
+      : stateSub = swarm.state.listen(null),
+        connectionsSub = swarm.connections.listen(null) {
+    stateSub.onData(_statuses.add);
+    connectionsSub.onData(_connections.add);
+  }
+
+  /// The subscription buffering [PearSwarmStatus] events until [drainInto]
+  /// re-points it. Exposed so a caller that ends up not handing this off
+  /// (e.g. the pairing screen's own join()/confirm() failed, or the screen
+  /// was unmounted first) can cancel it directly.
+  final StreamSubscription<PearSwarmStatus> stateSub;
+
+  /// The subscription buffering [PearConnection] events until [drainInto]
+  /// re-points it. See [stateSub].
+  final StreamSubscription<PearConnection> connectionsSub;
+
+  final _statuses = <PearSwarmStatus>[];
+  final _connections = <PearConnection>[];
+
+  /// Re-points both subscriptions' handlers to [onStatus]/[onConnection]
+  /// and replays whatever was buffered before this call, in arrival order.
+  /// Call exactly once -- a second call has nothing left to replay.
+  void drainInto(
+    void Function(PearSwarmStatus) onStatus,
+    void Function(PearConnection) onConnection,
+  ) {
+    stateSub.onData(onStatus);
+    connectionsSub.onData(onConnection);
+    for (final status in _statuses) {
+      onStatus(status);
+    }
+    _statuses.clear();
+    for (final conn in _connections) {
+      onConnection(conn);
+    }
+    _connections.clear();
+  }
+}
+
 /// Joins a shared topic and chats with whoever else joins it.
 class ChatScreen extends StatefulWidget {
-  /// Creates the chat screen.
-  const ChatScreen({super.key});
+  /// Creates the chat screen with its own plain-topic room-name entry flow
+  /// (the demo-only [PearCrypto.unsafeTopicFromString] shortcut) -- the
+  /// existing entry point, unchanged.
+  const ChatScreen({super.key})
+      : prejoinedPear = null,
+        prejoinedSwarm = null,
+        prejoinedWiring = null;
+
+  /// Creates the chat screen already attached to [prejoinedSwarm] (joined
+  /// via [prejoinedPear]) -- used by the QR/invite pairing flow (E7.2's
+  /// `StartRoomScreen`/`JoinRoomScreen`), which builds its own [Pear] and
+  /// [PearSwarm] via `PearPairing` rather than this screen's room-name text
+  /// field. This screen takes over ownership of both: its [State.dispose]
+  /// tears them down exactly as it would one it created itself. [wiring]
+  /// (required alongside [swarm]) is the [PrejoinedSwarmWiring] the caller
+  /// started subscribing on the instant it created [swarm] -- see that
+  /// class for why this can't just re-subscribe from scratch here.
+  const ChatScreen.joined({
+    super.key,
+    required this.prejoinedPear,
+    required this.prejoinedSwarm,
+    required this.prejoinedWiring,
+  });
+
+  /// The already-started [Pear] to adopt instead of creating one, when this
+  /// screen was constructed via [ChatScreen.joined]. Null for the plain
+  /// [ChatScreen] constructor.
+  final Pear? prejoinedPear;
+
+  /// The already-joined [PearSwarm] to adopt instead of creating one, when
+  /// this screen was constructed via [ChatScreen.joined]. Null for the
+  /// plain [ChatScreen] constructor.
+  final PearSwarm? prejoinedSwarm;
+
+  /// The [PrejoinedSwarmWiring] already buffering [prejoinedSwarm]'s events
+  /// since before this screen existed. Null for the plain [ChatScreen]
+  /// constructor, where [_wireSwarm] subscribes fresh instead.
+  final PrejoinedSwarmWiring? prejoinedWiring;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -73,6 +208,19 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _joining = false;
   StreamSubscription<PearSwarmStatus>? _stateSub;
   StreamSubscription<PearConnection>? _connectionsSub;
+
+  @override
+  void initState() {
+    super.initState();
+    final pear = widget.prejoinedPear;
+    final swarm = widget.prejoinedSwarm;
+    // Both null for the plain ChatScreen() constructor (room-name entry via
+    // _join() below); both non-null for ChatScreen.joined() (the QR/invite
+    // pairing flow, E7.2).
+    if (pear != null && swarm != null) {
+      _wireSwarm(pear, swarm, wiring: widget.prejoinedWiring);
+    }
+  }
 
   @override
   void dispose() {
@@ -108,31 +256,51 @@ class _ChatScreenState extends State<ChatScreen> {
       final pear = await Pear.start();
       final topic = PearCrypto.unsafeTopicFromString(topicText);
       final swarm = await pear.join(topic);
-
-      _stateSub = swarm.state.listen((status) {
-        if (!mounted) return;
-        setState(() {
-          _status = status;
-          _log.add(ChatLogLine.stateChange(describeSwarmState(status)));
-        });
-      });
-      _connectionsSub = swarm.connections.listen((conn) {
-        conn.data.listen((bytes) {
-          if (!mounted) return;
-          setState(() => _log.add(ChatLogLine.received(utf8.decode(bytes))));
-        });
-      });
-
-      setState(() {
-        _pear = pear;
-        _swarm = swarm;
-        _status = swarm.currentState;
-      });
+      setState(() => _wireSwarm(pear, swarm));
     } on PearException catch (e) {
       setState(() => _joinError = e.toString());
     } finally {
       setState(() => _joining = false);
     }
+  }
+
+  /// Subscribes to [swarm]'s state/connections streams and adopts [pear] as
+  /// this screen's active session -- shared by [_join] (which builds its
+  /// own [pear]/[swarm] from a typed room name, so [wiring] is null and
+  /// this subscribes fresh) and [initState] (when constructed via
+  /// [ChatScreen.joined] with an already-built swarm from the QR/invite
+  /// pairing flow, E7.2, where [wiring] has been buffering events since
+  /// before this screen existed -- see [PrejoinedSwarmWiring]). Either way,
+  /// the handlers are attached before anything else, matching this
+  /// codebase's established late-subscriber-race discipline -- a broadcast-
+  /// stream event that arrives before a listener attaches is simply missed.
+  void _wireSwarm(Pear pear, PearSwarm swarm, {PrejoinedSwarmWiring? wiring}) {
+    void onStatus(PearSwarmStatus status) {
+      if (!mounted) return;
+      setState(() {
+        _status = status;
+        _log.add(ChatLogLine.stateChange(describeSwarmState(status)));
+      });
+    }
+
+    void onConnection(PearConnection conn) {
+      conn.data.listen((bytes) {
+        if (!mounted) return;
+        setState(() => _log.add(ChatLogLine.received(utf8.decode(bytes))));
+      });
+    }
+
+    if (wiring != null) {
+      _stateSub = wiring.stateSub;
+      _connectionsSub = wiring.connectionsSub;
+      wiring.drainInto(onStatus, onConnection);
+    } else {
+      _stateSub = swarm.state.listen(onStatus);
+      _connectionsSub = swarm.connections.listen(onConnection);
+    }
+    _pear = pear;
+    _swarm = swarm;
+    _status = swarm.currentState;
   }
 
   Future<void> _send() async {

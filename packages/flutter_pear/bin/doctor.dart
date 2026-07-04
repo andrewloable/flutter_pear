@@ -1,0 +1,105 @@
+import 'dart:io';
+import 'dart:isolate';
+
+import 'package:flutter_pear/src/doctor_report.dart';
+
+/// Runtime connectivity doctor (E7.4, X5) -- `dart run flutter_pear:doctor`.
+///
+/// Desktop-side network diagnostics only: connectivity/DHT/NAT checks that
+/// answer "will this network let flutter_pear's Hyperswarm connections
+/// work", run directly against the real Hyperswarm DHT. Does NOT boot the
+/// real Android/iOS worklet -- a plain `dart run` CLI has no Flutter
+/// engine, so it can't drive `BareWorklet`'s platform channels the way a
+/// real app does; there is no way for pure Dart to do that here. Doctor is
+/// explicitly a RUNTIME diagnostic (install-time failures are the error
+/// catalog + troubleshooting docs' job, not this tool's).
+///
+/// `--report [--log <path>]` (E7.5) prints a paste-ready markdown support
+/// bundle instead -- package versions, the pear-end bundle identifier, the
+/// host environment, these same checks' output, and (if `--log` is given) a
+/// sanitized tail of that log file. Nothing here is ever transmitted
+/// (LOCKED: no runtime telemetry in a privacy-first P2P library) -- the
+/// bundle is meant to be pasted into a GitHub issue by hand.
+///
+/// Thin wrapper only: the actual checks live in `tool/doctor-checks.js`,
+/// run as a plain Node process -- see that file's own doc comment. Exits
+/// with the same code the JS side does (0 if every check passed, 1 if any
+/// failed) whether or not `--report` was passed, so this is usable as a CI
+/// gate either way.
+Future<void> main(List<String> args) async {
+  final report = args.contains('--report');
+  final logIndex = args.indexOf('--log');
+  if (logIndex != -1 && logIndex + 1 >= args.length) {
+    stderr.writeln('--log needs a path, e.g. --log /path/to/app.log');
+    exit(2);
+  }
+  final logPath = logIndex == -1 ? null : args[logIndex + 1];
+  if (logPath != null && !File(logPath).existsSync()) {
+    stderr.writeln('--log path not found: $logPath');
+    exit(2);
+  }
+  // doctor-checks.js only understands its own flags -- strip this script's.
+  final checksArgs = [
+    for (var i = 0; i < args.length; i++)
+      if (args[i] != '--report' && args[i] != '--log' && i != logIndex + 1)
+        args[i],
+  ];
+
+  final libUri = await Isolate.resolvePackageUri(
+    Uri.parse('package:flutter_pear/'),
+  );
+  if (libUri == null) {
+    stderr.writeln(
+      'Could not resolve package:flutter_pear/ -- this needs a '
+      '.dart_tool/package_config.json (e.g. `dart run`), not a standalone '
+      '`dart compile exe` binary.',
+    );
+    exit(1);
+  }
+  final packageRoot = Directory.fromUri(libUri).parent;
+  final checksJs = File('${packageRoot.path}/tool/doctor-checks.js').absolute.path;
+
+  try {
+    final process = await Process.start(
+      'node',
+      [checksJs, ...checksArgs],
+      mode: report ? ProcessStartMode.normal : ProcessStartMode.inheritStdio,
+    );
+    final String checkOutput;
+    if (report) {
+      // Captured (not inherited) so it can be embedded in the report below
+      // instead of also printing twice.
+      checkOutput = await process.stdout.transform(systemEncoding.decoder).join();
+      await process.stderr.drain<void>();
+    } else {
+      checkOutput = '';
+    }
+    exitCode = await process.exitCode;
+
+    if (report) {
+      stdout.write(buildDoctorReport(
+        flutterPearVersion: _packageVersion(packageRoot, 'flutter_pear'),
+        flutterPearBareVersion:
+            _packageVersion(packageRoot, 'flutter_pear_bare'),
+        hostOs: '${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+        doctorCheckOutput: checkOutput,
+        rawLog: logPath == null ? null : File(logPath).readAsStringSync(),
+      ));
+    }
+  } on ProcessException catch (e) {
+    stderr.writeln('Could not run doctor-checks.js: $e');
+    stderr.writeln('Is Node.js installed and on PATH?');
+    exit(1);
+  }
+}
+
+/// [name]'s package version, read straight from its `pubspec.yaml` --
+/// avoids adding a YAML-parsing dependency for one `version:` line.
+String _packageVersion(Directory flutterPearRoot, String name) {
+  final pubspec = name == 'flutter_pear'
+      ? File('${flutterPearRoot.path}/pubspec.yaml')
+      : File('${flutterPearRoot.path}/../$name/pubspec.yaml');
+  final match = RegExp(r'^version:\s*(.+)$', multiLine: true)
+      .firstMatch(pubspec.readAsStringSync());
+  return match?.group(1)?.trim() ?? 'unknown';
+}

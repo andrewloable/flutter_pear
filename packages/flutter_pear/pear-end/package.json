@@ -6,7 +6,7 @@
   "main": "index.js",
   "comment": "Pin these and publish a compatibility table (plugin ↔ Bare Kit ↔ Hyper*). Versions below are placeholders for M1.",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test --test-concurrency=1"
   },
   "dependencies": {
     "autobase": "^7.28.1",
