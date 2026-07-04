@@ -20,7 +20,7 @@ import 'swarm.dart';
 ///
 /// ```dart
 /// final pear = await Pear.start();
-/// final swarm = await pear.join(PearCrypto.topicFromString('my-room'));
+/// final swarm = await pear.join(PearCrypto.unsafeTopicFromString('my-room'));
 /// swarm.connections.listen((conn) => conn.write(utf8.encode('hi')));
 /// // ...
 /// await pear.dispose();
@@ -187,7 +187,8 @@ class Pear {
     Uint8List? userData,
     Duration timeout = const Duration(seconds: 30),
   }) =>
-      PearPairing.acceptInvite(_rpc, invite, userData: userData, timeout: timeout);
+      PearPairing.acceptInvite(_rpc, invite,
+          userData: userData, timeout: timeout);
 
   /// Opens an Autobase multi-writer data structure (E5.8) — see
   /// [PearBase.open] for the [recipe]/[name]/[key] contract.
@@ -247,8 +248,8 @@ class Pear {
         exception: error,
         stack: stack,
         library: 'flutter_pear',
-        context: ErrorDescription(
-            'PearLifecycle auto-triggered suspend/resume'),
+        context:
+            ErrorDescription('PearLifecycle auto-triggered suspend/resume'),
       ));
     }
   }

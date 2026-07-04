@@ -106,8 +106,8 @@ void main() {
   test('pear-end/schema.js mirrors every Dart constant value', () {
     // schema.js is hand-kept, not generated (LOCKED, E2.1) -- this is the
     // regression test that catches the two files drifting apart.
-    final js = File('${Directory.current.path}/pear-end/schema.js')
-        .readAsStringSync();
+    final js =
+        File('${Directory.current.path}/pear-end/schema.js').readAsStringSync();
 
     String jsValue(String key) {
       // Lookbehind guards against a shorter key matching as a suffix of a
@@ -157,7 +157,8 @@ void main() {
     expect(jsValue('DRIVE_CLOSE'), PearMethod.driveClose);
     expect(jsValue('PAIRING_CREATE_INVITE'), PearMethod.pairingCreateInvite);
     expect(jsValue('PAIRING_ACCEPT_INVITE'), PearMethod.pairingAcceptInvite);
-    expect(jsValue('PAIRING_CONFIRM_CANDIDATE'), PearMethod.pairingConfirmCandidate);
+    expect(jsValue('PAIRING_CONFIRM_CANDIDATE'),
+        PearMethod.pairingConfirmCandidate);
     expect(jsValue('PAIRING_REVOKE'), PearMethod.pairingRevoke);
     expect(jsValue('BASE_OPEN'), PearMethod.baseOpen);
     expect(jsValue('BASE_REPLICATE'), PearMethod.baseReplicate);

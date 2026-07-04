@@ -248,6 +248,17 @@ swarm.on('error', (err) => {
 // FlutterPearBarePlugin.kt's Worklet.start() -- bare-os's cwd() resolves to
 // "/" in this sandbox (confirmed on-device), and neither BareKit nor Bare
 // expose a storage-path helper, so argv is the only channel available.
+// Guarded explicitly (flutter_pear-pcg) so a future boot path that forgets
+// to pass it fails loudly right here, at the top of module load, instead of
+// a generic path.join(undefined, ...) TypeError with no indication of what
+// was actually missing.
+if (!Bare.argv[0]) {
+  throw new Error(
+    'pear-end: Bare.argv[0] (this worklet\'s private storage directory) is ' +
+    'missing -- every Worklet.start() boot path must pass it; refusing to ' +
+    'guess a storage location.'
+  )
+}
 const BULK_STORAGE_DIR = path.join(Bare.argv[0], 'pear-bulk')
 
 // E5.2 -- Corestore/Hypercore wrapper (PearStore/PearCore). Same
@@ -603,14 +614,23 @@ async function handle ({ m, p }) {
         // map -- checking closedCores too is what lets a reopen replace
         // that stale session instead of silently keeping it (and its
         // permanently-closed status) forever.
+        let registered = core
         if (!cores.has(keyHex) || closedCores.has(keyHex)) {
           cores.set(keyHex, core)
           closedCores.delete(keyHex)
           core.on('append', () => {
             send({ ev: EventName.CORE_UPDATE, p: { key: keyHex, length: core.length } })
           })
+        } else {
+          // Redundant reopen of an already-registered, still-open core:
+          // store.get() above always hands back a FRESH session regardless
+          // of whether keyHex is already tracked, and this one is never
+          // wrapped into `cores` -- close it instead of leaking a Hypercore
+          // session per redundant get() call (flutter_pear-0md).
+          registered = cores.get(keyHex)
+          await core.close()
         }
-        return { key: keyHex, length: core.length }
+        return { key: keyHex, length: registered.length }
       })
     }
     case Method.CORE_APPEND: {
@@ -676,6 +696,12 @@ async function handle ({ m, p }) {
           await bee.ready()
           bees.set(keyHex, bee)
           closedBees.delete(keyHex)
+        } else {
+          // Redundant reopen of an already-registered, still-open bee:
+          // `core` above is a fresh Hypercore session fetched just to learn
+          // keyHex, never wrapped into a Hyperbee -- close it instead of
+          // leaking a session per redundant open() call (flutter_pear-0md).
+          await core.close()
         }
         return { key: keyHex }
       })

@@ -16,7 +16,8 @@ import 'package:flutter_pear_test/flutter_pear_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('PearSwarm/PearConnection run end-to-end, unmodified, against two '
+  test(
+      'PearSwarm/PearConnection run end-to-end, unmodified, against two '
       'FakeBareWorklets', () async {
     final hub = FakeSwarmHub();
     final workletA = FakeBareWorklet(hub: hub);
@@ -26,7 +27,8 @@ void main() {
     await rpcA.call(PearMethod.attachInfo);
     await rpcB.call(PearMethod.attachInfo);
 
-    final topic = PearCrypto.topicFromString('flutter_pear-conformance-test');
+    final topic =
+        PearCrypto.unsafeTopicFromString('flutter_pear-conformance-test');
 
     final swarmA = await PearSwarm.join(rpcA, topic);
     final firstConnA = swarmA.connections.first;

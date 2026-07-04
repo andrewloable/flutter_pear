@@ -39,6 +39,16 @@ typedef PearBaseGetResult = ({bool exists, Uint8List? value});
 /// appending. [get]/[range] are plain reads, not appended ops, so calling
 /// the wrong one for this base's recipe instead fails with a generic
 /// `PearStorageException` (no specific [PearErrorCode]).
+///
+/// ```dart
+/// final pear = await Pear.start();
+/// final base = await pear.base(recipe: PearRecipe.lww, name: 'shared-state');
+/// await base.put(utf8.encode('theme'), utf8.encode('dark'));
+///
+/// // Admit a peer as a second writer -- exchange writerKey out of band
+/// // (e.g. over a PearPairing confirm), then each side calls addWriter.
+/// await base.addWriter(peerWriterKey);
+/// ```
 class PearBase {
   PearBase._(this._rpc, this.key, this.recipe, this.writerKey);
 
@@ -125,8 +135,8 @@ class PearBase {
   /// [PearRecipe.crdtMap], every put's tag has since been deleted) —
   /// [PearRecipe.lww]/[PearRecipe.crdtMap] only.
   Future<PearBaseGetResult> get(Uint8List key) async {
-    final result = await _rpc.call(
-        PearMethod.baseGet, {'base': this.key.hex, 'key': base64Encode(key)}) as Map;
+    final result = await _rpc.call(PearMethod.baseGet,
+        {'base': this.key.hex, 'key': base64Encode(key)}) as Map;
     return (
       exists: result['exists'] == true,
       value: result['exists'] == true
@@ -176,8 +186,8 @@ class PearBase {
             controller.add(null);
           }
         });
-        _rpc.call(PearMethod.baseWatch, {'base': key.hex, 'watch': id}).catchError(
-            (Object error) {
+        _rpc.call(PearMethod.baseWatch,
+            {'base': key.hex, 'watch': id}).catchError((Object error) {
           controller.addError(error);
           return null;
         });
@@ -187,7 +197,8 @@ class PearBase {
         await sub?.cancel();
         if (id == null) return;
         try {
-          await _rpc.call(PearMethod.baseUnwatch, {'base': key.hex, 'watch': id});
+          await _rpc
+              .call(PearMethod.baseUnwatch, {'base': key.hex, 'watch': id});
         } catch (_) {
           // Best-effort -- see PearBee.watch's identical doc for why.
         }
@@ -225,6 +236,6 @@ class PearBase {
 
 String _randomWatchId() {
   final random = Random();
-  return List.generate(16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'))
-      .join();
+  return List.generate(
+      16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
 }

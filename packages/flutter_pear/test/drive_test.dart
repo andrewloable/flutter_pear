@@ -37,7 +37,8 @@ void main() {
     expect(await drive.exists('/whatever.txt'), isFalse);
   });
 
-  test('open() by name is idempotent -- the same name always resolves to '
+  test(
+      'open() by name is idempotent -- the same name always resolves to '
       'the same key', () async {
     final first = await PearDrive.open(rpc, name: 'my-drive');
     final second = await PearDrive.open(rpc, name: 'my-drive');
@@ -102,7 +103,8 @@ void main() {
     expect(paths, ['/docs/a.txt', '/docs/b.txt']);
   });
 
-  test('get() on a missing path throws a typed PearStorageException with '
+  test(
+      'get() on a missing path throws a typed PearStorageException with '
       'FILE_NOT_FOUND', () async {
     final drive = await PearDrive.open(rpc, name: 'my-drive');
 
@@ -113,7 +115,8 @@ void main() {
     );
   });
 
-  test('operations on a closed drive throw a typed PearStorageException with '
+  test(
+      'operations on a closed drive throw a typed PearStorageException with '
       'DRIVE_CLOSED', () async {
     final drive = await PearDrive.open(rpc, name: 'my-drive');
     await drive.close();
@@ -130,7 +133,8 @@ void main() {
     await drive.put('/a.txt', await writeLocalFile('a.txt', 'A'));
     await drive.put('/b.txt', await writeLocalFile('b.txt', 'B'));
 
-    final mirrorDir = await Directory.systemTemp.createTemp('flutter_pear-mirror-');
+    final mirrorDir =
+        await Directory.systemTemp.createTemp('flutter_pear-mirror-');
     final result = await drive.mirrorToDisk(mirrorDir.path);
 
     expect(result.added, 2);
@@ -139,7 +143,8 @@ void main() {
     await mirrorDir.delete(recursive: true);
   });
 
-  test('a drive reopened after close() works again, not permanently locked '
+  test(
+      'a drive reopened after close() works again, not permanently locked '
       'out', () async {
     final first = await PearDrive.open(rpc, name: 'my-drive');
     await first.put('/f.txt', await writeLocalFile('a.txt', 'data'));
@@ -153,7 +158,8 @@ void main() {
     expect(await reopened.exists('/g.txt'), isTrue);
   });
 
-  test('two different peers calling open(name:) with the same name never '
+  test(
+      'two different peers calling open(name:) with the same name never '
       'collide on the same key', () async {
     final hub = FakeSwarmHub();
     final rpcA = PearRpc(FakeBareWorklet(hub: hub));
@@ -170,7 +176,8 @@ void main() {
     await rpcB.dispose();
   });
 
-  test('put() on a drive opened by key (not owned by this worklet) throws '
+  test(
+      'put() on a drive opened by key (not owned by this worklet) throws '
       'a typed PearStorageException -- only the creating peer can write',
       () async {
     final hub = FakeSwarmHub();
@@ -192,7 +199,8 @@ void main() {
     await rpcB.dispose();
   });
 
-  test('replicate() called by only ONE side never syncs data -- both peers '
+  test(
+      'replicate() called by only ONE side never syncs data -- both peers '
       'must call it', () async {
     final hub = FakeSwarmHub();
     final workletA = FakeBareWorklet(hub: hub);
@@ -205,7 +213,7 @@ void main() {
     final driveA = await PearDrive.open(rpcA, name: 'one-sided-drive');
     await driveA.put('/f.txt', await writeLocalFile('a.txt', 'data'));
 
-    final topic = PearCrypto.topicFromString('drive-one-sided-replicate');
+    final topic = PearCrypto.unsafeTopicFromString('drive-one-sided-replicate');
     final swarmA = await PearSwarm.join(rpcA, topic);
     final firstConnA = swarmA.connections.first;
     final swarmB = await PearSwarm.join(rpcB, topic);
@@ -223,7 +231,8 @@ void main() {
     await rpcB.dispose();
   });
 
-  test('two peers replicate a drive -- B gets a file A put before '
+  test(
+      'two peers replicate a drive -- B gets a file A put before '
       'replicating', () async {
     final hub = FakeSwarmHub();
     final workletA = FakeBareWorklet(hub: hub);
@@ -236,7 +245,7 @@ void main() {
     final driveA = await PearDrive.open(rpcA, name: 'shared-drive');
     await driveA.put('/before.txt', await writeLocalFile('a.txt', 'before'));
 
-    final topic = PearCrypto.topicFromString('drive-replicate-test');
+    final topic = PearCrypto.unsafeTopicFromString('drive-replicate-test');
     final swarmA = await PearSwarm.join(rpcA, topic);
     final firstConnA = swarmA.connections.first;
     final swarmB = await PearSwarm.join(rpcB, topic);

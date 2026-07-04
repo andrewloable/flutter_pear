@@ -1,6 +1,10 @@
 // JS-level determinism tests for the E5.7 Autobase recipes (node, no
 // device -- see flutter_pear-2vz.7's own VALIDATION). Run directly with
-// Node's built-in test runner: `node --test pear-end/test/`.
+// Node's built-in test runner from the pear-end/ directory: `node --test`
+// (a directory path argument, e.g. `node --test pear-end/test/`, does NOT
+// auto-discover on this Node version -- confirmed while wiring CI for
+// flutter_pear-pcg; it tries to require() the path as a single file and
+// fails with MODULE_NOT_FOUND).
 'use strict'
 
 const test = require('node:test')

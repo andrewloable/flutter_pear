@@ -38,7 +38,8 @@ void main() {
 
   const control = MethodChannel('flutter_pear_bare/control');
   const ipcChannel = 'flutter_pear_bare/ipc';
-  final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   const codec = StandardMessageCodec();
   const nonce = 'pear-test-session-nonce';
 
@@ -94,7 +95,9 @@ void main() {
             ipcChannel,
             codec.encodeMessage(_lengthPrefixed(_jsonFrame({
               'id': id,
-              'ok': {PearHandshakeField.bundleVersion: attachInfoVersion(callNumber)},
+              'ok': {
+                PearHandshakeField.bundleVersion: attachInfoVersion(callNumber)
+              },
               'n': nonce,
             }))),
             (_) {},
@@ -109,8 +112,8 @@ void main() {
       scheduleMicrotask(() {
         messenger.handlePlatformMessage(
           ipcChannel,
-          codec.encodeMessage(
-              _lengthPrefixed(_jsonFrame({'id': id, 'ok': <String, Object?>{}, 'n': nonce}))),
+          codec.encodeMessage(_lengthPrefixed(
+              _jsonFrame({'id': id, 'ok': <String, Object?>{}, 'n': nonce}))),
           (_) {},
         );
       });
@@ -123,8 +126,7 @@ void main() {
     messenger.setMockMessageHandler(ipcChannel, null);
   });
 
-  test('suspend() racing dispose() does not throw (E6.2 regression)',
-      () async {
+  test('suspend() racing dispose() does not throw (E6.2 regression)', () async {
     // A Completer, not a fixed delay, gates the native "suspend" call so
     // this test deterministically controls exactly when it resolves --
     // relying on incidental timing (e.g. a short artificial delay) to
@@ -142,7 +144,8 @@ void main() {
     final suspendFuture = pear.suspend();
     await Future<void>.delayed(Duration.zero); // let suspend() reach the gate
     final disposeFuture = pear.dispose();
-    await Future<void>.delayed(Duration.zero); // let dispose() run as far as it can
+    await Future<void>.delayed(
+        Duration.zero); // let dispose() run as far as it can
     suspendGate.complete(); // now release the pending native "suspend" call
     await Future.wait([suspendFuture, disposeFuture]);
     // No explicit assertion beyond reaching here: before this fix,
@@ -174,7 +177,8 @@ void main() {
     });
 
     final pear = await Pear.start();
-    final swarm = await pear.join(PearCrypto.topicFromString('pear-test-topic'));
+    final swarm =
+        await pear.join(PearCrypto.unsafeTopicFromString('pear-test-topic'));
     final states = <PearSwarmStatus>[];
     final sub = swarm.state.listen(states.add);
 
@@ -267,11 +271,12 @@ void main() {
     messenger.setMockMessageHandler(ipcChannel, (_) async => null);
 
     final pearFuture = Pear.start();
-    await Future<void>.delayed(Duration.zero); // let attach.info actually go out
+    await Future<void>.delayed(
+        Duration.zero); // let attach.info actually go out
 
     const methodCodec = StandardMethodCodec();
-    const crashCall =
-        MethodCall('onWorkletExit', {'reason': 'simulated crash during attach.info'});
+    const crashCall = MethodCall(
+        'onWorkletExit', {'reason': 'simulated crash during attach.info'});
     await messenger.handlePlatformMessage(
       'flutter_pear_bare/control',
       methodCodec.encodeMethodCall(crashCall),

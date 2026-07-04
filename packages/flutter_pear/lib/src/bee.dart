@@ -18,6 +18,13 @@ typedef PearBeeEntry = ({Uint8List key, Uint8List value});
 ///
 /// `Future`s for point calls, a bounded [range] `Stream`, and a live
 /// [watch] broadcast `Stream` — matching every other Pear wrapper's shape.
+///
+/// ```dart
+/// final pear = await Pear.start();
+/// final bee = await pear.bee(name: 'settings');
+/// await bee.put(utf8.encode('theme'), utf8.encode('dark'));
+/// print(await bee.get(utf8.encode('theme'))); // dark, as bytes
+/// ```
 class PearBee {
   PearBee._(this._rpc, this.key);
 
@@ -47,7 +54,8 @@ class PearBee {
   /// Reads the value at [key], or `null` if [key] isn't present.
   Future<Uint8List?> get(Uint8List key) async {
     final result = await _rpc.call(
-        PearMethod.beeGet, {'bee': this.key.hex, 'key': base64Encode(key)}) as Map;
+            PearMethod.beeGet, {'bee': this.key.hex, 'key': base64Encode(key)})
+        as Map;
     return result['found'] == true
         ? base64Decode(result['value'] as String)
         : null;
@@ -56,12 +64,16 @@ class PearBee {
   /// Writes [value] at [key], overwriting any existing value.
   Future<void> put(Uint8List key, Uint8List value) => _rpc.call(
         PearMethod.beePut,
-        {'bee': this.key.hex, 'key': base64Encode(key), 'value': base64Encode(value)},
+        {
+          'bee': this.key.hex,
+          'key': base64Encode(key),
+          'value': base64Encode(value)
+        },
       );
 
   /// Deletes [key]. A no-op, not an error, if [key] isn't present.
-  Future<void> del(Uint8List key) =>
-      _rpc.call(PearMethod.beeDel, {'bee': this.key.hex, 'key': base64Encode(key)});
+  Future<void> del(Uint8List key) => _rpc
+      .call(PearMethod.beeDel, {'bee': this.key.hex, 'key': base64Encode(key)});
 
   /// Replicates this bee's underlying core over [connection] — call on both
   /// peers, same contract as `PearCore.replicate` (watching alone never
@@ -111,8 +123,8 @@ class PearBee {
   /// subscription starts when the first listener attaches and stops when
   /// the last one cancels (broadcast semantics); a subsequent re-listen
   /// (all listeners cancel, then a new one attaches) starts a genuinely new
-  /// worklet-side watch with its own id — see [onListen]'s `watchId`
-  /// generation below for why that matters.
+  /// worklet-side watch with its own id — see this stream's `onListen`
+  /// handler's `watchId` generation below for why that matters.
   Stream<void> watch({
     Uint8List? gt,
     Uint8List? gte,
@@ -197,6 +209,6 @@ class PearBee {
 
 String _randomWatchId() {
   final random = Random();
-  return List.generate(16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'))
-      .join();
+  return List.generate(
+      16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
 }

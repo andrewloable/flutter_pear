@@ -12,13 +12,17 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: Activate melos
         run: dart pub global activate melos
@@ -29,9 +33,50 @@ jobs:
       - name: melos run analyze
         run: melos run analyze
 
+      - name: Extract + analyze README/docs snippets (E8.2, E8.6)
+        working-directory: packages/flutter_pear
+        run: |
+          dart run tool/extract_snippets.dart ../../README.md README.md \
+            docs/concepts.md docs/howto-chat.md docs/howto-filesync.md docs/howto-pairing.md
+
+      - name: pear-end JS-level tests (flutter_pear-pcg)
+        # node --test with an explicit directory-path argument doesn't
+        # auto-discover on the Node versions checked (see
+        # pear-end/test/autobase-recipes.test.js's header) -- running with no
+        # args from this working-directory relies on its recursive
+        # **/*.test.js discovery instead.
+        working-directory: packages/flutter_pear/pear-end
+        run: |
+          npm ci
+          npm test
+
       - name: melos run test
         # --no-select: this melos version otherwise prompts interactively
         # to pick a package even in a non-interactive shell, since the
         # `test` script's packageFilters make melos treat it as a
         # single-package-selection script by default.
         run: melos run test --no-select
+
+      - name: pub.dev score gate -- pana >= 130 (E8.7)
+        # The only current deduction is publish_to: none (intentional --
+        # pre-publish, flips at E9.7) capping the "valid pubspec.yaml"
+        # sub-check; each package still clears 130 comfortably today.
+        run: |
+          dart pub global activate pana
+          fail=0
+          for pkg in flutter_pear flutter_pear_bare flutter_pear_test; do
+            # Redirect to a file rather than capturing via $(...): pana's
+            # own subprocess output has occasionally interleaved raw control
+            # bytes into a piped stdout capture, which breaks jq's strict
+            # JSON parsing -- a plain file write doesn't see that.
+            dart pub global run pana --no-warning --json "packages/$pkg" \
+              > "/tmp/pana-$pkg.json" 2>/dev/null
+            granted=$(jq '.scores.grantedPoints' "/tmp/pana-$pkg.json")
+            max=$(jq '.scores.maxPoints' "/tmp/pana-$pkg.json")
+            echo "$pkg: $granted / $max"
+            if [ "$granted" -lt 130 ]; then
+              echo "::error::$pkg scored $granted/$max, below the 130 pub.dev score gate"
+              fail=1
+            fi
+          done
+          exit $fail

@@ -65,6 +65,17 @@ class FlutterPearBarePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private companion object {
         private var worklet: Worklet? = null
         private var workletIpc: IPC? = null
+
+        // Identifies the CURRENTLY RUNNING worklet process/IPC pair -- bumped
+        // only on a fresh boot (startWorklet's worklet == null branch), left
+        // unchanged across a reattach (same native worklet, just a new Dart
+        // isolate after a hot restart). Echoed to Dart in "start"'s result
+        // and stamped on every onWorkletExit call (see reportUnexpectedExit)
+        // so bare_worklet.dart can tell a genuine exit of ITS OWN generation
+        // apart from a stale straggler about an earlier one that Flutter's
+        // engine buffered and replayed to a since-reassigned handler
+        // (flutter_pear-3vh).
+        private var workletGeneration = 0
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -104,7 +115,7 @@ class FlutterPearBarePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     // bound for a genuine cold boot (real JS engine + native
                     // module init that legitimately takes real time).
                     val reattached = startWorklet()
-                    result.success(mapOf("reattached" to reattached))
+                    result.success(mapOf("reattached" to reattached, "generationId" to workletGeneration))
                 } catch (e: Throwable) {
                     // Throwable, not Exception: native/JNI failures (e.g. a
                     // missing or ABI-mismatched libbare-kit.so) surface as
@@ -181,7 +192,7 @@ class FlutterPearBarePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     "by default alongside the arm64-v8a/x86_64 ones, or a device whose " +
                     "supported ABIs (${android.os.Build.SUPPORTED_ABIS.joinToString(", ")}) " +
                     "flutter_pear_bare doesn't cover). Reinstall the arm64-v8a or x86_64 " +
-                    "variant.", e)
+                    "variant. See packages/flutter_pear/docs/troubleshooting.md#abi-mismatch.", e)
         }
         // argv[0] = this app's private files directory (E4.4): bare-os's
         // cwd() resolves to "/" in this sandbox (confirmed on-device, not
@@ -192,6 +203,7 @@ class FlutterPearBarePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         w.start("/pear-end.bundle", source, arrayOf(applicationContext.filesDir.absolutePath))
         worklet = w
         workletIpc = IPC(w)
+        workletGeneration++ // a fresh boot is always a NEW generation (flutter_pear-3vh)
         relayFromWorklet()
         return false
     }
@@ -213,6 +225,14 @@ class FlutterPearBarePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
      */
     private fun relayFromWorklet() {
         val activeIpc = workletIpc ?: return
+        // Captured once per arm, alongside `activeIpc` -- see
+        // reportUnexpectedExit's doc for why this is what lets Dart reject a
+        // stale exit report instead of just this native-side check (which
+        // only protects against misattributing a signal to the WRONG
+        // in-process companion state, not against Dart itself having since
+        // reassigned its handler to a newer generation by the time this
+        // control-channel call is actually delivered).
+        val activeGeneration = workletGeneration
         activeIpc.read { data, error ->
             // Stale-callback guard: this closure was armed against
             // `activeIpc`. If a restart replaced it with a fresh IPC, or
@@ -223,7 +243,7 @@ class FlutterPearBarePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             if (workletIpc !== activeIpc) return@read
             if (error != null) {
                 Log.e(TAG, "read from worklet failed", error)
-                reportUnexpectedExit("ipc read error: ${error.message}")
+                reportUnexpectedExit("ipc read error: ${error.message}", activeGeneration)
                 return@read
             }
             if (data == null) {
@@ -240,7 +260,7 @@ class FlutterPearBarePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 // handler to have registered, or a native-level abort
                 // bypassing JS entirely. No detail is available, only
                 // that it happened.
-                reportUnexpectedExit("worklet IPC ended unexpectedly")
+                reportUnexpectedExit("worklet IPC ended unexpectedly", activeGeneration)
                 return@read
             }
             // StandardMessageCodec sends a ByteArray, not the ByteBuffer
@@ -258,13 +278,25 @@ class FlutterPearBarePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
      * gone) and notifies Dart via the control channel with [reason] --
      * loudly, in debug output too, per this project's non-negotiable "a
      * silent worklet crash is the worst-case DevEx."
+     *
+     * [generation] is [relayFromWorklet]'s own captured `activeGeneration`,
+     * NOT the (possibly already-bumped) current [workletGeneration] --
+     * stamped on the control-channel call so bare_worklet.dart can tell this
+     * exit apart from one about a generation it has since replaced
+     * (flutter_pear-3vh). Needed because the buffered-message risk this
+     * guards against lives entirely on the DART side (Flutter replaying a
+     * message to whichever handler is registered by the time it's actually
+     * delivered) -- by the time THIS call runs, native already knows (via
+     * the `workletIpc !== activeIpc` check in [relayFromWorklet]) that the
+     * signal is genuinely about the still-current native generation, but
+     * Dart may have moved on regardless before the call is delivered.
      */
-    private fun reportUnexpectedExit(reason: String) {
+    private fun reportUnexpectedExit(reason: String, generation: Int) {
         Log.e(TAG, "worklet exited unexpectedly: $reason")
         workletIpc = null
         worklet = null
         if (attached) {
-            control.invokeMethod("onWorkletExit", mapOf("reason" to reason))
+            control.invokeMethod("onWorkletExit", mapOf("reason" to reason, "generationId" to generation))
         }
     }
 

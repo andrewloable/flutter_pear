@@ -15,7 +15,7 @@ void main() {
 
   setUp(() {
     hub = FakeSwarmHub();
-    topic = PearCrypto.topicFromString('fake-worklet-test-topic');
+    topic = PearCrypto.unsafeTopicFromString('fake-worklet-test-topic');
   });
 
   /// Wraps [worklet] in a real [PearRpc] and completes the attach.info round
@@ -28,7 +28,8 @@ void main() {
     return rpc;
   }
 
-  test('two fake peers joining the same topic both get a connection to '
+  test(
+      'two fake peers joining the same topic both get a connection to '
       'each other', () async {
     final workletA = FakeBareWorklet(hub: hub);
     final workletB = FakeBareWorklet(hub: hub);
@@ -70,22 +71,15 @@ void main() {
     final rpcA = await connectedRpc(workletA);
     final rpcB = await connectedRpc(workletB);
 
-    final swarmA = await PearSwarm.join(rpcA, topic);
-    // Subscribed to .connections.first for BOTH swarms immediately after
-    // EACH swarm's own join() resolves, with no other await in between --
-    // this fake connects an already-present peer synchronously-ish (no
-    // real network discovery delay), so inserting an unrelated await here
-    // (e.g. awaiting firstConnA before even creating firstConnB) risks
-    // subscribing to swarmB.connections AFTER its own swarm.connection
-    // event already fired and was lost -- a plain broadcast stream never
-    // replays to a late subscriber. Await both .first futures together
-    // afterward, never interleaved with more work.
-    final firstConnA = swarmA.connections.first;
+    await PearSwarm.join(rpcA, topic);
     final swarmB = await PearSwarm.join(rpcB, topic);
-    final firstConnB = swarmB.connections.first;
-
-    await firstConnA;
-    final connB = await firstConnB;
+    // establishedConnections is a synchronous snapshot, populated the
+    // instant each swarm's own connection event is processed -- unlike
+    // .connections, it can't be raced by how long a caller takes to get
+    // around to subscribing (this fake connects an already-present peer
+    // with zero discovery delay, so that race is easy to hit here).
+    await Future<void>.delayed(Duration.zero);
+    final connB = swarmB.establishedConnections.single;
 
     var dataClosed = false;
     connB.data.listen((_) {}, onDone: () => dataClosed = true);
@@ -128,8 +122,7 @@ void main() {
     expect(closed, isTrue);
   });
 
-  test('the swarm state stream reaches connected when a peer joins',
-      () async {
+  test('the swarm state stream reaches connected when a peer joins', () async {
     final workletA = FakeBareWorklet(hub: hub);
     final workletB = FakeBareWorklet(hub: hub);
     final rpcA = await connectedRpc(workletA);

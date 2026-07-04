@@ -14,8 +14,15 @@ import 'swarm.dart';
 /// Reachable via `Pear.store`; nothing about opening the underlying
 /// Corestore itself is async — it's already running inside the worklet by
 /// the time [Pear.start] returns.
+///
+/// ```dart
+/// final pear = await Pear.start();
+/// final core = await pear.store.get(name: 'my-log');
+/// await core.append([utf8.encode('hello')]);
+/// print(await core.get(0)); // the appended block
+/// ```
 class PearStore {
-  /// Wraps [rpc]. Prefer `Pear.store` over constructing this directly.
+  /// Wraps `rpc`. Prefer `Pear.store` over constructing this directly.
   PearStore(this._rpc);
 
   final PearRpc _rpc;

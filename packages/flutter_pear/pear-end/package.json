@@ -5,6 +5,9 @@
   "description": "Bare worklet bundled by flutter_pear (built with bare-pack).",
   "main": "index.js",
   "comment": "Pin these and publish a compatibility table (plugin ↔ Bare Kit ↔ Hyper*). Versions below are placeholders for M1.",
+  "scripts": {
+    "test": "node --test"
+  },
   "dependencies": {
     "autobase": "^7.28.1",
     "bare-fs": "^4.7.3",

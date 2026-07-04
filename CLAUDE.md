@@ -16,13 +16,11 @@ Unofficial, not affiliated with Holepunch.
 
 ## Current status
 
-The melos monorepo is scaffolded at **M0**. Present:
+Epics E1–E6 are closed: the Bare Kit worklet is real (not the old native echo) — it boots, joins Hyperswarm, and relays bytes, verified on Android emulator/CI; the RPC contract spine (typed errors, session nonce/version handshake, connection-state stream, native crash observation) is in; every data-structure wrapper (`PearStore`/`PearCore`, `PearBee`, `PearDrive`, `PearPairing`, `PearBase` with prebuilt Autobase recipes) is implemented and exhaustively tested against `flutter_pear_test`'s in-memory fake; lifecycle (auto suspend/resume, hot-restart reattach-or-kill) is real. The one thing left across E1–E6: the physical **two-device** hardware round trip and each wrapper's own real-device leg — all deliberately deferred to one final hardware-validation pass (`flutter_pear-doi`) run once every other epic's automated suite is green.
 
-- `flutter_pear_bare` — `BareWorklet` (lifecycle + binary IPC over a `BasicMessageChannel`) with an Android **native echo** standing in for the worklet, proving the Dart↔IPC round trip.
-- `flutter_pear` — `Pear`, `PearSwarm`/`PearConnection`, `PearCrypto`/`PearKey`, the exception hierarchy, a JSON-RPC bridge ([lib/src/rpc.dart](packages/flutter_pear/lib/src/rpc.dart)), and the `pear-end/` worklet source + `dart run flutter_pear:pack` wrapper.
-- `flutter_pear_example` — the M0 echo demo.
+E7 (example app DX — committed runners, QR-pairing chat, desktop CLI peer, doctor tool), E8 (docs + error DX), and E9 (CI/CD + publishing) are in progress. Run `bd list --status=open` / `bd ready` for exact live status — this file is a snapshot, bd is the source of truth.
 
-**Not real yet:** the Bare Kit worklet itself (native still echoes — see `TODO(M1)` in [FlutterPearBarePlugin.kt](packages/flutter_pear_bare/android/src/main/kotlin/tech/loable/flutter_pear_bare/FlutterPearBarePlugin.kt)), iOS, `flutter_pear_test`, and every data-structure package (Hyperbee/Hyperdrive/Autobase/pairing). `PearSwarm` is shaped but unbacked until the worklet is wired. Example platform runners aren't committed — `flutter create` hydrates them.
+iOS is v0.2, its own milestone (podspec, Xcode/CocoaPods, background entitlements) — not started, not a gate on the v0.1 Android release.
 
 ## The one architectural principle
 
@@ -55,13 +53,13 @@ Bare Kit worklet — the prebuilt "pear-end" JS bundle (built with bare-pack)
 |---|---|---|
 | Flutter SDK ≥3.24 (Dart ≥3.5) | everything | bundles Dart |
 | Melos ≥6 | monorepo | `dart pub global activate melos` |
-| JDK 17 + Android SDK/NDK | build plugin + example | Android Studio or `sdkmanager`; M0 is Android-only |
+| JDK 17 + Android SDK/NDK | build plugin + example | Android Studio or `sdkmanager`; v0.1 is Android-only |
 | Node.js ≥18 + npm | `pear-end/` JS deps | already present in this env |
 | bare-pack | rebuild the bundle | `npm i -g bare-pack`; only when `pear-end/` changes |
 | bare-link | link `pear-end/`'s native addons (hyperswarm et al.) for Android | `npm i -g bare-link`; invoked by `flutter_pear_bare/android/build.gradle`'s `linkNativeAddons` task at build time, reading `pear-end/node_modules` (run `npm install` there first) |
-| Xcode + CocoaPods | iOS | **M1** — not needed yet |
+| Xcode + CocoaPods | iOS | **v0.2** — not needed yet |
 
-Bare Kit native binaries resolve automatically (Gradle task on Android, CocoaPods on iOS) once that wiring lands in M1 — no manual NDK/ABI/Podfile steps for app devs.
+Bare Kit native binaries resolve automatically via the Gradle task on Android (already wired, E4). CocoaPods wiring for iOS lands with the v0.2 milestone. No manual NDK/ABI/Podfile steps for app devs on Android today.
 
 ## Commands
 

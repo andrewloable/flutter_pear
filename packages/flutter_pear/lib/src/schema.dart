@@ -340,7 +340,7 @@ abstract final class PearEventName {
 
 /// Connection-state vocabulary for `PearSwarm.state` — also the wire value
 /// of a [PearEventName.swarmLifecycle] event's `state` field. Each member's
-/// [Enum.name] IS its wire string (e.g. `PearSwarmState.discovering.name ==
+/// `name` IS its wire string (e.g. `PearSwarmState.discovering.name ==
 /// 'discovering'`) — no separate string-constant class to keep in sync,
 /// cross-checked against pear-end/schema.js's `SwarmState` object instead.
 enum PearSwarmState {
@@ -381,7 +381,7 @@ enum PearSwarmState {
 }
 
 /// Which built-in Autobase merge recipe a `PearBase.open` call (E5.8) picks,
-/// by name. Each member's [Enum.name] IS its wire string (same convention as
+/// by name. Each member's `name` IS its wire string (same convention as
 /// [PearSwarmState]) — no separate string-constant class to keep in sync,
 /// cross-checked against pear-end/schema.js's `Recipe` object instead; the
 /// pear-end recipes module (E5.7) exports one entry per member here, keyed
@@ -424,10 +424,10 @@ enum PearErrorCategory {
 ///
 /// [unknownPeer], [unknownMethod], [forcedError], and [storageUnavailable]
 /// are thrown by the worklet and travel here over RPC. [rpcTimeout] and
-/// [workletDisposed] are synthesized entirely on the Dart side by [PearRpc]
-/// (the worklet never sees or sends them) — same registry either way, since
-/// a caller catching a [PearException] shouldn't have to care which side
-/// detected the failure.
+/// [workletDisposed] are synthesized entirely on the Dart side by the
+/// internal RPC bridge (the worklet never sees or sends them) — same
+/// registry either way, since a caller catching a [PearException] shouldn't
+/// have to care which side detected the failure.
 abstract final class PearErrorCode {
   /// [PearMethod.connectionWrite] targeted a peer with no open connection.
   static const unknownPeer = 'UNKNOWN_PEER';
@@ -451,7 +451,7 @@ abstract final class PearErrorCode {
   /// A call's [PearRpcDefaults.callTimeout] elapsed with no response.
   static const rpcTimeout = 'RPC_TIMEOUT';
 
-  /// The call was still pending when [PearRpc.dispose] ran.
+  /// The call was still pending when the internal RPC bridge was disposed.
   static const workletDisposed = 'WORKLET_DISPOSED';
 
   /// The frame never reached the worklet at all (e.g. it wasn't running) —
@@ -474,9 +474,10 @@ abstract final class PearErrorCode {
 
   /// The worklet crashed (or its IPC otherwise ended unexpectedly) while
   /// this call was still pending -- it will never be answered. Synthesized
-  /// on the Dart side by [PearRpc] in response to [PearEventName.workletCrash]
-  /// or `WorkletIpc.onCrash`; never sent by the worklet as an `err.code`
-  /// itself (a crashed worklet reports via the event, not a response).
+  /// on the Dart side by the internal RPC bridge in response to
+  /// [PearEventName.workletCrash] or `WorkletIpc.onCrash`; never sent by the
+  /// worklet as an `err.code` itself (a crashed worklet reports via the
+  /// event, not a response).
   static const workletCrashed = 'WORKLET_CRASHED';
 
   /// [PearSwarmState.failed] reason: `PearSwarm.join`'s bounded
