@@ -7,6 +7,10 @@ version: 0.0.1
 # last package in the publish order (flutter_pear_bare -> flutter_pear ->
 # flutter_pear_test), being published for real right after this.
 homepage: https://github.com/andrewloable/flutter_pear
+# pub.dev's repository-provenance check clones this URL and verifies
+# packages/flutter_pear_test/pubspec.yaml there matches what was published --
+# needs `repository:` specifically, `homepage:` alone doesn't satisfy it.
+repository: https://github.com/andrewloable/flutter_pear
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
