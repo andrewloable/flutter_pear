@@ -1,12 +1,11 @@
 name: flutter_pear_test
 description: In-memory fake Pear swarm/worklet for unit-testing flutter_pear apps without radios or real peers.
 version: 0.0.1
-# E9.7 removed publish_to: none; TEMPORARILY RESTORED (2026-07-06) -- see
-# flutter_pear/pubspec.yaml's identical comment for the full story (both
-# real dependencies below reverted to `path:` since neither sibling is
-# actually published yet). Remove again in the same real-publish-day step
-# that re-flips those dependencies back to hosted constraints (E9.8).
-publish_to: none
+# E9.7/E9.8: publish_to: none removed for real -- flutter_pear_bare and
+# flutter_pear are both live on pub.dev (published 2026-07-06), each
+# confirmed resolvable from a scratch project before this flip. This is the
+# last package in the publish order (flutter_pear_bare -> flutter_pear ->
+# flutter_pear_test), being published for real right after this.
 homepage: https://github.com/andrewloable/flutter_pear
 
 environment:
@@ -16,36 +15,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  # TEMPORARILY REVERTED to `path:` (2026-07-06, explicit developer
-  # decision) -- see flutter_pear/pubspec.yaml's flutter_pear_bare dependency
-  # for the full story: E9.7 flipped both of these to hosted `^0.0.1`
-  # constraints in anticipation of a real pub.dev publish, but that publish
-  # (E9.8) hasn't happened -- neither package exists on pub.dev yet, so a
-  # real external consumer adding flutter_pear_test right now would hit the
-  # identical "can't find package" version-solve failure this repo's own
-  # tool/fresh_machine_check.sh reproduced for flutter_pear itself. Re-flip
-  # both back to `^0.0.1` immediately before the real `dart pub publish` runs
-  # for flutter_pear_test (E9.8, last in publish order -- see below) -- not
-  # before.
-  #
-  # THIS is the edge that sets the real publish order, independent of which
-  # source (path or hosted) these two are pinned to right now: flutter_pear_test
-  # depends (for real, not dev-only) on flutter_pear, so flutter_pear must
-  # already be published before flutter_pear_test can be. Combined with
-  # flutter_pear's own real dependency on flutter_pear_bare, the only order
-  # that satisfies both is flutter_pear_bare -> flutter_pear ->
-  # flutter_pear_test. The ticket's Step 1 text ("bare -> test -> pear") has
-  # the last two backwards -- confirmed by the prior investigation phase via
-  # `dart pub publish --dry-run` against the unmodified pubspecs (2 hard
-  # "can't be published" errors for flutter_pear_test's path deps on both
-  # siblings) and re-confirmed below in this ticket's own dry-run pass. There
-  # is no actual cycle once dev-only edges are excluded (melos's `melos list
-  # --cycles` reports one, but only because it deliberately merges dev and
-  # non-dev edges into one graph; pub's publish validator does not).
-  flutter_pear:
-    path: ../flutter_pear
-  flutter_pear_bare:
-    path: ../flutter_pear_bare
+  flutter_pear: ^0.0.1
+  flutter_pear_bare: ^0.0.1
 
 dev_dependencies:
   flutter_test:
