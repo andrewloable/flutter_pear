@@ -6,6 +6,11 @@ version: 0.0.1
 # scratch project before this flip. This package is being published for real
 # right after this.
 homepage: https://github.com/andrewloable/flutter_pear
+# pub.dev's repository-provenance check clones this URL and verifies
+# packages/flutter_pear/pubspec.yaml there matches what was published
+# (no publish_to, correct name/version) -- needs `repository:` specifically,
+# `homepage:` alone doesn't satisfy it.
+repository: https://github.com/andrewloable/flutter_pear
 
 environment:
   sdk: '>=3.5.0 <4.0.0'

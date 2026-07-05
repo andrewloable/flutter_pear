@@ -10,6 +10,10 @@ version: 0.0.1
 # publish-day checklist -- removing this field only makes `dart pub publish
 # --dry-run` and pana's pub.dev score check meaningful pre-release.
 homepage: https://github.com/andrewloable/flutter_pear
+# pub.dev's repository-provenance check clones this URL and verifies
+# packages/flutter_pear_bare/pubspec.yaml there matches what was published --
+# needs `repository:` specifically, `homepage:` alone doesn't satisfy it.
+repository: https://github.com/andrewloable/flutter_pear
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
