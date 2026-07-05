@@ -334,10 +334,24 @@ class _ChatScreenState extends State<ChatScreen> {
     // connectionClosed (PearConnection has no public way to check first) --
     // caught per-connection so one stale peer can't block delivery to the
     // rest. Sent concurrently: independent peers, no reason to serialize.
-    await Future.wait(connections.map(
-      (conn) => conn.write(bytes).catchError((_) {}),
+    final delivered = await Future.wait(connections.map(
+      (conn) => conn.write(bytes).then((_) => true).catchError((_) => false),
     ));
-    setState(() => _log.add(ChatLogLine.sent(text)));
+    final failedCount = delivered.where((ok) => !ok).length;
+    setState(() {
+      _log.add(ChatLogLine.sent(text));
+      // Honest delivery signal (flutter_pear-doi hardware finding): write()
+      // already throws per the library's own documented contract -- this
+      // demo used to swallow that silently and always claim "sent", which
+      // looked identical whether the peer actually got the message or not.
+      if (failedCount > 0) {
+        _log.add(ChatLogLine.stateChange(
+          failedCount == connections.length
+              ? 'not delivered -- connection dropped'
+              : 'not delivered to $failedCount of ${connections.length} peers',
+        ));
+      }
+    });
     _messageController.clear();
   }
 

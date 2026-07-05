@@ -103,8 +103,7 @@ const nativeAddonAbis = {
 Future<int> linkNativeAddons(String pkgRoot) async {
   final pearEndDir = '$pkgRoot/pear-end';
   if (!Directory('$pearEndDir/node_modules').existsSync()) {
-    stderr.writeln(
-        'skip linkNativeAddons: $pearEndDir/node_modules missing — '
+    stderr.writeln('skip linkNativeAddons: $pearEndDir/node_modules missing — '
         'run `npm install` in pear-end/ first.');
     return 0;
   }
@@ -145,8 +144,8 @@ Future<int> linkNativeAddons(String pkgRoot) async {
       soFilesByAbi[abi] = files;
     }
 
-    final jniLibsRoot = Directory(
-        '$pkgRoot/../flutter_pear_bare/android/src/main/jniLibs');
+    final jniLibsRoot =
+        Directory('$pkgRoot/../flutter_pear_bare/android/src/main/jniLibs');
     // Prune ABI directories no longer in nativeAddonAbis before writing the
     // current set, so a shrunk ABI list doesn't leave orphaned .so files.
     if (jniLibsRoot.existsSync()) {
@@ -350,7 +349,9 @@ Future<int> collectThirdPartyLicenses(String pkgRoot) async {
   pkgDirs.sort((a, b) {
     final depthA = '/node_modules/'.allMatches(a.path).length;
     final depthB = '/node_modules/'.allMatches(b.path).length;
-    return depthA != depthB ? depthA.compareTo(depthB) : a.path.compareTo(b.path);
+    return depthA != depthB
+        ? depthA.compareTo(depthB)
+        : a.path.compareTo(b.path);
   });
   // Dedup by name@version, not by path: the same resolved package can
   // legitimately appear both hoisted to the top level and nested inside a
@@ -524,8 +525,7 @@ List<Directory> _nestedPackageDirs(Directory pkg, int depth) {
 /// real repo tree's release manifest.
 Future<void> _addBareKitStaticEntry(
     String pkgRoot, StringBuffer licenses) async {
-  final gradleFile =
-      File('$pkgRoot/../flutter_pear_bare/android/build.gradle');
+  final gradleFile = File('$pkgRoot/../flutter_pear_bare/android/build.gradle');
   if (!gradleFile.existsSync()) {
     stderr.writeln('note: ${gradleFile.path} not found — skipping the '
         'bare-kit static license entry.');

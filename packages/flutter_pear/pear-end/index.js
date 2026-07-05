@@ -561,10 +561,39 @@ async function handle ({ m, p }) {
     // Dynamic, Dart-driven join (E4.4) -- idempotent: joining an
     // already-joined topic again is a no-op ack, not a second
     // swarm.join()/DISCOVERING notice.
+    //
+    // flutter_pear-doi hardware finding: a real Dart hot restart destroys
+    // the Dart isolate (and the PearSwarm object with it) while this
+    // worklet -- and its `topics` entry, including any already-connected
+    // peers -- survives untouched (the whole point of the E6.3 reattach
+    // guarantee). The fresh PearSwarm created by the new isolate's
+    // pear.join() call hits this SAME idempotent branch, but the
+    // one-time swarm.on('connection', ...) handler that emits
+    // SWARM_CONNECTION/sendState(CONNECTED) already fired -- for the OLD,
+    // now-gone session -- and never fires again for a connection that's
+    // already established. Without a replay, the new PearSwarm sits on its
+    // optimistic default `discovering` state until joinTimeout gives up on
+    // a connection that was never actually lost. This also fixes the
+    // same-Dart-isolate double-join case (joining an already-connected
+    // topic a second time without leaving first) the exact same way.
     case Method.SWARM_JOIN: {
-      if (!topics.has(p.topic)) {
+      const existing = topics.get(p.topic)
+      if (!existing) {
         topics.set(p.topic, { connectedPeers: new Set(), everConnected: false })
         swarm.join(Buffer.from(p.topic, 'hex'), { server: true, client: true })
+        sendState(p.topic, SwarmState.DISCOVERING)
+      } else if (existing.connectedPeers.size > 0) {
+        for (const peer of existing.connectedPeers) {
+          send({ ev: EventName.SWARM_CONNECTION, p: { topic: p.topic, peer } })
+        }
+        sendState(p.topic, SwarmState.CONNECTED)
+      } else if (existing.everConnected) {
+        // Was connected before, currently between peers (a real reconnect
+        // gap) -- RECONNECTING, not the default DISCOVERING, matches
+        // PearSwarmState.reconnecting's own documented contract ("has been
+        // connected at least once").
+        sendState(p.topic, SwarmState.RECONNECTING)
+      } else {
         sendState(p.topic, SwarmState.DISCOVERING)
       }
       return { joined: p.topic }

@@ -57,7 +57,8 @@ Future<void> main(List<String> args) async {
     exit(1);
   }
   final packageRoot = Directory.fromUri(libUri).parent;
-  final checksJs = File('${packageRoot.path}/tool/doctor-checks.js').absolute.path;
+  final checksJs =
+      File('${packageRoot.path}/tool/doctor-checks.js').absolute.path;
 
   try {
     final process = await Process.start(
@@ -69,7 +70,8 @@ Future<void> main(List<String> args) async {
     if (report) {
       // Captured (not inherited) so it can be embedded in the report below
       // instead of also printing twice.
-      checkOutput = await process.stdout.transform(systemEncoding.decoder).join();
+      checkOutput =
+          await process.stdout.transform(systemEncoding.decoder).join();
       await process.stderr.drain<void>();
     } else {
       checkOutput = '';
@@ -81,7 +83,8 @@ Future<void> main(List<String> args) async {
         flutterPearVersion: _packageVersion(packageRoot, 'flutter_pear'),
         flutterPearBareVersion:
             _packageVersion(packageRoot, 'flutter_pear_bare'),
-        hostOs: '${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+        hostOs:
+            '${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
         doctorCheckOutput: checkOutput,
         rawLog: logPath == null ? null : File(logPath).readAsStringSync(),
       ));

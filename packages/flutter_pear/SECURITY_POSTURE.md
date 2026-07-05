@@ -55,10 +55,17 @@ decision.
 
 ## What survives reinstall (v0.1 decision: NOTHING)
 
-**Honest answer: uninstalling the app deletes everything.** Android wipes
-an app's internal storage (`Context.getFilesDir()`, where `pear-corestore`/
-`pear-bulk` live) on uninstall — this is standard OS behavior, not something
-flutter_pear controls or could change even if it wanted to. That means:
+**Honest answer: uninstalling the app deletes everything that matters here.**
+Android wipes an app's internal storage (`Context.getFilesDir()`, where
+`pear-corestore`/`pear-bulk` live) on uninstall — this is standard OS
+behavior, not something flutter_pear controls or could change even if it
+wanted to. Verified on real hardware (`flutter_pear-doi`): with Android
+Backup Manager enabled and an active backup for this app — not the default
+state, but a real, reachable one — `pear-corestore` still never comes back,
+even through the OS's own install-time auto-restore path (other,
+non-identity files the app happened to write, e.g. plain preference files,
+can survive that specific path; the identity/replication data governed by
+this file's exclusion rules above cannot). That means:
 
 - This device's own writer identity is gone and cannot be recovered.
 - Every locally-held Hypercore/Hyperbee/Hyperdrive/Autobase replica is gone.

@@ -531,4 +531,65 @@ void main() {
     await rpcA.dispose();
     await rpcB.dispose();
   });
+
+  test(
+      'rejoining an already-connected topic replays CONNECTED instead of '
+      'silently stranding a fresh PearSwarm (flutter_pear-doi hot-restart '
+      'finding)', () async {
+    // A real Dart hot restart destroys the Dart isolate -- and the
+    // PearSwarm object with it -- while the worklet (and its live
+    // connection) survives untouched (E6.3's reattach guarantee). The
+    // fresh PearSwarm the new isolate creates calls PearMethod.swarmJoin
+    // for the SAME topic; before this fix, the worklet's one-time
+    // "announce" notification had already fired for the old, now-gone
+    // PearSwarm and never fired again, so the new one sat at
+    // PearSwarmState.discovering until its own join timeout gave up on a
+    // connection that was never actually lost. Simulated here by simply
+    // creating a SECOND PearSwarm for the same topic without ever leaving
+    // the first -- from the worklet's point of view (no per-Dart-session
+    // identity in the RPC contract) this is indistinguishable from a fresh
+    // post-hot-restart join.
+    final hub = FakeSwarmHub();
+    final workletA = FakeBareWorklet(hub: hub);
+    final workletB = FakeBareWorklet(hub: hub);
+    final rpcA = PearRpc(workletA);
+    final rpcB = PearRpc(workletB);
+    await rpcA.call(PearMethod.attachInfo);
+    await rpcB.call(PearMethod.attachInfo);
+
+    final firstSwarmA = await PearSwarm.join(rpcA, topic);
+    final firstConnB = (await PearSwarm.join(rpcB, topic)).connections.first;
+    await firstConnB; // real connection established both sides
+    await Future<void>.delayed(Duration.zero);
+    expect(firstSwarmA.currentState.state, PearSwarmState.connected);
+
+    // `PearSwarm.join`'s own `_wire()` subscribes BEFORE it awaits the
+    // `swarm.join` RPC call -- so by the time this `await` resolves, the
+    // replay this fix produces has already been delivered to freshSwarmA's
+    // INTERNAL listener and landed in its synchronous accessors
+    // (`establishedConnections`/`currentState`). A late `.connections.first`
+    // or `.state.listen(...)` attached only AFTER this point would miss it
+    // permanently -- broadcast streams never replay to a late subscriber
+    // (see `establishedConnections`'s own doc) -- so this test deliberately
+    // reads the synchronous accessors instead, exactly like the "already
+    // arrived" race they exist to solve.
+    final freshSwarmA = await PearSwarm.join(
+      rpcA,
+      topic,
+      joinTimeout: const Duration(milliseconds: 50),
+    );
+
+    expect(freshSwarmA.currentState.state, PearSwarmState.connected);
+    expect(freshSwarmA.establishedConnections, hasLength(1));
+    expect(freshSwarmA.establishedConnections.single.remotePublicKey.hex,
+        workletB.peerKey);
+
+    // The bug's exact symptom: without the fix, this would have already
+    // flipped to `failed` (PearErrorCode.connectTimeout) by now.
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(freshSwarmA.currentState.state, PearSwarmState.connected);
+
+    await rpcA.dispose();
+    await rpcB.dispose();
+  });
 }
