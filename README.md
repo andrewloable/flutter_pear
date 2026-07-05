@@ -6,7 +6,7 @@ The full [Pear](https://pears.com/) peer-to-peer stack as a Dart-idiomatic Flutt
 
 > **Android only right now** — iOS is its own v0.2 milestone (not started), not a gate on this release. Requires Flutter SDK ≥ 3.24 (bundles Dart ≥ 3.5).
 >
-> **Status: pre-1.0, not yet on pub.dev.** Read [What works today](#what-works-today) below before assuming anything here is vaporware — the worklet is real, not a stand-in, and most of the API is already implemented and tested.
+> **Status: pre-1.0, published on pub.dev (v0.0.1).** Read [What works today](#what-works-today) below before assuming anything here is vaporware — the worklet is real, not a stand-in, and most of the API is already implemented and tested.
 >
 > Something stuck? Check [Troubleshooting](packages/flutter_pear/doc/troubleshooting.md) — install-time failures (slow/silent downloads, blocked fetches, checksum/ABI mismatches, manifest-merge conflicts) all have a symptom-first fix there. Still stuck? [Open an issue](https://github.com/andrewloable/flutter_pear/issues).
 >
@@ -26,30 +26,17 @@ flutter_pear is under active, incremental development — here's the honest brea
 - **Every capability in the table below has a complete Dart wrapper and a complete, real `pear-end` JS implementation** — no stubs. Each is exhaustively unit/e2e-tested against `flutter_pear_test`'s in-memory fake (every happy path and every typed error path), plus emulator-based real-worklet validation where applicable.
 - **What hasn't happened for any of them: a real-hardware (physical phone) run.** Each wrapper's own "does the fake match the real worklet, and does two-device replication actually converge" question was answered on emulators, not physical devices — tracked centrally in `flutter_pear-doi` as a nice-to-have follow-up, not a release blocker.
 - **This covers Android only.** iOS hasn't started (see the banner above) — it's its own v0.2 milestone, not a gate on this release. The two-device gate above is the Android v0.1 release's remaining blocker.
-- **Not published to pub.dev yet.** `flutter pub add flutter_pear` (below) is the target install step for v0.1; today, point at this repo directly.
+- **Published on pub.dev.** `flutter_pear`, `flutter_pear_bare`, and `flutter_pear_test` are all live at v0.0.1.
 
 ## Install
-
-**Not yet on pub.dev.** Until v0.1 ships, point at the repo directly:
-
-```yaml
-dependencies:
-  flutter_pear:
-    git:
-      url: https://github.com/andrewloable/flutter_pear
-      path: packages/flutter_pear
-      ref: <commit-sha>  # pin this -- without it you track the default branch's HEAD
-```
-
-Once published, this collapses to:
 
 ```bash
 flutter pub add flutter_pear
 ```
 
-Either way — native binaries and the P2P runtime resolve automatically via Gradle (no NDK, ABI, or Podfile edits).
+Native binaries and the P2P runtime resolve automatically via Gradle (no NDK, ABI, or Podfile edits).
 
-Pre-1.0: **minor versions may break the API without notice.** Pin an exact version (or `ref:` commit, pre-publish) once you depend on this for real.
+Pre-1.0: **minor versions may break the API without notice.** Pin an exact version once you depend on this for real.
 
 The first Android build downloads Bare Kit's native binaries (cached under each app's `build/flutter_pear_bare/bare-kit/`; delete that directory, or run `flutter clean`, to force a re-download).
 

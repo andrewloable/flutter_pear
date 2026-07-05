@@ -14,9 +14,9 @@ here and the file it's supposed to describe ever disagree, that script fails,
 naming the exact field, the two disagreeing values, and where the real one
 lives.
 
-**Pre-1.0 note:** flutter_pear has not yet had a tagged release (see E9.7),
-so there is currently only one row in each table below: `0.0.1`, the working
-tree's current, unpublished version. Once real tagged releases exist, each
+**Pre-1.0 note:** flutter_pear has not yet had a git-tagged release, so there
+is currently only one row in each table below: `0.0.1`, published to pub.dev
+but not yet tagged in this repository. Once real tagged releases exist, each
 new release **appends** a new row rather than editing the current one in
 place — this file then doubles as a compatibility changelog.
 

@@ -4,7 +4,7 @@ In-memory fakes (fake swarm, fake worklet) for unit-testing [flutter_pear](../fl
 apps without radios or real peers. See the [repository README](../../README.md) for the
 overview.
 
-> Pre-1.0, not yet on pub.dev. The in-memory fake swarm/worklet is implemented
+> Pre-1.0, published on pub.dev. The in-memory fake swarm/worklet is implemented
 > and exhaustively tested against every `flutter_pear` data-structure wrapper
 > (`PearStore`/`PearCore`, `PearBee`, `PearDrive`, `PearPairing`, `PearBase`) —
 > not a scaffold. What's still outstanding is the physical two-device hardware
