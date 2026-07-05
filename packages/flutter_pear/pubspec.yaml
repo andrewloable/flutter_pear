@@ -1,9 +1,14 @@
 name: flutter_pear
 description: Dart-idiomatic Flutter API for the Pear P2P stack (Hyperswarm, Hypercore, Hyperbee, Hyperdrive, Autobase, blind pairing) over a bundled Bare worklet.
 version: 0.0.1
-# E9.7: publish_to: none removed -- see flutter_pear_bare/pubspec.yaml's
-# comment for the overall gating story (this is not a green light to
-# actually publish; the tag-triggered workflow's approval gate and E9.8 are).
+# E9.7 removed publish_to: none; TEMPORARILY RESTORED (2026-07-06, alongside
+# the flutter_pear_bare dependency's revert to `path:` below) -- with that
+# dependency back to a path source, `flutter analyze` correctly flags this
+# package as not publishable as-is (invalid_dependency: "Publishable
+# packages can't have 'path' dependencies"). Remove again in the same
+# real-publish-day step that re-flips flutter_pear_bare back to a hosted
+# constraint (E9.8) -- not before.
+publish_to: none
 homepage: https://github.com/andrewloable/flutter_pear
 
 environment:
@@ -13,14 +18,23 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  # E9.7: was `path: ../flutter_pear_bare`. pub.dev rejects a *published*
-  # package with a non-dev path dependency outright ("Don't depend on
-  # 'flutter_pear_bare' from the path source... can't be published yet"),
-  # confirmed empirically via `dart pub publish --dry-run`. Hosted constraint
-  # here; `melos bootstrap` regenerates a gitignored pubspec_overrides.yaml
-  # that redirects this back to the local path for day-to-day dev/CI, and
-  # that override is absent from what actually gets packed and published.
-  flutter_pear_bare: ^0.0.1
+  # TEMPORARILY REVERTED to `path:` (2026-07-06, explicit developer
+  # decision). E9.7 flipped this to a hosted `^0.0.1` constraint in
+  # anticipation of a real pub.dev publish (pub.dev rejects a *published*
+  # package with a non-dev path dependency outright -- confirmed empirically
+  # via `dart pub publish --dry-run`), but that publish (E9.8) hasn't
+  # happened yet: flutter_pear_bare doesn't exist on pub.dev, so the hosted
+  # constraint pointed at nothing. Confirmed via a real run of
+  # tool/fresh_machine_check.sh: `flutter pub add flutter_pear --path
+  # <checkout>` from a genuinely fresh app OUTSIDE this melos workspace (no
+  # gitignored pubspec_overrides.yaml to redirect the hosted constraint back
+  # to a local path) failed immediately with a pub version-solve error --
+  # i.e. CLAUDE.md's own non-negotiable "one-line install" convention was
+  # broken for every real external consumer, not just this repo's own CI.
+  # Re-flip this back to `^0.0.1` immediately before running the real `dart
+  # pub publish` for flutter_pear_bare (E9.8) -- not before.
+  flutter_pear_bare:
+    path: ../flutter_pear_bare
   # ponytail: SHA-256 for deterministic topics until the worklet's
   # hypercore-crypto is the source of truth. Already-common dep, not custom code.
   crypto: ^3.0.0

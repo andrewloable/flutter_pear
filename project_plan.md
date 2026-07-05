@@ -80,7 +80,7 @@ Live status lives in bd (`bd list --status=open`, `bd ready`) — this table is 
 
 ## 6. DevEx review — decisions that make or break adoption
 
-**Install must be one line.** `flutter pub add flutter_pear` and it works. Native Bare Kit binaries and the pear-end bundle resolve via a Gradle task (Android, done — E4) + CocoaPods podspec (iOS, v0.2). *Zero* manual NDK/ABI/podfile edits. Verify with a fresh-machine CI job that creates a new Flutter app, adds the package, and builds (Android; iOS once v0.2 lands).
+**Install must be one line.** `flutter pub add flutter_pear` and it works. Native Bare Kit binaries and the pear-end bundle resolve via a Gradle task (Android, done — E4) + CocoaPods podspec (iOS, v0.2). *Zero* manual NDK/ABI/podfile edits. Verify by hand, before release (this project has no CI): create a new Flutter app, add the package, and build it (Android; iOS once v0.2 lands).
 
 **No JavaScript visible by default.** The #1 DevEx risk is "install plugin, now learn bare-pack." Prebundling the pear-end removes it. Custom worklets are a documented advanced path with a `dart run flutter_pear:pack` wrapper so devs never install Bare tooling manually.
 

@@ -100,15 +100,15 @@ void main() {
     for (final abi in ['arm64-v8a', 'x86_64']) {
       final abiDir = Directory('${jniLibsRoot.path}/$abi');
       expect(abiDir.existsSync(), isTrue, reason: '$abi dir should exist');
-      final soFiles =
-          abiDir.listSync().whereType<File>().where((f) => f.path.endsWith('.so'));
+      final soFiles = abiDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.so'));
       expect(soFiles, isNotEmpty, reason: '$abi should have linked .so files');
       // A real dependency this repo bundles today (hyperswarm's transport
       // encryption) -- proves this is a genuine bare-link run, not just an
       // empty directory.
-      expect(
-          soFiles.any((f) => f.path.contains('sodium-native')),
-          isTrue,
+      expect(soFiles.any((f) => f.path.contains('sodium-native')), isTrue,
           reason: '$abi should include libsodium-native.so');
     }
   }, timeout: const Timeout(Duration(minutes: 1)));
@@ -160,8 +160,7 @@ void main() {
 
   test(
       'nativeAddonAbis stays in sync with build.gradle\'s bareKitAbis '
-      '(review finding -- the two lists were only linked by a comment)',
-      () {
+      '(review finding -- the two lists were only linked by a comment)', () {
     final gradleFile = File(
         '${Directory.current.path}/../flutter_pear_bare/android/build.gradle');
     if (!gradleFile.existsSync()) {
@@ -170,8 +169,8 @@ void main() {
           'real monorepo checkout)');
       return;
     }
-    final listMatch =
-        RegExp(r'''bareKitAbis\s*=\s*\[([^\]]*)\]''').firstMatch(gradleFile.readAsStringSync());
+    final listMatch = RegExp(r'''bareKitAbis\s*=\s*\[([^\]]*)\]''')
+        .firstMatch(gradleFile.readAsStringSync());
     expect(listMatch, isNotNull,
         reason: 'could not find bareKitAbis in build.gradle');
     final gradleAbis = RegExp(r'''["']([^"']+)["']''')
@@ -235,13 +234,12 @@ void main() {
 
     await expectLater(
       () => collectThirdPartyLicenses(tmp.path),
-      throwsA(isA<LicenseViolationException>().having(
-          (e) => e.toString(), 'message', contains('mystery-pkg'))),
+      throwsA(isA<LicenseViolationException>()
+          .having((e) => e.toString(), 'message', contains('mystery-pkg'))),
     );
   });
 
-  test('a GPL-licensed module fails loud instead of being bundled',
-      () async {
+  test('a GPL-licensed module fails loud instead of being bundled', () async {
     final tmp = Directory.systemTemp.createTempSync('fp_pack_gpl');
     addTearDown(() => tmp.deleteSync(recursive: true));
     final nm = Directory('${tmp.path}/pear-end/node_modules')
@@ -254,8 +252,8 @@ void main() {
 
     await expectLater(
       () => collectThirdPartyLicenses(tmp.path),
-      throwsA(isA<LicenseViolationException>().having(
-          (e) => e.toString(), 'message', contains('copyleft-pkg'))),
+      throwsA(isA<LicenseViolationException>()
+          .having((e) => e.toString(), 'message', contains('copyleft-pkg'))),
     );
   });
 
@@ -266,9 +264,9 @@ void main() {
     final nm = Directory('${tmp.path}/pear-end/node_modules')
       ..createSync(recursive: true);
     Directory('${nm.path}/dual-licensed-pkg').createSync();
-    File('${nm.path}/dual-licensed-pkg/package.json').writeAsStringSync(
-        '{"name":"dual-licensed-pkg","version":"1.0.0",'
-        '"license":"(MIT OR Apache-2.0)"}');
+    File('${nm.path}/dual-licensed-pkg/package.json')
+        .writeAsStringSync('{"name":"dual-licensed-pkg","version":"1.0.0",'
+            '"license":"(MIT OR Apache-2.0)"}');
     File('${nm.path}/dual-licensed-pkg/LICENSE').writeAsStringSync('...');
 
     await expectLater(
@@ -294,12 +292,13 @@ void main() {
 
     await expectLater(
       () => collectThirdPartyLicenses(tmp.path),
-      throwsA(isA<LicenseViolationException>().having(
-          (e) => e.toString(), 'message', contains('sneaky-copyleft'))),
+      throwsA(isA<LicenseViolationException>()
+          .having((e) => e.toString(), 'message', contains('sneaky-copyleft'))),
     );
   });
 
-  test('a name@version collision between a hoisted and a nested copy keeps '
+  test(
+      'a name@version collision between a hoisted and a nested copy keeps '
       'the hoisted (shallower) one\'s license text', () async {
     final tmp = Directory.systemTemp.createTempSync('fp_pack_dedup');
     addTearDown(() => tmp.deleteSync(recursive: true));
@@ -333,8 +332,7 @@ void main() {
         .writeAsStringSync('NESTED-COPY-TEXT');
 
     await collectThirdPartyLicenses(tmp.path);
-    final result =
-        File('${tmp.path}/THIRD_PARTY_LICENSES').readAsStringSync();
+    final result = File('${tmp.path}/THIRD_PARTY_LICENSES').readAsStringSync();
     expect(result, contains('HOISTED-COPY-TEXT'));
     expect(result, isNot(contains('NESTED-COPY-TEXT')));
   });
@@ -359,7 +357,8 @@ void main() {
     expect(tpl, contains('MIT'));
   });
 
-  test('a dependency nested inside another package\'s own node_modules is '
+  test(
+      'a dependency nested inside another package\'s own node_modules is '
       'still collected, not just top-level packages', () async {
     final tmp = Directory.systemTemp.createTempSync('fp_pack_nested');
     addTearDown(() => tmp.deleteSync(recursive: true));
@@ -402,8 +401,7 @@ void main() {
 
     final count = await collectThirdPartyLicenses(pkgRoot.path);
     expect(count, 0); // no real node_modules packages, just the static entry
-    final tpl =
-        File('${pkgRoot.path}/THIRD_PARTY_LICENSES').readAsStringSync();
+    final tpl = File('${pkgRoot.path}/THIRD_PARTY_LICENSES').readAsStringSync();
     expect(tpl, contains('bare-kit@9.9.9'));
     expect(tpl, contains('Apache-2.0'));
   });
@@ -424,12 +422,13 @@ void main() {
 
     await expectLater(
       () => collectThirdPartyLicenses(pkgRoot.path),
-      throwsA(isA<LicenseViolationException>().having(
-          (e) => e.toString(), 'message', contains('bareKitVersion'))),
+      throwsA(isA<LicenseViolationException>()
+          .having((e) => e.toString(), 'message', contains('bareKitVersion'))),
     );
   });
 
-  test('NOTICE is regenerated fresh each run -- stale content never '
+  test(
+      'NOTICE is regenerated fresh each run -- stale content never '
       'survives a module being removed', () async {
     final tmp = Directory.systemTemp.createTempSync('fp_pack_stale_notice');
     addTearDown(() => tmp.deleteSync(recursive: true));

@@ -148,6 +148,11 @@ class FakeBareWorklet implements WorkletIpc {
   final Set<String> _joinedTopics = {};
   final Map<String, FakeBareWorklet> _connections = {}; // peer hex -> other
   final Map<String, Set<String>> _connectionTopics = {}; // peer hex -> topics
+  // Topics that have reached PearSwarmState.connected at least once --
+  // mirrors pear-end/index.js's per-topic `everConnected` flag, needed for
+  // the idempotent-rejoin replay below to pick RECONNECTING over
+  // DISCOVERING when correct.
+  final Set<String> _everConnectedTopics = {};
 
   // E5.2 -- Corestore/Hypercore conformance. _cores holds THIS worklet's view
   // of each key it has opened via PearMethod.storeGet -- initially private,
@@ -271,11 +276,42 @@ class FakeBareWorklet implements WorkletIpc {
         final topicHex = params['topic'] as String;
         if (_joinedTopics.add(topicHex)) {
           _sendState(topicHex, PearSwarmState.discovering);
+        } else {
+          // Conformance fix (flutter_pear-doi hardware finding, matches
+          // pear-end/index.js's identical fix): a repeat join of an
+          // already-joined topic -- e.g. a fresh PearSwarm created after a
+          // real Dart hot restart, talking to a worklet that never
+          // stopped -- must replay the CURRENT state, not silently no-op.
+          // Without this, a caller that (re)joins an already-connected
+          // topic never learns about it and eventually times out via
+          // PearSwarmDefaults.joinTimeout despite nothing actually being
+          // wrong.
+          final connectedPeers = _connectionTopics.entries
+              .where((e) => e.value.contains(topicHex))
+              .map((e) => e.key)
+              .toList();
+          if (connectedPeers.isNotEmpty) {
+            for (final peerHex in connectedPeers) {
+              _emitEvent(PearEventName.swarmConnection,
+                  {'topic': topicHex, 'peer': peerHex});
+            }
+            _sendState(topicHex, PearSwarmState.connected);
+          } else if (_everConnectedTopics.contains(topicHex)) {
+            _sendState(topicHex, PearSwarmState.reconnecting);
+          } else {
+            _sendState(topicHex, PearSwarmState.discovering);
+          }
         }
         return {'joined': topicHex};
       case PearMethod.swarmLeave:
         final topicHex = params['topic'] as String;
         if (_joinedTopics.remove(topicHex)) {
+          // Mirrors pear-end/index.js's SWARM_LEAVE (`topics.delete(p.topic)`
+          // -- a clean slate, not just a membership flag flip): a later
+          // rejoin of the same topic must start genuinely fresh at
+          // DISCOVERING, not incorrectly replay RECONNECTING for a topic
+          // that was properly left.
+          _everConnectedTopics.remove(topicHex);
           hub.leave(topicHex, this);
         }
         return {'left': topicHex};
@@ -1105,6 +1141,7 @@ class FakeBareWorklet implements WorkletIpc {
         _connectionTopics.putIfAbsent(peerHex, () => <String>{}).add(topicHex);
     _connections[peerHex] = other;
     if (isNew) {
+      _everConnectedTopics.add(topicHex);
       _emitEvent(
           PearEventName.swarmConnection, {'topic': topicHex, 'peer': peerHex});
       _sendState(topicHex, PearSwarmState.connected);

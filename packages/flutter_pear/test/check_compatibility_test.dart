@@ -182,8 +182,7 @@ _Fixture _buildFixture({
   Directory('$pkgRoot/pear-end').createSync(recursive: true);
   Directory('${root.path}/packages/flutter_pear_bare/android')
       .createSync(recursive: true);
-  Directory(
-          '${root.path}/packages/flutter_pear_example/android/gradle/wrapper')
+  Directory('${root.path}/packages/flutter_pear_example/android/gradle/wrapper')
       .createSync(recursive: true);
 
   File('$pkgRoot/pubspec.yaml').writeAsStringSync('''

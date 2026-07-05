@@ -53,9 +53,8 @@ String sanitizeLogLine(String line) {
 /// The last [maxLines] lines of [log], each sanitized by [sanitizeLogLine].
 List<String> sanitizeLog(String log, {int maxLines = 200}) {
   final lines = log.split('\n');
-  final tail = lines.length > maxLines
-      ? lines.sublist(lines.length - maxLines)
-      : lines;
+  final tail =
+      lines.length > maxLines ? lines.sublist(lines.length - maxLines) : lines;
   return tail.map(sanitizeLogLine).toList();
 }
 

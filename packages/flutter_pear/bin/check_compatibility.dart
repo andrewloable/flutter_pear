@@ -33,10 +33,10 @@ Future<void> main(List<String> args) async {
     for (final m in mismatches) {
       stderr.writeln('  - ${m.describe()}');
     }
-    stderr.writeln(
-        '\nFix: update whichever side is stale (the real pin, or the '
-        'COMPATIBILITY.md cell) so they agree again — see '
-        'COMPATIBILITY.md\'s own "Bump procedure" section.');
+    stderr
+        .writeln('\nFix: update whichever side is stale (the real pin, or the '
+            'COMPATIBILITY.md cell) so they agree again — see '
+            'COMPATIBILITY.md\'s own "Bump procedure" section.');
     exit(1);
   } on CompatibilityCheckException catch (e) {
     stderr.writeln('check_compatibility failed: $e');
@@ -127,8 +127,7 @@ List<CompatibilityMismatch> checkCompatibility(String pkgRoot) {
   final bareGradlePath = '$bareRoot/android/build.gradle';
   // Comment-stripped: every regex below runs against this, not the raw
   // file, so a decoy value inside a `//` comment can't shadow the real pin.
-  final bareGradle =
-      _stripLineComments(_readOrThrow(bareGradlePath), '//');
+  final bareGradle = _stripLineComments(_readOrThrow(bareGradlePath), '//');
 
   final barePubspecPath = '$bareRoot/pubspec.yaml';
   final barePubspec = _stripLineComments(_readOrThrow(barePubspecPath), '#');
@@ -142,7 +141,8 @@ List<CompatibilityMismatch> checkCompatibility(String pkgRoot) {
     throw CompatibilityCheckException(
         'could not parse $pearEndPkgJsonPath as JSON: $e');
   }
-  final hyperDeps = (pearEndJson['dependencies'] as Map?)?.cast<String, dynamic>();
+  final hyperDeps =
+      (pearEndJson['dependencies'] as Map?)?.cast<String, dynamic>();
   if (hyperDeps == null) {
     throw CompatibilityCheckException(
         '$pearEndPkgJsonPath has no top-level "dependencies" object');
@@ -317,8 +317,8 @@ List<CompatibilityMismatch> checkCompatibility(String pkgRoot) {
   );
   check(
     'Gradle (example app dev/CI wrapper)',
-    toolchainRow.get('Gradle (example app dev/CI wrapper)',
-        toolchainTableName, compatMdPath),
+    toolchainRow.get('Gradle (example app dev/CI wrapper)', toolchainTableName,
+        compatMdPath),
     _extractOrThrow(
       gradleWrapper,
       RegExp(r'gradle-([0-9][0-9.]*)-'),
@@ -357,8 +357,8 @@ List<CompatibilityMismatch> checkCompatibility(String pkgRoot) {
   checkedCount++;
   if (ndkMismatch != null) mismatches.add(ndkMismatch);
 
-  final abisMatch = RegExp(r'''bareKitAbis\s*=\s*\[([^\]]*)\]''')
-      .firstMatch(bareGradle);
+  final abisMatch =
+      RegExp(r'''bareKitAbis\s*=\s*\[([^\]]*)\]''').firstMatch(bareGradle);
   if (abisMatch == null) {
     throw CompatibilityCheckException(
         'could not find bareKitAbis in $bareGradlePath');
@@ -539,6 +539,7 @@ Iterable<File> _findGradleFiles(Directory dir) {
       }
     }
   }
+
   walk(dir);
   return result;
 }
@@ -589,9 +590,9 @@ String _pubspecSectionValue(
         'could not find a "$section:" block in $path');
   }
   final block = sectionMatch.group(1)!;
-  final kv = RegExp(
-          '^[ \\t]*$key:\\s*(?:[\'"]([^\'"]+)[\'"]|(\\S+))', multiLine: true)
-      .firstMatch(block);
+  final kv =
+      RegExp('^[ \\t]*$key:\\s*(?:[\'"]([^\'"]+)[\'"]|(\\S+))', multiLine: true)
+          .firstMatch(block);
   if (kv == null) {
     throw CompatibilityCheckException(
         'could not find "$key:" inside the $section: block of $path');

@@ -54,7 +54,8 @@ void main() {
       expect(sanitized, 'topic=<redacted:key> peer: <redacted:message>');
     });
 
-    test('redacts a 32-char hex key, not just exactly-64-char ones '
+    test(
+        'redacts a 32-char hex key, not just exactly-64-char ones '
         '(regression)', () {
       expect(
         sanitizeLogLine('short peer id abcdef0123456789abcdef0123456789'),
@@ -62,7 +63,8 @@ void main() {
       );
     });
 
-    test('redacts a 96-char hex value, not just exactly-64-char ones '
+    test(
+        'redacts a 96-char hex value, not just exactly-64-char ones '
         '(regression)', () {
       final hex96 = 'a' * 96;
       expect(
