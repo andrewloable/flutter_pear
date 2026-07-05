@@ -5,12 +5,10 @@ version: 0.0.1
 # publish order (flutter_pear_bare -> flutter_pear -> flutter_pear_test; see
 # flutter_pear/pubspec.yaml for why that order, not the "bare -> test -> pear"
 # a stale ticket draft once stated) and has no sibling-package dependency of
-# its own to flip from path to hosted. Real publishing stays gated behind
-# .github/workflows/publish.yml's manual-approval environment and the E9.8
+# its own to flip from path to hosted. Real publishing is a manual, by-hand
+# process (no GitHub Actions/CI in this repo) gated behind the E9.8
 # publish-day checklist -- removing this field only makes `dart pub publish
-# --dry-run` and pana's pub.dev score check meaningful pre-release (see
-# ci.yml's "pub.dev score gate" step, which already documented this as the
-# one deduction it expected E9.7 to clear).
+# --dry-run` and pana's pub.dev score check meaningful pre-release.
 homepage: https://github.com/andrewloable/flutter_pear
 
 environment:

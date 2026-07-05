@@ -7,11 +7,12 @@ tested against, plus which Android toolchain versions its own build
 
 It is not aspirational documentation — every value below is checked against
 its real source of truth by
-[`packages/flutter_pear/bin/check_compatibility.dart`](packages/flutter_pear/bin/check_compatibility.dart),
-which runs in CI (`.github/workflows/ci.yml`) on every push and pull request.
-If a cell here and the file it's supposed to describe ever disagree, that
-script fails the build, naming the exact field, the two disagreeing values,
-and where the real one lives.
+[`packages/flutter_pear/bin/check_compatibility.dart`](packages/flutter_pear/bin/check_compatibility.dart).
+This project does not use GitHub Actions/CI (deliberate decision — run
+quality gates locally); run the checker by hand before every push. If a cell
+here and the file it's supposed to describe ever disagree, that script fails,
+naming the exact field, the two disagreeing values, and where the real one
+lives.
 
 **Pre-1.0 note:** flutter_pear has not yet had a tagged release (see E9.7),
 so there is currently only one row in each table below: `0.0.1`, the working
@@ -76,20 +77,20 @@ own root `CLAUDE.md` Toolchain table (JDK).
   file, the day someone adds a real one without updating this row).
 - **JDK is documented, not build-enforced.** No config file in this repo
   declares "JDK 17" as a single machine-checkable pin the way the others
-  are (CI itself never runs a real Android build today — see
-  `.github/workflows/ci.yml`'s header comment — so it never invokes
-  `setup-java` at all). The checker instead cross-checks this cell against
-  root `CLAUDE.md`'s own Toolchain table row ("JDK 17 + Android SDK/NDK"),
-  which is the only place a JDK version is asserted anywhere in this repo.
-  That catches the two docs drifting from each other; it does not catch
-  either of them drifting from whatever JDK a given machine actually runs.
+  are (nothing in this repo runs a real Android build automatically — there
+  is no CI — so nothing invokes `setup-java` at all). The checker instead
+  cross-checks this cell against root `CLAUDE.md`'s own Toolchain table row
+  ("JDK 17 + Android SDK/NDK"), which is the only place a JDK version is
+  asserted anywhere in this repo. That catches the two docs drifting from
+  each other; it does not catch either of them drifting from whatever JDK a
+  given machine actually runs.
 - **Melos is checked against the repo-root `pubspec.yaml`'s
   `melos: ^6.3.2` dev dependency**, which is a real, machine-checkable
-  constraint. Note that `.github/workflows/ci.yml`'s "Activate melos" step
-  runs `dart pub global activate melos` with no version argument (i.e.
+  constraint. Note that a contributor bootstrapping this repo typically runs
+  a bare `dart pub global activate melos` (no version argument, i.e.
   whatever's latest at the time), so this row documents the repo's own
-  declared floor, not a guarantee of exactly what CI's global activation
-  resolves to on a given run — tightening that gap is a separate concern
+  declared floor, not a guarantee of exactly what that global activation
+  resolves to on a given machine — tightening that gap is a separate concern
   from this ticket's scope.
 - **Supported ABIs** (`arm64-v8a, x86_64`) mirrors
   `flutter_pear_bare/android/build.gradle`'s `bareKitAbis` — 32-bit ABIs are
@@ -116,8 +117,8 @@ cd packages/flutter_pear
 dart run bin/check_compatibility.dart
 ```
 
-`.github/workflows/ci.yml` runs the same command on every push and pull
-request (see its "Compatibility table vs. real pins (E9.5)" step).
+There is no CI running this automatically (this project doesn't use GitHub
+Actions) — running it locally before every push **is** the enforcement.
 
 ## Bump procedure
 
@@ -137,8 +138,6 @@ Gradle wrapper bump:
    **append** a new row underneath the current one and leave prior rows
    untouched — do not overwrite history.
 3. **Run the checker** (`cd packages/flutter_pear && dart run
-   bin/check_compatibility.dart`) locally before pushing. It fails loud,
-   naming the exact mismatch, if step 2 was missed or typed wrong.
-4. **CI proves agreement** — `.github/workflows/ci.yml`'s compatibility step
-   runs the identical check on every push/PR; a red run there means this
+   bin/check_compatibility.dart`) locally before pushing — this repo has no
+   CI to catch a missed step 2 for you; a non-zero exit here means this
    procedure wasn't followed to completion.

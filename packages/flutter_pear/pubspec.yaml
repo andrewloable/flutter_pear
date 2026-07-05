@@ -42,24 +42,20 @@ dev_dependencies:
   # still has to solve every dev_dependency too. A hosted
   # `flutter_pear_test: ^0.0.1` here can only resolve via the gitignored,
   # melos-bootstrap-generated pubspec_overrides.yaml (which redirects it
-  # back to a local path). That file does not exist in a fresh checkout,
-  # and critically it does NOT exist in .github/workflows/publish.yml's
-  # stage-3 real-publish jobs -- those call dart-lang/setup-dart's reusable
-  # workflow directly against a fresh `actions/checkout`, with no `melos
-  # bootstrap` step anywhere. Worse, flutter_pear_test can only ever be
-  # published in stage 3 AFTER flutter_pear (see the `needs:` chain in
-  # publish.yml), so at the moment flutter_pear's own real-publish job runs
-  # `dart pub get`, flutter_pear_test does not exist on pub.dev at any
-  # hosted version yet -- a hard deadlock. Reproduced empirically: with
-  # pubspec_overrides.yaml stripped, `dart pub get` here fails with
-  # "Because flutter_pear depends on flutter_pear_test any which doesn't
-  # exist ... version solving failed" (exit 69). A `path:` dependency has
-  # no such problem: `actions/checkout` in the reusable workflow checks out
-  # the whole monorepo (not just this package's subdirectory), so
-  # `../flutter_pear_test` always exists on disk relative to
-  # `working-directory: packages/flutter_pear` in every job, published-
-  # sibling-or-not -- and, per the paragraph above, pub's publish validator
-  # never complains about a dev-only path dependency in the first place.
+  # back to a local path). That file does not exist in a fresh checkout, and
+  # publishing is a manual, by-hand process (no GitHub Actions/CI in this
+  # repo) run straight from a real checkout with no `melos bootstrap` step.
+  # Worse, flutter_pear_test can only ever be published AFTER flutter_pear
+  # (see the publish-order note above), so at the moment flutter_pear's own
+  # real `dart pub publish` runs `dart pub get`, flutter_pear_test does not
+  # exist on pub.dev at any hosted version yet -- a hard deadlock. Reproduced
+  # empirically: with pubspec_overrides.yaml stripped, `dart pub get` here
+  # fails with "Because flutter_pear depends on flutter_pear_test any which
+  # doesn't exist ... version solving failed" (exit 69). A `path:` dependency
+  # has no such problem: `../flutter_pear_test` always exists on disk
+  # relative to this package in a real checkout, published-sibling-or-not --
+  # and, per the paragraph above, pub's publish validator never complains
+  # about a dev-only path dependency in the first place.
   flutter_pear_test:
     path: ../flutter_pear_test
 
