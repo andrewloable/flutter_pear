@@ -10,7 +10,6 @@ Most apps use `flutter_pear`, not this package directly.
 > worklet is the real Bare Kit worklet — it boots, joins Hyperswarm, and relays
 > bytes over this package's binary IPC, not a native-echo stand-in — with
 > lifecycle (start/terminate, auto suspend/resume, hot-restart reattach-or-kill)
-> verified on Android emulator/CI. The two-device hardware round trip is the
-> one thing still deferred, to a final hardware-validation pass run once every
-> other epic's automated suite is green (see the repository's `project_plan.md`
-> for exact status).
+> verified on a real Android emulator. The physical two-device hardware round
+> trip remains a nice-to-have follow-up, not a release blocker (see the
+> repository's `project_plan.md` for exact status).
