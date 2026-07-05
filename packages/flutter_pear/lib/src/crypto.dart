@@ -83,7 +83,7 @@ class PearCrypto {
   /// actually scoped to that one pairing session. This helper exists only
   /// for demos/prototyping where a quick, deterministic topic and that
   /// tradeoff are acceptable and understood — never for a real room a
-  /// stranger shouldn't be able to walk into. See `docs/concepts.md`'s
+  /// stranger shouldn't be able to walk into. See `doc/concepts.md`'s
   /// "Topics vs. invites" section for the full picture before you ship
   /// this anywhere real.
   static PearKey unsafeTopicFromString(String name) =>

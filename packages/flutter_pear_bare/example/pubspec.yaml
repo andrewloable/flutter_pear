@@ -1,0 +1,58 @@
+name: flutter_pear_bare_example
+description: "Real-device example/integration-test runner for flutter_pear_bare's low-level BareWorklet API."
+publish_to: none
+version: 0.0.1
+
+environment:
+  # 3.10.0, not this repo's usual 3.5.0 floor (see flutter_pear/pubspec.yaml
+  # et al.): the installed Flutter SDK's `flutter create` template
+  # (lib/main.dart, unmodified boilerplate) uses dot-shorthand syntax that
+  # needs it. Harmless here -- unlike a published library package, this
+  # example app makes no compatibility promise to anything depending on it.
+  sdk: '>=3.10.0 <4.0.0'
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_pear_bare:
+    path: ../
+  # flutter_pear_bare ships no pear-end bundle of its own by design (that's
+  # flutter_pear's job -- see flutter_pear_bare/README.md's own "most app
+  # code uses package:flutter_pear instead" note): BareWorklet.start()'s
+  # default (no bundlePath) load path resolves its asset from the
+  # "flutter_pear" package's Flutter assets specifically (hardcoded as
+  # BUNDLE_PACKAGE in FlutterPearBarePlugin.kt), not from whatever app
+  # happens to be running. Depended on here so that asset is available to
+  # this app's build -- lifecycle_test.dart's own subject under test is
+  # still BareWorklet directly; it only reaches for Pear.start() as a
+  # secondary, real-RPC-round-trip check that a worklet is genuinely
+  # healthy after suspend()/resume(), not to test flutter_pear itself.
+  flutter_pear:
+    path: ../../flutter_pear
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+# flutter_pear (above) declares its own flutter_pear_bare dependency as a
+# HOSTED semver constraint, not a path (E9.7 pre-publish prep -- pub.dev
+# rejects a publishable package with a non-dev path dependency; see
+# flutter_pear/pubspec.yaml's own comment). `melos bootstrap` papers over
+# that for packages inside the melos workspace by regenerating a gitignored
+# pubspec_overrides.yaml, but this example lives a level too deep for
+# melos.yaml's `packages/*` glob to discover (matching flutter_pear_bare's
+# own package, not its example/ subdirectory) -- without this, `flutter pub
+# get` here fails outright ("flutter_pear_bare_example depends on
+# flutter_pear_bare from path" vs. flutter_pear's hosted one, "version
+# solving failed"). Pinning the same local path this package already
+# depends on directly keeps both routes to flutter_pear_bare in agreement.
+dependency_overrides:
+  flutter_pear_bare:
+    path: ../
+
+flutter:
+  uses-material-design: true

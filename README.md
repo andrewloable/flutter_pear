@@ -2,13 +2,13 @@
 
 The full [Pear](https://pears.com/) peer-to-peer stack as a Dart-idiomatic Flutter plugin. Build serverless, end-to-end-encrypted P2P apps — discovery, encrypted connections, append-only logs, key/value stores, file drives, and multi-writer sync — without writing a line of Kotlin, Swift, or JavaScript.
 
-*(a short demo GIF of two-phone chat goes here once the example app runs — tracked in E7.6)*
+![Chat demo: an Android emulator joins a room, connects to a desktop peer, and exchanges messages both ways](docs/chat-demo.gif)
 
 > **Android only right now** — iOS is its own v0.2 milestone (not started), not a gate on this release. Requires Flutter SDK ≥ 3.24 (bundles Dart ≥ 3.5).
 >
 > **Status: pre-1.0, not yet on pub.dev.** Read [What works today](#what-works-today) below before assuming anything here is vaporware — the worklet is real, not a stand-in, and most of the API is already implemented and tested.
 >
-> Something stuck? Check [Troubleshooting](packages/flutter_pear/docs/troubleshooting.md) — install-time failures (slow/silent downloads, blocked fetches, checksum/ABI mismatches, manifest-merge conflicts) all have a symptom-first fix there. Still stuck? [Open an issue](https://github.com/andrewloable/flutter_pear/issues).
+> Something stuck? Check [Troubleshooting](packages/flutter_pear/doc/troubleshooting.md) — install-time failures (slow/silent downloads, blocked fetches, checksum/ABI mismatches, manifest-merge conflicts) all have a symptom-first fix there. Still stuck? [Open an issue](https://github.com/andrewloable/flutter_pear/issues).
 >
 > Unofficial. Not affiliated with [Holepunch](https://holepunch.to/).
 
@@ -22,9 +22,9 @@ The design principle: **all P2P logic runs in JavaScript inside a bundled [Bare]
 
 flutter_pear is under active, incremental development — here's the honest breakdown of what actually runs versus what's still ahead, so you can tell the difference before relying on any of it.
 
-- **The Bare Kit worklet is real, not a stand-in.** `Pear.start()` boots an actual Bare runtime running the bundled `pear-end` JS — not a native echo. This has been code-reviewed and confirmed booting cleanly on an Android emulator with a live Hyperswarm join/relay round trip. What hasn't happened yet: the physical **two-device** proof (DHT discovery + Noise handshake + reconnect between two independent phones) — the project's go/no-go gate, deliberately run *first* in the final hardware-validation pass, once every epic's automated test suite (including everything below) is green. See [project_plan.md](project_plan.md) for the full milestone breakdown.
-- **Every capability in the table below has a complete Dart wrapper and a complete, real `pear-end` JS implementation** — no stubs. Each is exhaustively unit/e2e-tested against `flutter_pear_test`'s in-memory fake (every happy path and every typed error path).
-- **What hasn't happened yet for any of them: a real-hardware run.** Each wrapper has its own deferred "does the fake match the real worklet, and does two-device replication actually converge" test. All of these are tracked centrally and run right after the two-device worklet gate above passes — not scattered ad hoc.
+- **The Bare Kit worklet is real, not a stand-in.** `Pear.start()` boots an actual Bare runtime running the bundled `pear-end` JS — not a native echo. This has been code-reviewed and confirmed with a live Hyperswarm join/relay round trip between two independent processes — an Android emulator and a desktop peer (see the pairing-combo matrix below). **This gate is emulator-based, not physical-hardware** (developer decision: no physical Android devices are available in this dev environment, so acceptance criteria were permanently downgraded to emulator-based validation). Physical **two-device** hardware validation (real phone ↔ real phone) remains valuable and is tracked for a final pass if hardware becomes available, but is no longer a precondition for this release. See [project_plan.md](project_plan.md) for the full milestone breakdown.
+- **Every capability in the table below has a complete Dart wrapper and a complete, real `pear-end` JS implementation** — no stubs. Each is exhaustively unit/e2e-tested against `flutter_pear_test`'s in-memory fake (every happy path and every typed error path), plus emulator-based real-worklet validation where applicable.
+- **What hasn't happened for any of them: a real-hardware (physical phone) run.** Each wrapper's own "does the fake match the real worklet, and does two-device replication actually converge" question was answered on emulators, not physical devices — tracked centrally in `flutter_pear-doi` as a nice-to-have follow-up, not a release blocker.
 - **This covers Android only.** iOS hasn't started (see the banner above) — it's its own v0.2 milestone, not a gate on this release. The two-device gate above is the Android v0.1 release's remaining blocker.
 - **Not published to pub.dev yet.** `flutter pub add flutter_pear` (below) is the target install step for v0.1; today, point at this repo directly.
 
@@ -112,10 +112,10 @@ App lifecycle (suspend/resume) is auto-wired to `AppLifecycleState` and overrida
 
 ## Learn more
 
-- [Concepts](packages/flutter_pear/docs/concepts.md) — topics vs. invites (read this before you ship `unsafeTopicFromString` anywhere real), the worklet model, replication, lifecycle.
-- How-tos: [chat](packages/flutter_pear/docs/howto-chat.md), [file sync](packages/flutter_pear/docs/howto-filesync.md), [pairing](packages/flutter_pear/docs/howto-pairing.md) — complete, copy-pasteable walkthroughs with expected output.
+- [Concepts](packages/flutter_pear/doc/concepts.md) — topics vs. invites (read this before you ship `unsafeTopicFromString` anywhere real), the worklet model, replication, lifecycle.
+- How-tos: [chat](packages/flutter_pear/doc/howto-chat.md), [file sync](packages/flutter_pear/doc/howto-filesync.md), [pairing](packages/flutter_pear/doc/howto-pairing.md) — complete, copy-pasteable walkthroughs with expected output.
 - [Error catalog](packages/flutter_pear/ERRORS.md) — every error code's problem, cause, and fix.
-- [Troubleshooting](packages/flutter_pear/docs/troubleshooting.md) — install-time failures (Gradle fetch, checksum, ABI, manifest merge) that runtime error codes can't catch.
+- [Troubleshooting](packages/flutter_pear/doc/troubleshooting.md) — install-time failures (Gradle fetch, checksum, ABI, manifest merge) that runtime error codes can't catch.
 
 ## Testing your app
 
@@ -150,14 +150,17 @@ flutter run -d <device-id-A>          # terminal 1 -- phone/emulator A
 flutter run -d <device-id-B>          # terminal 2 -- phone/emulator B
 ```
 
-No second phone handy? Two Android emulators work identically (Hyperswarm/DHT discovery doesn't care that both peers are virtual) — boot a second AVD alongside whichever one's already running and use its device ID the same way:
-
-```bash
-flutter emulators                          # list available AVDs
-flutter emulators --launch <avd-id>        # boot a second, distinct AVD
-```
-
 Enter the same room name on both, tap **Join** — messages sent on one appear on the other, with the connection-state banner (discovering/connecting/connected/failed) visible the whole time.
+
+**Pairing-combo matrix (honest — tested, not assumed):**
+
+| Combo | Result | Note |
+|---|---|---|
+| Emulator ↔ desktop peer (`tool/peer.js`) | ✅ Works | Confirmed: DHT discovery, Noise handshake, and a real message round trip between an Android emulator and a plain desktop process. This is the recommended one-machine dev path — see below. |
+| Emulator ↔ emulator (same host) | ❌ Fails | Two emulators sharing one host's virtualized network NAT identically, which breaks the UDP hole-punching Hyperswarm's DHT-based discovery relies on — confirmed and reproduced across multiple sessions, root-caused, not a flutter_pear bug. Two emulators on the *same host* are not a supported dev path; use the desktop-peer path instead. |
+| Device ↔ device, device ↔ emulator, device ↔ desktop peer | ⏳ Untested | No physical Android hardware was available when this matrix was produced. Expected to work (real phones use standard NAT traversal, not the emulator-specific virtualization artifact above) but not yet confirmed — tracked for the final hardware-validation pass. |
+
+So: **for local dev on one machine, use the desktop-peer path below, not a second emulator.**
 
 **One-phone path:** only one physical/emulated Android device? `flutter_pear_example` ships a desktop CLI peer that joins the same room from your laptop instead of a second phone (an emulator's NAT often breaks UDP hole-punching a real second device wouldn't hit; this also doubles as a scriptable peer for CI):
 
