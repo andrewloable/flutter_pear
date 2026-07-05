@@ -1,0 +1,58 @@
+name: Bug report
+description: Something in flutter_pear/flutter_pear_bare/flutter_pear_test isn't behaving as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing this. The single most useful thing you can attach is a
+        `flutter_pear:doctor --report` bundle (see below) — it's built specifically
+        to be paste-ready and privacy-safe (never transmitted by the package itself,
+        and hex keys/topics/invites/chat payloads are redacted before it's printed).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you expected vs. what actually happened. Include the exact error message/code if one was thrown (see ERRORS.md for the catalog).
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal steps to reproduce
+      description: The smallest code/sequence that triggers it. A link to a minimal repro repo/gist is even better.
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor-report
+    attributes:
+      label: flutter_pear:doctor --report output
+      description: |
+        From your app's directory: `dart run flutter_pear:doctor --report`
+        (add `--log <path>` if you have a captured worklet log to attach — its
+        tail is included, sanitized, in the same bundle). Paste the full output here.
+      render: markdown
+    validations:
+      required: false
+
+  - type: input
+    id: flutter-pear-version
+    attributes:
+      label: flutter_pear version
+      description: From your pubspec.lock, if you didn't run --report above.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Android emulator
+        - Android physical device
+        - iOS (not yet supported — v0.2)
+    validations:
+      required: true

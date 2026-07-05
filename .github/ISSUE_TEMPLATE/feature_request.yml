@@ -1,0 +1,28 @@
+name: Feature request
+description: Propose a new capability, API shape, or a Pear capability not yet exposed.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: this project's own design principle is "all P2P logic stays
+        in JavaScript inside the Bare worklet; Dart is a typed remote control" —
+        see [project_plan.md](../../project_plan.md). A request that needs a new
+        `pear-end` JS capability exposed over the RPC schema (not a Dart
+        reimplementation of a protocol) is the right shape.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What are you trying to build that the current API doesn't support?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API (if you have one in mind)
+      description: Sketch the Dart-side shape you'd want — Futures for calls, broadcast Streams for events, per this project's conventions.
+    validations:
+      required: false
