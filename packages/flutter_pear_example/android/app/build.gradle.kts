@@ -44,33 +44,31 @@ flutter {
     source = "../.."
 }
 
-// E7.2: hand-rolled native QR scanner (CameraX + ML Kit Barcode Scanning),
-// owned directly by this app module -- NOT a Flutter plugin. See CLAUDE.md /
-// bd flutter_pear-jqe for why: this project's AGP 9.0.1 / Kotlin 2.3.20
+// E7.2: hand-rolled native QR scanner (CameraX + ZXing), owned directly by
+// this app module -- NOT a Flutter plugin. See CLAUDE.md / bd
+// flutter_pear-jqe for why: this project's AGP 9.0.1 / Kotlin 2.3.20
 // toolchain has a confirmed, structural incompatibility with every
 // camera/permission Flutter plugin (file_picker already broke the build over
 // this; mobile_scanner and permission_handler both have open upstream issues
 // for the exact same gap). This app module's own Kotlin isn't a separate
 // Gradle plugin subproject, so it isn't affected.
 //
-// LICENSING FLAG (unresolved, see bd for the tracking issue): the
-// `androidx.camera:*` family is Apache-2.0, confirmed via each artifact's
-// POM. `com.google.mlkit:barcode-scanning` is NOT -- its own POM declares
-// the "ML Kit Terms of Service" (a proprietary Google EULA, not an OSI
-// license), and it transitively pulls in the closed-source
-// `com.google.android.gms:play-services-mlkit-barcode-scanning` /
-// `play-services-basement` runtime. That fails LICENSING.md's permissive-
-// only (MIT/Apache-2.0/BSD/ISC/0BSD) rule for anything this repo bundles.
-// This app module isn't part of the published flutter_pear package LICENSING.md
-// governs, but shipping a demo with an undisclosed proprietary dependency
-// chain still needs an explicit maintainer call (swap for a permissively-
-// licensed on-device QR decoder, or accept and document the exception) --
-// not silently left mislabeled as Apache-2.0.
+// LICENSING (flutter_pear-64q, resolved): `androidx.camera:*` is Apache-2.0,
+// confirmed via each artifact's POM. This used to also depend on
+// `com.google.mlkit:barcode-scanning`, whose own POM declares the "ML Kit
+// Terms of Service" (a proprietary Google EULA, not an OSI license) and
+// transitively pulled in closed-source `com.google.android.gms:*` --
+// swapped for `com.google.zxing:core` (confirmed Apache-2.0 via its
+// zxing-parent POM's <licenses> block), a pure-JVM barcode decoder with no
+// Android Gradle module of its own -- zero risk of the AGP9/Kotlin-plugin
+// class of breakage described above, unlike a second Flutter-plugin-shaped
+// dependency would have been.
 dependencies {
     val cameraxVersion = "1.6.1"
     implementation("androidx.camera:camera-core:$cameraxVersion")
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
-    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("com.google.zxing:core:3.5.3")
+    testImplementation("junit:junit:4.13.2")
 }
