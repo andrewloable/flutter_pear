@@ -31,8 +31,8 @@
 // Usage: `dart run tool/extract_snippets.dart <README.md> [<README.md> ...]`,
 // run from the `flutter_pear` package directory (so the generated file's
 // imports resolve against this package's own dependency graph) with one or
-// more README paths relative to that directory. Run from CI via
-// .github/workflows/ci.yml.
+// more README paths relative to that directory. Run by hand before every
+// push (this repo has no CI).
 
 import 'dart:io';
 
