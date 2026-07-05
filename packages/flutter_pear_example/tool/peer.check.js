@@ -16,10 +16,17 @@
 // Run directly: `node tool/peer.check.js`.
 
 const assert = require('node:assert/strict')
+const crypto = require('node:crypto')
+const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
 const { spawn } = require('node:child_process')
 
 const PEER_JS = path.join(__dirname, 'peer.js')
+
+function tmpDir (prefix) {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+}
 
 function spawnPeer (args) {
   const child = spawn('node', [PEER_JS, ...args], { stdio: ['pipe', 'pipe', 'pipe'] })
@@ -72,6 +79,39 @@ async function checkRoundTrip () {
   }
 }
 
+// flutter_pear-d5w: real two-process round trip for --drive mode -- a
+// genuine Hyperdrive replication over a real (local) Hyperswarm connection,
+// not a stub. Proves the drive-key-announcement protocol (the same one
+// file_drop_screen.dart speaks) and the core-then-blobs replication
+// chaining actually interop between two independent processes, byte-exact.
+async function checkDriveRoundTrip () {
+  const sendDir = tmpDir('flutter-pear-peer-check-send-')
+  const recvDir = tmpDir('flutter-pear-peer-check-recv-')
+  const storageA = tmpDir('flutter-pear-peer-check-storeA-')
+  const storageB = tmpDir('flutter-pear-peer-check-storeB-')
+  const sourceFile = path.join(sendDir, 'payload.bin')
+  const payload = crypto.randomBytes(5 * 1024 * 1024) // photo-sized, matches E7.7's own validation scale
+  fs.writeFileSync(sourceFile, payload)
+
+  const topic = 'peer-js-check-drive-round-trip'
+  const sender = spawnPeer(['--topic', topic, '--drive', '--put', sourceFile, '--storage', storageA, '--timeout', '75'])
+  const receiver = spawnPeer(['--topic', topic, '--drive', '--mirror-to', recvDir, '--storage', storageB, '--timeout', '75'])
+  try {
+    await receiver.waitFor((_, err) => err.includes('mirrored into'), 70000)
+
+    const receivedFile = path.join(recvDir, 'payload.bin')
+    assert.ok(fs.existsSync(receivedFile), 'mirrored file must exist at the expected path')
+    const receivedHash = crypto.createHash('sha256').update(fs.readFileSync(receivedFile)).digest('hex')
+    const sentHash = crypto.createHash('sha256').update(payload).digest('hex')
+    assert.equal(receivedHash, sentHash, 'mirrored file must be byte-identical to the one --put on the other side')
+    console.log('ok: --drive mode replicated a 5MB file between two peers, byte-identical')
+  } finally {
+    sender.child.kill('SIGKILL')
+    receiver.child.kill('SIGKILL')
+    for (const dir of [sendDir, recvDir, storageA, storageB]) fs.rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function checkTimeoutExit () {
   const exitCode = await new Promise((resolve) => {
     const child = spawn('node', [
@@ -89,6 +129,7 @@ async function main () {
   // this environment, even with generous timeouts -- undiagnosed, but
   // consistently reproducible, so the cheap check runs last instead.
   await checkRoundTrip()
+  await checkDriveRoundTrip()
   await checkTimeoutExit()
 }
 

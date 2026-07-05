@@ -1,4 +1,6 @@
 import 'dart:async' show unawaited;
+import 'dart:convert' show utf8;
+import 'dart:typed_data' show Uint8List;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PlatformException;
@@ -14,6 +16,16 @@ import 'main.dart' show PrejoinedSwarmWiring, SwarmStatusBanner, describeSwarmSt
 /// local file path, never loaded into memory -- see [PearDrive]'s own doc
 /// for why that's what makes a large file safe here) and lets a peer pull
 /// down anything new with [PearDrive.mirrorToDisk].
+///
+/// A `name`-derived [PearDrive] (`pear.drive(name: ...)`) is keyed off this
+/// device's own [Pear]'s Corestore, which seeds a fresh random primary key
+/// per install -- so the SAME name opens a DIFFERENT, unrelated drive on
+/// each device. [PearDrive.replicate] only exposes a drive to whoever
+/// already knows its key; it doesn't announce that key. So the peer whose
+/// drive you want to mirror has to tell you its key some other way -- this
+/// screen does that itself, over the very first bytes on each
+/// [PearConnection] (see [_onConnection]), rather than something a peer
+/// could guess from `name` alone.
 ///
 /// Two ways in: the plain [FileDropScreen] constructor's own room-NAME entry
 /// (`PearCrypto.unsafeTopicFromString`, demo-only shortcut, same as
@@ -66,6 +78,23 @@ class FileDropScreen extends StatefulWidget {
   State<FileDropScreen> createState() => _FileDropScreenState();
 }
 
+/// Wire-encodes [key] as the drive-key announcement message sent over a
+/// [PearConnection] -- see [FileDropScreen]'s class doc. Exposed top-level
+/// (not inlined) so its round trip with [decodeDriveKeyAnnouncement] is
+/// unit-testable without a running [Pear] -- everything else in this file
+/// that touches [PearConnection]/[Pear] isn't (same structural limit as
+/// `ChatScreen.joined`: `Pear`'s only public constructor is `Pear.start()`,
+/// which always dials the real platform channel).
+Uint8List encodeDriveKeyAnnouncement(PearKey key) =>
+    Uint8List.fromList(utf8.encode(key.hex));
+
+/// Reverses [encodeDriveKeyAnnouncement]. Throws [FormatException] (via
+/// [PearKey.fromHex]) if [bytes] isn't a valid announcement -- the caller
+/// ([_FileDropScreenState._onPeerDriveKey]) treats that as an untrusted
+/// peer sending garbage, not a crash.
+PearKey decodeDriveKeyAnnouncement(Uint8List bytes) =>
+    PearKey.fromHex(utf8.decode(bytes));
+
 enum _TransferStatus { idle, sending, receiving, done }
 
 class _FileDropScreenState extends State<FileDropScreen> {
@@ -79,6 +108,12 @@ class _FileDropScreenState extends State<FileDropScreen> {
   String? _joinError;
   bool _joining = false;
   _TransferStatus _transfer = _TransferStatus.idle;
+
+  // Keyed by remotePublicKey.hex -- one entry per peer whose drive KEY this
+  // device has learned (see the class doc on why that key must be
+  // exchanged at all). [_checkForFiles] mirrors every drive in here, not
+  // [_drive] (this device's own drive can never contain a peer's upload).
+  final _peerDrives = <String, PearDrive>{};
 
   @override
   void initState() {
@@ -137,10 +172,10 @@ class _FileDropScreenState extends State<FileDropScreen> {
     setState(() => _drive = drive);
 
     if (wiring != null) {
-      wiring.drainInto(_onStatus, (conn) => _onConnection(drive, conn));
+      wiring.drainInto(_onStatus, (conn) => _onConnection(pear, drive, conn));
     } else {
       swarm.state.listen(_onStatus);
-      swarm.connections.listen((conn) => _onConnection(drive, conn));
+      swarm.connections.listen((conn) => _onConnection(pear, drive, conn));
     }
   }
 
@@ -149,13 +184,65 @@ class _FileDropScreenState extends State<FileDropScreen> {
     setState(() => _status = status);
   }
 
-  void _onConnection(PearDrive drive, PearConnection conn) {
-    // Both sides replicate the same named drive over every connection that
-    // shows up -- mirrors PearConnection's own "call on both peers" contract
-    // for replicate().
+  /// Wires one newly-shown [PearConnection]: replicates this device's own
+  /// [drive] (so a peer who already knows its key CAN fetch it), then
+  /// exchanges drive keys over the connection itself -- see the class doc
+  /// on why that's necessary at all -- so this device in turn learns the
+  /// peer's key, opens ITS drive, and replicates that too. [pear] is taken
+  /// as a parameter (not read from [_pear]) because the listener this
+  /// drives is attached before [_pear] itself is assigned in [_join].
+  void _onConnection(Pear pear, PearDrive drive, PearConnection conn) {
     drive.replicate(conn);
-    _log.add('replicating with ${conn.remotePublicKey.hex.substring(0, 8)}…');
+    final peerHex = conn.remotePublicKey.hex;
+    _log.add('replicating with ${peerHex.substring(0, 8)}…');
+    // Subscribed before writing our own announcement -- a broadcast stream
+    // event arriving before a listener attaches is simply missed, same
+    // discipline as everywhere else in this codebase.
+    conn.data.listen((bytes) => _onPeerDriveKey(pear, peerHex, conn, bytes));
+    unawaited(conn.write(encodeDriveKeyAnnouncement(drive.key)).catchError((_) {}));
     if (mounted) setState(() {});
+  }
+
+  /// Handles [bytes] arriving on [conn] as the peer's drive-key
+  /// announcement (see [_onConnection]) -- opens that drive by key (once --
+  /// [_peerDrives] caches it across reconnects) and replicates it over
+  /// [conn]. Replication itself is re-issued on EVERY call, deliberately
+  /// not deduped like the open/cache is: [conn] is a fresh [PearConnection]
+  /// each time a peer reconnects (`swarm.connections` never re-delivers an
+  /// old one), and skipping re-replicate here would leave a reconnected
+  /// peer's drive permanently wired to a dead, closed stream -- silently
+  /// starving [_checkForFiles] of anything that peer sends after that
+  /// point. Matches [_onConnection]'s own `drive.replicate(conn)`, called
+  /// unconditionally on every connection for exactly the same reason.
+  Future<void> _onPeerDriveKey(
+    Pear pear,
+    String peerHex,
+    PearConnection conn,
+    Uint8List bytes,
+  ) async {
+    var peerDrive = _peerDrives[peerHex];
+    if (peerDrive == null) {
+      try {
+        peerDrive = await pear.drive(key: decodeDriveKeyAnnouncement(bytes));
+      } catch (e) {
+        if (!mounted) return;
+        setState(
+          () => _log.add(
+            'bad drive-key announcement from ${peerHex.substring(0, 8)}: $e',
+          ),
+        );
+        return;
+      }
+      _peerDrives[peerHex] = peerDrive;
+    }
+    await peerDrive.replicate(conn);
+    if (!mounted) return;
+    setState(
+      () => _log.add(
+        "learned ${peerHex.substring(0, 8)}'s drive -- Check for files "
+        'will pull down whatever they share',
+      ),
+    );
   }
 
   Future<void> _join() async {
@@ -174,7 +261,7 @@ class _FileDropScreenState extends State<FileDropScreen> {
       final drive = await pear.drive(name: 'file-drop-demo');
 
       swarm.state.listen(_onStatus);
-      swarm.connections.listen((conn) => _onConnection(drive, conn));
+      swarm.connections.listen((conn) => _onConnection(pear, drive, conn));
 
       setState(() {
         _pear = pear;
@@ -210,6 +297,18 @@ class _FileDropScreenState extends State<FileDropScreen> {
     final name = picked.name;
     setState(() => _transfer = _TransferStatus.sending);
     try {
+      // flutter_pear-ohv: the native picker Activity above backgrounds this
+      // Activity for as long as the user takes to pick a file -- long
+      // enough to cross PearLifecycle's auto-suspend linger window on a
+      // slow pick. Its own auto-resume (fired the instant this Activity
+      // returns to the foreground) is unawaited internally, so a
+      // drive.put() issued right after picked resolves could race a
+      // still-suspended worklet and fail with SEND_FAILED. pear.resume()
+      // is idempotent and a fast no-op when nothing was suspended (checked
+      // synchronously against WorkletState before any platform-channel
+      // call) -- safe, near-free insurance here on every send, not just
+      // the rare slow-pick case.
+      await _pear?.resume();
       await drive.put('/$name', path);
       setState(() {
         _log.add('sent $name -- waiting for peers to pull it down');
@@ -224,16 +323,37 @@ class _FileDropScreenState extends State<FileDropScreen> {
   }
 
   Future<void> _checkForFiles() async {
-    final drive = _drive;
-    if (drive == null) return;
+    // Mirrors every PEER drive learned so far (see the class doc/
+    // _onPeerDriveKey) -- never _drive, this device's own drive, which by
+    // construction can only ever contain what THIS device itself put there.
+    if (_peerDrives.isEmpty) {
+      // Reachable while connected but before the key-exchange round trip
+      // (see _onConnection/_onPeerDriveKey) finishes -- says so instead of
+      // silently doing nothing, which read as a broken button rather than
+      // "still connecting."
+      setState(() => _log.add("haven't learned a peer's drive yet -- wait "
+          'for the room to finish connecting and try again'));
+      return;
+    }
     setState(() => _transfer = _TransferStatus.receiving);
     try {
+      // flutter_pear-ohv: same insurance as _pickAndSend -- backgrounding
+      // the app (for any reason, not just the picker) before tapping this
+      // button risks the same auto-suspend race. Near-free when nothing
+      // was actually suspended.
+      await _pear?.resume();
       final dir = await getApplicationDocumentsDirectory();
-      final result = await drive.mirrorToDisk(dir.path);
+      var added = 0, changed = 0, removed = 0;
+      for (final peerDrive in _peerDrives.values) {
+        final result = await peerDrive.mirrorToDisk(dir.path);
+        added += result.added;
+        changed += result.changed;
+        removed += result.removed;
+      }
       setState(() {
         _log.add(
-          'checked for files: ${result.added} added, ${result.changed} '
-          'changed, ${result.removed} removed -> ${dir.path}',
+          'checked for files: $added added, $changed changed, $removed '
+          'removed -> ${dir.path}',
         );
         _transfer = _TransferStatus.done;
       });

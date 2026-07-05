@@ -16,16 +16,42 @@
 //    the app pass an unrelated, arbitrary key. Before the fix, NO real
 //    pairing could ever complete, independent of bug 1.
 //
-// (A candidate de-dup layer was attempted here for flutter_pear-0zq --
-// blind-pairing can call onadd more than once for the same candidate -- but
-// reverted: `request.session` is a pure function of (invite, userData), NOT
-// a per-device identity, so two DIFFERENT physical candidates sharing the
-// same invite and the same default empty userData collide on session. The
-// de-dup layer would have silently merged them, and worse, silently
-// auto-admitted any later distinct candidate with the confirmed key once
-// the first was confirmed. flutter_pear-0zq is reopened with this finding;
-// a correct fix needs a properly per-delivery identity, not blind-pairing's
-// own session hash.)
+// (flutter_pear-0zq: a candidate de-dup layer was attempted here after an
+// early investigation observed onadd firing twice for one candidate, but
+// reverted -- `request.session` is a pure function of (invite, userData),
+// NOT a per-device identity, so the de-dup layer would have silently merged
+// two DIFFERENT candidates sharing the same invite/empty-userData, and
+// worse, silently auto-admitted any later one with the already-confirmed
+// key. Re-investigated (2026-07-05): CONFIRMED still real, but intermittent
+// and timing/load-dependent, not a fixed synchronous-scratch-script
+// artifact -- an isolated run of just this file (or a standalone repro
+// script) never reproduced it across 14+ attempts, but running the FULL
+// `npm test` suite reproduced it in 2 of 5 attempts (a genuine duplicate
+// candidateId for one physical candidate), consistent with the original
+// report's own framing: two independent delivery channels (DHT-poll
+// discovery and live-connection delivery) racing, more likely to both fire
+// under real system/network load than in a quiet, isolated test run. NOT
+// turned into a CI assertion here -- a ~40%-flaky pass/fail would just make
+// this file flaky by design, the opposite of its own stated goal (see the
+// `--test-concurrency=1` note below). No backend fix attempted (the
+// ticket's own reopened notes require a properly per-delivery/per-
+// connection identity, never blind-pairing's own session hash, and real
+// design work this investigation didn't attempt). The flutter_pear
+// PACKAGE itself (lib/src/pairing.dart's PearInvite.candidates stream) has
+// NO dedup of its own -- a consumer subscribing directly gets every
+// delivery, duplicates included. The example app's
+// packages/flutter_pear_example/lib/pairing_screens.dart happens to
+// already handle this gracefully: StartRoomScreen._onCandidate's
+// synchronous re-entrancy guard (`if (_pairing) return`) drops a second
+// delivery for the same physical device arriving mid-confirm, and its
+// candidates subscription is cancelled on dispose so a late duplicate
+// arriving after handoff has no listener left either -- but that's this
+// ONE app's UI code, not a library-level guarantee. Any other
+// `PearPairing`/`PearInvite.candidates` consumer needs its own equivalent
+// handling. Matches this ticket's own suggested alternative ("an app can
+// reasonably just handle an occasional unexpected duplicate
+// PAIRING_CANDIDATE notification gracefully... rather than needing a
+// backend fix at all") at the app layer, not the library layer.)
 //
 // This drives the REAL Method.PAIRING_CREATE_INVITE / PAIRING_ACCEPT_INVITE /
 // PAIRING_CONFIRM_CANDIDATE handlers in index.js end to end, over a REAL
@@ -190,7 +216,24 @@ function bootWorklet () {
     })
   }
 
-  return { call, onEvent }
+  // Subscribes to every future matching event (not just the next one, like
+  // onEvent above) -- for flutter_pear-0zq's regression test below, which
+  // needs to notice a SECOND delivery, not just resolve on the first.
+  // Returns an unsubscribe function.
+  function onAnyEvent (matcher, cb) {
+    const onWrite = (buf) => {
+      if (buf.length < 5 || buf[4] !== FrameType.JSON) return
+      const len = buf.readUInt32BE(0)
+      let msg
+      try { msg = JSON.parse(buf.subarray(5, 4 + len).toString()) } catch { return }
+      if (!msg.ev || !matcher(msg)) return
+      cb(msg)
+    }
+    writeListeners.add(onWrite)
+    return () => writeListeners.delete(onWrite)
+  }
+
+  return { call, onEvent, onAnyEvent }
 }
 
 async function pairOnce (t, { acceptUserData } = {}) {
@@ -292,5 +335,121 @@ test('real (non-fake) blind-pairing round trip succeeds with a genuine single ze
       Buffer.from(candidateEvent.p.userData, 'base64').toString('hex'),
       '00',
       'a real single zero-byte userData must not be misidentified as "no userData"'
+    )
+  })
+
+// flutter_pear-0zq: NOT a regression test for "exactly one PAIRING_CANDIDATE
+// per candidate" -- see this file's header comment for why that isn't a
+// safe CI assertion (confirmed genuinely flaky: ~40% duplicate rate under
+// full-suite load, 0% isolated). This instead asserts the property that
+// stays true either way: pairing succeeds and confirms the RIGHT device
+// even when a duplicate candidate notification for it fires, by confirming
+// every notification for the same candidate with the same key (mirroring
+// pairOnce's own approach above) and logging when more than one appeared,
+// for visibility without failing the build over inherent library timing.
+test('real (non-fake) blind-pairing succeeds even if blind-pairing delivers a duplicate candidate notification (flutter_pear-0zq)',
+  async (t) => {
+    const testnet = await createTestnet(3)
+    currentBootstrap = testnet.bootstrap
+    t.after(() => testnet.destroy().catch(() => {}))
+
+    const inviter = bootWorklet()
+    const acceptor = bootWorklet()
+
+    const createRes = await inviter.call(Method.PAIRING_CREATE_INVITE, {})
+    assert.ok(createRes.ok, 'createInvite ok: ' + JSON.stringify(createRes.err))
+    const { invite, inviteId } = createRes.ok
+
+    const candidateIds = new Set()
+    const confirmKey = crypto.randomBytes(32)
+    const off = inviter.onAnyEvent(
+      (msg) => msg.ev === EventName.PAIRING_CANDIDATE && msg.p.inviteId === inviteId,
+      (event) => {
+        candidateIds.add(event.p.candidateId)
+        // bootWorklet's call() only ever resolves (matches replies by id,
+        // never rejects) -- no .catch needed; a confirm for an
+        // already-confirmed/gone candidateId still resolves, just with an
+        // {err}, which this test doesn't need to inspect since the
+        // assertion below only cares whether the ACCEPTOR ends up with the
+        // right key.
+        inviter.call(Method.PAIRING_CONFIRM_CANDIDATE, {
+          inviteId,
+          candidateId: event.p.candidateId,
+          key: confirmKey.toString('base64')
+        })
+      }
+    )
+
+    const acceptRes = await acceptor.call(Method.PAIRING_ACCEPT_INVITE, { invite, timeoutMs: 15000 })
+    off()
+
+    assert.ok(acceptRes.ok, 'acceptInvite ok: ' + JSON.stringify(acceptRes.err))
+    assert.equal(
+      acceptRes.ok.key,
+      confirmKey.toString('base64'),
+      'the accepting side must receive exactly the key the inviter confirmed, even amid a possible duplicate'
+    )
+    // Not asserting exactly 1 (confirmed flaky, see header comment), but a
+    // bound still gives real regression signal: every run observed during
+    // this investigation (14 isolated + several full-suite) saw AT MOST 2
+    // (the two-delivery-channel model the original report described) --
+    // 3+ would mean a materially different, worse characteristic than what
+    // was investigated and accepted here.
+    assert.ok(
+      candidateIds.size <= 2,
+      `expected at most 2 distinct candidateIds (the known two-delivery-channel duplicate), got ${candidateIds.size}`
+    )
+    if (candidateIds.size > 1) {
+      // t.diagnostic(), not console.log -- E5.9's log-hygiene guardrail
+      // (log_hygiene_test.dart) bans console.* anywhere in pear-end's own
+      // first-party JS source, test files included.
+      t.diagnostic(`flutter_pear-0zq: observed ${candidateIds.size} distinct candidateIds this run (informational, not a failure)`)
+    }
+  })
+
+// flutter_pear-xtj: StartRoomScreen now revokes its invite immediately
+// after confirming its one candidate (no longer leaving an unconfirmed
+// candidate/invite lingering after a successful pairing). index.js's own
+// PAIRING_CONFIRM_CANDIDATE handler calls blind-pairing-core's
+// request.confirm() WITHOUT awaiting the confirmation's actual wire
+// delivery to the peer -- so revoking (which calls member.close()) right
+// after confirming is a plausible race that could tear down the
+// connection before that confirmation is flushed. Verified empirically
+// (10/10 runs) that it does not: the confirmed key still reaches the
+// accepting side's acceptInvite() every time.
+test('real (non-fake) blind-pairing: revoking an invite immediately after confirming its one candidate does not break that candidate\'s acceptInvite (flutter_pear-xtj)',
+  async (t) => {
+    const testnet = await createTestnet(3)
+    currentBootstrap = testnet.bootstrap
+    t.after(() => testnet.destroy().catch(() => {}))
+
+    const inviter = bootWorklet()
+    const acceptor = bootWorklet()
+
+    const createRes = await inviter.call(Method.PAIRING_CREATE_INVITE, {})
+    assert.ok(createRes.ok, 'createInvite ok: ' + JSON.stringify(createRes.err))
+    const { invite, inviteId } = createRes.ok
+
+    const confirmKey = crypto.randomBytes(32)
+    const acceptResPromise = acceptor.call(Method.PAIRING_ACCEPT_INVITE, { invite, timeoutMs: 10000 })
+    const candidateEvent = await inviter.onEvent(
+      (msg) => msg.ev === EventName.PAIRING_CANDIDATE && msg.p.inviteId === inviteId
+    )
+    await inviter.call(Method.PAIRING_CONFIRM_CANDIDATE, {
+      inviteId,
+      candidateId: candidateEvent.p.candidateId,
+      key: confirmKey.toString('base64')
+    })
+    // No delay -- matches StartRoomScreen's own fire-and-forget timing
+    // exactly (revoke() called synchronously right after confirm()
+    // resolves, same tick as the navigation hand-off).
+    await inviter.call(Method.PAIRING_REVOKE, { inviteId })
+
+    const acceptRes = await acceptResPromise
+    assert.ok(acceptRes.ok, 'acceptInvite must still succeed despite the immediate revoke: ' + JSON.stringify(acceptRes.err))
+    assert.equal(
+      acceptRes.ok.key,
+      confirmKey.toString('base64'),
+      'the accepting side must still receive the confirmed key, not be caught by the revoke'
     )
   })

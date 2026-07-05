@@ -180,6 +180,15 @@ class _StartRoomScreenState extends State<StartRoomScreen> {
         return;
       }
       _handedOff = true;
+      // Best-effort cleanup, not load-bearing for the hand-off below: this
+      // device has no further use for the invite once its one candidate is
+      // confirmed (flutter_pear-xtj) -- revoking closes the door on any
+      // later candidate (a duplicate delivery per flutter_pear-0zq, or a
+      // genuinely new scan) trying to pair against an invite this screen
+      // is about to leave. A failure here (e.g. the RPC racing dispose)
+      // isn't worth surfacing -- the invite still expires on its own TTL.
+      final invite = _invite;
+      if (invite != null) unawaited(invite.revoke().catchError((_) {}));
       // Rebound to new final locals: the builder closure below can't inherit
       // the null-promotion already established for the mutable swarm/wiring
       // captured above.

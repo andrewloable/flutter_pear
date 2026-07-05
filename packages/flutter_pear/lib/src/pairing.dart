@@ -54,6 +54,18 @@ class PearInvite {
   /// Every incoming pairing attempt on this invite, in arrival order.
   /// Broadcast — a listener attaching after a candidate already arrived
   /// misses it, same as every other Pear event stream.
+  ///
+  /// The SAME physical candidate device can, under real network
+  /// conditions, occasionally produce more than one event here for what a
+  /// user experiences as one pairing attempt (blind-pairing's own
+  /// DHT-poll-based discovery and a live-connection delivery can both fire
+  /// independently — confirmed empirically, ~40% of the time under system
+  /// load, effectively never in a quiet environment; see flutter_pear-0zq).
+  /// This wrapper does not de-dup it for you — a fix would need a genuine
+  /// per-connection identity, not anything blind-pairing itself exposes.
+  /// Handle it defensively: e.g. guard against acting on a second
+  /// notification while already mid-confirm on the first (the example
+  /// app's `StartRoomScreen._onCandidate` does exactly this).
   final Stream<PearPairingCandidate> candidates;
 
   /// Stops listening for new candidates on this invite. Idempotent. A
