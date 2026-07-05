@@ -9,10 +9,12 @@ import 'package:xml/xml.dart';
 // discipline flutter_pear/test/schema_test.dart already applies to the
 // Dart<->JS schema mirror. `flutter test` runs with the package root
 // (packages/flutter_pear_bare/) as the working directory -- reaching into
-// the sibling flutter_pear package mirrors the SAME cross-package sibling
-// path convention flutter_pear_bare/android/build.gradle's own
-// linkNativeAddons task already uses (see its own comment on why that
-// only holds for this melos monorepo's exact directory depth).
+// the sibling flutter_pear package is safe here specifically BECAUSE this
+// only ever runs at dev/test time inside this monorepo, the same reason
+// bin/pack.dart's own maintainer-only cross-package paths are safe
+// (flutter_pear-k2y: the same kind of monorepo-relative path was NOT safe
+// when it ran inside flutter_pear_bare's Gradle build at a real
+// consumer's build time -- see that fix's history for why).
 //
 // Checks structure, not just substrings: each directory name must be an
 // `<exclude>` element's `path` attribute (not just present anywhere in the

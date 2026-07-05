@@ -193,7 +193,8 @@ tasks.register("fetchBareKit") {
         // previously-extracted ABI would linger under this same
         // version-scoped dir and keep getting bundled via jniLibs.srcDirs.
         // Explicitly prune anything not currently selected, same pattern
-        // linkNativeAddons already uses below.
+        // bin/pack.dart's linkNativeAddons uses for the committed
+        // src/main/jniLibs/<abi>/ addon .so files.
         bareKitJniDir.listFiles()?.each { abiDir ->
             if (abiDir.isDirectory() && !(abiDir.name in bareKitAbis)) {
                 delete abiDir
@@ -205,61 +206,37 @@ tasks.register("fetchBareKit") {
 // Native addons pear-end actually requires (hyperswarm et al.) resolve in
 // the bundle as `linked:` specifiers (bare-pack --preset android implies
 // --linked — mobile can't dlopen file: prebuilds ahead of an install step
-// the way desktop does). bare-link produces the real .so for each, read
-// from pear-end's own already-`npm install`-ed node_modules (not fetched
-// remotely itself — it repackages prebuilds those packages already ship).
-// Silently links nothing if pear-end/node_modules is missing, matching
-// flutter_pear's own THIRD_PARTY_LICENSES collector's established "skip
-// with a stderr note, don't hard-fail" behavior for the same precondition.
-// ponytail: `rootDir` (the consuming app's android/ dir) walking up to a
-// sibling `packages/flutter_pear/pear-end` only holds for this melos
-// monorepo's exact directory depth — a real external consumer (pub.cache,
-// or a differently-nested workspace) would resolve this wrong. Portable
-// resolution across install locations is the same E4 "Gradle task fetch"
-// productionization this file's other tasks already defer.
-def pearEndDir = new File(rootDir, "../../flutter_pear/pear-end")
-def nativeAddonsDir = layout.buildDirectory.dir("bare-kit-addons").get().asFile
+// the way desktop does).
+//
+// flutter_pear-k2y: this used to be a Gradle `Exec` task running
+// `bare-link` against pear-end's `node_modules` at a CONSUMER's own build
+// time, located via a path relative to the consuming app's `android/`
+// directory -- which only ever resolved correctly for
+// `flutter_pear_example`, since it happens to live inside this same
+// monorepo. Any real external consumer's app lives elsewhere entirely;
+// the task's own `onlyIf` guard then silently skipped it (no error), and
+// the resulting APK shipped with every native addon missing --
+// `Pear.start()` crashed the instant the worklet tried to load one
+// (confirmed via a real "outside this repo" consumer app: `AddonError:
+// ADDON_NOT_FOUND` / SIGABRT). Fixed by moving `bare-link` to PACK time
+// instead (`dart run flutter_pear:pack`'s `linkNativeAddons` in
+// bin/pack.dart) -- the resulting .so files are committed, versioned
+// artifacts under src/main/jniLibs/<abi>/ (same treatment as
+// flutter_pear's own assets/pear-end.bundle), which Android's standard
+// jniLibs convention below picks up automatically. No consumer-side task,
+// no path-resolution hack, nothing to silently skip.
 
-tasks.register("linkNativeAddons", Exec) {
-    workingDir pearEndDir
-    commandLine "bare-link", "--preset", "android", "--out", nativeAddonsDir
-    // package.json/package-lock.json, not the whole node_modules tree (slow
-    // to hash, and its contents are exactly what these two files pin) — so a
-    // dependency bump invalidates this task's up-to-date check instead of
-    // Gradle silently reusing a stale bare-kit-addons/ from before the bump.
-    inputs.file(new File(pearEndDir, "package.json"))
-    inputs.file(new File(pearEndDir, "package-lock.json"))
-    // Same ABI set as fetchBareKit (bareKitAbis) — filter bare-link's own
-    // multi-ABI preset output down to match after it runs.
-    doLast {
-        nativeAddonsDir.listFiles()?.each { abiDir ->
-            if (abiDir.isDirectory() && !(abiDir.name in bareKitAbis)) {
-                delete abiDir
-            }
-        }
-    }
-    outputs.dir(nativeAddonsDir)
-    onlyIf {
-        def present = new File(pearEndDir, "node_modules").exists()
-        if (!present) {
-            logger.warn(
-                "linkNativeAddons: skipping -- ${pearEndDir}/node_modules is missing " +
-                "(run 'npm install' in pear-end/ first). The APK will be missing " +
-                "hyperswarm's native addons (sodium-native, udx-native, ...) and the " +
-                "worklet will fail at runtime.")
-        }
-        present
-    }
-}
-
-// jniLibs.srcDirs (below) has no .builtBy-equivalent hook, so nothing tells
-// Gradle's jniLib-merge tasks that fetchBareKit/linkNativeAddons produce
-// their input — the same class of bug that made mozilla/rust-android-gradle
-// silently ship AARs missing their .so when built outside a full app
-// assemble (rust-android-gradle#85). preBuild.dependsOn (below) isn't
-// enough on its own; wire the merge tasks directly too.
+// bareKitJniDir (below) has no .builtBy-equivalent hook, so nothing tells
+// Gradle's jniLib-merge tasks that fetchBareKit produces their input -- the
+// same class of bug that made mozilla/rust-android-gradle silently ship
+// AARs missing their .so when built outside a full app assemble
+// (rust-android-gradle#85). preBuild.dependsOn (below) isn't enough on its
+// own; wire the merge tasks directly too. (linkNativeAddons no longer
+// needs this: its output is a plain committed src/main/jniLibs/ directory,
+// which every merge task already treats as an ordinary input with no
+// producer task to depend on.)
 tasks.matching { it.name ==~ /merge.*JniLibFolders/ }.configureEach {
-    dependsOn(tasks.named("fetchBareKit"), tasks.named("linkNativeAddons"))
+    dependsOn(tasks.named("fetchBareKit"))
 }
 
 android {
@@ -278,7 +255,10 @@ android {
     sourceSets {
         main.java.srcDirs += "src/main/kotlin"
         main.jniLibs.srcDirs += bareKitJniDir
-        main.jniLibs.srcDirs += nativeAddonsDir
+        // pear-end's linked native addons live at the default
+        // src/main/jniLibs/<abi>/ (committed, versioned .so files -- see
+        // linkNativeAddons in bin/pack.dart) -- Android's standard
+        // convention already includes that path with no entry needed here.
     }
 
     defaultConfig {
@@ -303,4 +283,4 @@ dependencies {
     implementation files(bareKitClassesJar).builtBy(tasks.named("fetchBareKit"))
 }
 
-preBuild.dependsOn(tasks.named("fetchBareKit"), tasks.named("linkNativeAddons"))
+preBuild.dependsOn(tasks.named("fetchBareKit"))

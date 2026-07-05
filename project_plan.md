@@ -64,7 +64,7 @@ Live status lives in bd (`bd list --status=open`, `bd ready`) — this table is 
 
 | Epic | Scope |
 |---|---|
-| **E1 — M1 gate** | Real Bare Kit worklet replacing the native echo; the go/no-go proof is a **two-device** Hyperswarm round trip (DHT discovery + Noise handshake + reconnect) on physical hardware, not a one-device IPC smoke test. |
+| **E1 — M1 gate** | Real Bare Kit worklet replacing the native echo; the go/no-go proof is a Hyperswarm round trip (DHT discovery + Noise handshake + reconnect) between two independent processes, not a one-device IPC smoke test. **Downgraded to emulator-based (developer decision, no physical Android hardware available in this dev environment)**: passed via emulator↔desktop-peer; emulator↔emulator is confirmed failing on a NAT/UDP-hole-punch artifact of two emulators sharing one host's virtualized network (documented in the README, not a flutter_pear bug). Physical two-device hardware validation remains valuable but is no longer a precondition for this gate — tracked separately in `flutter_pear-doi` if hardware becomes available. |
 | **E2 — RPC contract spine** | Reliability: per-call timeout, typed-exception routing by `err.code`, 1-byte frame-type discriminator, session nonce + bundle-version attach handshake, native crash observation feeding `worklet.onCrash`, `PearSwarm` connection-state stream with honest bounded failure (X8). |
 | **E3 — flutter_pear_test** | In-memory fake swarm/worklet as a fast dev-loop double, failure-injection hooks, CI running the full suite against it. |
 | **E4 — Native distribution** | Production Gradle fetcher (checksum, ABI, bundle install), fetch UX (progress, retry, fallback), INTERNET permission, release-mode (R8/app-bundle) verification. |
@@ -76,7 +76,7 @@ Live status lives in bd (`bd list --status=open`, `bd ready`) — this table is 
 
 **iOS is v0.2**, its own milestone (CocoaPods podspec, Xcode wiring, background-mode entitlements) — not a gate on the v0.1 Android release. iOS aggressively suspends background sockets regardless of anything this plugin does; gating the single release on it would delay v0.1 for a platform whose background story is constrained either way.
 
-**Hardware validation is deliberately deferred to one final pass** (`flutter_pear-doi`), run only once every epic's automated (fake/emulator-driven) suite is green — E1's own two-device gate proof is first in that list. Epics E1–E6 are otherwise complete; only their physical-device legs are outstanding.
+**Physical-hardware validation is deliberately deferred to one final pass** (`flutter_pear-doi`), run only if/when real Android devices become available in the dev environment — it is no longer a precondition for any epic's completion (developer decision: acceptance criteria downgraded to emulator-based validation across the board, since no physical hardware is available here). E1's own gate closed on an emulator↔desktop-peer proof; epics E1–E6 are complete on that basis. Real-device legs for each wrapper remain a nice-to-have follow-up, not a release blocker.
 
 ## 6. DevEx review — decisions that make or break adoption
 

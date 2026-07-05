@@ -1,7 +1,8 @@
 name: flutter_pear_test
 description: In-memory fake Pear swarm/worklet for unit-testing flutter_pear apps without radios or real peers.
 version: 0.0.1
-publish_to: none
+# E9.7: publish_to: none removed -- see flutter_pear_bare/pubspec.yaml's
+# comment for the overall gating story.
 homepage: https://github.com/andrewloable/flutter_pear
 
 environment:
@@ -11,10 +12,26 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_pear:
-    path: ../flutter_pear
-  flutter_pear_bare:
-    path: ../flutter_pear_bare
+  # E9.7: both were `path:` deps, and both are real (non-dev) dependencies,
+  # so pub.dev's path-source rejection applies to both -- flipped to hosted
+  # constraints for the same reason and via the same melos-bootstrap-override
+  # mechanism as flutter_pear/pubspec.yaml's flutter_pear_bare dependency.
+  #
+  # THIS is the edge that sets the real publish order. flutter_pear_test
+  # depends (for real, not dev-only) on flutter_pear, so flutter_pear must
+  # already be published before flutter_pear_test can be. Combined with
+  # flutter_pear's own real dependency on flutter_pear_bare, the only order
+  # that satisfies both is flutter_pear_bare -> flutter_pear ->
+  # flutter_pear_test. The ticket's Step 1 text ("bare -> test -> pear") has
+  # the last two backwards -- confirmed by the prior investigation phase via
+  # `dart pub publish --dry-run` against the unmodified pubspecs (2 hard
+  # "can't be published" errors for flutter_pear_test's path deps on both
+  # siblings) and re-confirmed below in this ticket's own dry-run pass. There
+  # is no actual cycle once dev-only edges are excluded (melos's `melos list
+  # --cycles` reports one, but only because it deliberately merges dev and
+  # non-dev edges into one graph; pub's publish validator does not).
+  flutter_pear: ^0.0.1
+  flutter_pear_bare: ^0.0.1
 
 dev_dependencies:
   flutter_test:

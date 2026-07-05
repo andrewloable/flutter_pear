@@ -1,7 +1,9 @@
 name: flutter_pear
 description: Dart-idiomatic Flutter API for the Pear P2P stack (Hyperswarm, Hypercore, Hyperbee, Hyperdrive, Autobase, blind pairing) over a bundled Bare worklet.
 version: 0.0.1
-publish_to: none
+# E9.7: publish_to: none removed -- see flutter_pear_bare/pubspec.yaml's
+# comment for the overall gating story (this is not a green light to
+# actually publish; the tag-triggered workflow's approval gate and E9.8 are).
 homepage: https://github.com/andrewloable/flutter_pear
 
 environment:
@@ -11,8 +13,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_pear_bare:
-    path: ../flutter_pear_bare
+  # E9.7: was `path: ../flutter_pear_bare`. pub.dev rejects a *published*
+  # package with a non-dev path dependency outright ("Don't depend on
+  # 'flutter_pear_bare' from the path source... can't be published yet"),
+  # confirmed empirically via `dart pub publish --dry-run`. Hosted constraint
+  # here; `melos bootstrap` regenerates a gitignored pubspec_overrides.yaml
+  # that redirects this back to the local path for day-to-day dev/CI, and
+  # that override is absent from what actually gets packed and published.
+  flutter_pear_bare: ^0.0.1
   # ponytail: SHA-256 for deterministic topics until the worklet's
   # hypercore-crypto is the source of truth. Already-common dep, not custom code.
   crypto: ^3.0.0
@@ -25,6 +33,33 @@ dev_dependencies:
   # fake. Dev-only, so this doesn't create a real cycle for consumers of
   # flutter_pear (flutter_pear_test's own non-dev dependency on flutter_pear
   # is never resolved transitively through a dev_dependency edge).
+  #
+  # E9.7 FOLLOW-UP (code review caught this, reversing the previous
+  # decision): this MUST stay a `path:` dep, not a hosted constraint --
+  # do NOT "uniformize" it to `^0.0.1` again. `dart pub publish
+  # --dry-run`/`publish -f` only skip the disallowed-path-source check for
+  # dev_dependencies; they do NOT skip dependency *resolution* -- `pub get`
+  # still has to solve every dev_dependency too. A hosted
+  # `flutter_pear_test: ^0.0.1` here can only resolve via the gitignored,
+  # melos-bootstrap-generated pubspec_overrides.yaml (which redirects it
+  # back to a local path). That file does not exist in a fresh checkout,
+  # and critically it does NOT exist in .github/workflows/publish.yml's
+  # stage-3 real-publish jobs -- those call dart-lang/setup-dart's reusable
+  # workflow directly against a fresh `actions/checkout`, with no `melos
+  # bootstrap` step anywhere. Worse, flutter_pear_test can only ever be
+  # published in stage 3 AFTER flutter_pear (see the `needs:` chain in
+  # publish.yml), so at the moment flutter_pear's own real-publish job runs
+  # `dart pub get`, flutter_pear_test does not exist on pub.dev at any
+  # hosted version yet -- a hard deadlock. Reproduced empirically: with
+  # pubspec_overrides.yaml stripped, `dart pub get` here fails with
+  # "Because flutter_pear depends on flutter_pear_test any which doesn't
+  # exist ... version solving failed" (exit 69). A `path:` dependency has
+  # no such problem: `actions/checkout` in the reusable workflow checks out
+  # the whole monorepo (not just this package's subdirectory), so
+  # `../flutter_pear_test` always exists on disk relative to
+  # `working-directory: packages/flutter_pear` in every job, published-
+  # sibling-or-not -- and, per the paragraph above, pub's publish validator
+  # never complains about a dev-only path dependency in the first place.
   flutter_pear_test:
     path: ../flutter_pear_test
 
