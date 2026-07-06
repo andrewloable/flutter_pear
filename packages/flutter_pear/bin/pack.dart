@@ -244,16 +244,37 @@ _SpdxVerdict _classifySpdx(String license) {
 
 enum _SpdxVerdict { allowed, denied, unknown }
 
+/// `bare-pack --host` values [buildBundle] targets -- exactly the 64-bit
+/// hosts [nativeAddonAbis] links addons for (2 Android ABIs) plus both iOS
+/// hosts, so bare-pack's asked-for hosts and bare-link's actually-linked
+/// ABIs can never silently drift apart (32-bit `android-arm`/`android-ia32`
+/// deliberately excluded -- same decision documented on [nativeAddonAbis]).
+/// A documented top-level const, not inlined in [buildBundle], so tests can
+/// assert it without running bare-pack.
+const bundleHosts = [
+  'android-arm64',
+  'android-x64',
+  'ios-arm64',
+  'ios-arm64-simulator',
+];
+
 /// Bundles `pear-end/index.js` into [bundleAssetPath] (under [pkgRoot]) via
-/// `bare-pack`, targeting every Android ABI with native addons resolved as
-/// `linked:` (required on mobile, where addons must be linked ahead of time
-/// rather than loaded from `file:` prebuilds — see bare-pack's "Linking").
+/// `bare-pack`, targeting [bundleHosts] (v0.2, E1 feasibility check #1: a
+/// bare-pack build combining android+ios hosts works, so ONE bundle ships to
+/// both platforms rather than a per-platform pair -- see
+/// flutter_pear-ovt.1.6), with native addons resolved as `linked:` (required
+/// on mobile, where addons must be linked ahead of time rather than loaded
+/// from `file:` prebuilds — see bare-pack's "Linking").
 ///
-/// `--preset android` is bare-pack's shorthand for `--linked --host
-/// android-arm --host android-arm64 --host android-ia32 --host android-x64`
-/// (mirrors the invocation `holepunchto/bare-android` uses in its own Gradle
-/// `packApp` task). Returns bare-pack's exit code (0 on success) instead of
-/// throwing, so callers can propagate the real failure reason.
+/// Explicit `--host` flags, not `--preset android` (which is bare-pack's
+/// shorthand for `--linked --host android-arm --host android-arm64 --host
+/// android-ia32 --host android-x64`, mirroring the invocation
+/// `holepunchto/bare-android` uses in its own Gradle `packApp` task, and
+/// which also links -- wasting time -- the 32-bit `armeabi-v7a`/`x86`
+/// output this repo has never shipped): no preset covers android+ios
+/// together, so [bundleHosts] spells out exactly the hosts this repo needs.
+/// Returns bare-pack's exit code (0 on success) instead of throwing, so
+/// callers can propagate the real failure reason.
 Future<int> buildBundle(String pkgRoot) async {
   final entry = '$pkgRoot/pear-end/index.js';
   final out = '$pkgRoot/$bundleAssetPath';
@@ -266,7 +287,12 @@ Future<int> buildBundle(String pkgRoot) async {
 
   final result = await Process.run(
     'bare-pack',
-    ['--preset', 'android', '--out', out, entry],
+    [
+      '--linked',
+      for (final host in bundleHosts) ...['--host', host],
+      '--out', out,
+      entry,
+    ],
   );
   stdout.write(result.stdout);
   stderr.write(result.stderr);

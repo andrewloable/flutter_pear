@@ -12,6 +12,11 @@ dependencies:
     sdk: flutter
   flutter_pear:
     path: ../flutter_pear
+  # Direct dep: integration_test/ios_spike_test.dart talks to BareWorklet
+  # directly (T0 spike, flutter_pear-ovt.1.4) -- otherwise only transitive
+  # via flutter_pear.
+  flutter_pear_bare:
+    path: ../flutter_pear_bare
   path_provider: ^2.1.6
   qr_flutter: ^4.1.0
 
@@ -24,3 +29,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # THROWAWAY T0 spike asset (flutter_pear-ovt.1.4) -- see integration_test/ios_spike_test.dart.
+  assets:
+    - assets/ios-spike.bundle

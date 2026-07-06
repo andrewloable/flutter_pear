@@ -319,13 +319,17 @@ void main() {
 
   test(
       'reattach: a version mismatch that persists after the kill+restart '
-      'throws BUNDLE_VERSION_MISMATCH (E6.3)', () async {
+      'throws BUNDLE_VERSION_MISMATCH naming BOTH the expected and reported '
+      'versions (E6.3, 5A)', () async {
     attachInfoVersion = (_) => 'a-stale-bundle-version';
 
     await expectLater(
       Pear.start(),
       throwsA(isA<PearException>()
-          .having((e) => e.code, 'code', PearErrorCode.bundleVersionMismatch)),
+          .having((e) => e.code, 'code', PearErrorCode.bundleVersionMismatch)
+          .having((e) => e.message, 'message',
+              allOf(contains(kPearEndBundleVersion),
+                  contains('a-stale-bundle-version')))),
     );
     // Both attempts' worklets must be cleaned up (no leaked worklet/rpc) --
     // exactly two terminate calls, one per attempt.
@@ -342,6 +346,38 @@ void main() {
       Pear.start(),
       throwsA(isA<PearException>()
           .having((e) => e.code, 'code', PearErrorCode.rpcTimeout)),
+    );
+    expect(controlCalls.where((m) => m == 'terminate'), hasLength(2));
+  });
+
+  test(
+      'a fresh boot (never reattached) with a version mismatch on the '
+      'first attach.info also triggers exactly one kill+restart, then '
+      'succeeds -- not just the reattach path (5A)', () async {
+    firstStartReattached = false;
+    attachInfoVersion = (callNumber) =>
+        callNumber == 1 ? 'a-stale-bundle-version' : kPearEndBundleVersion;
+
+    final pear = await Pear.start();
+
+    expect(controlCalls, ['start', 'terminate', 'start']);
+    await pear.dispose();
+  });
+
+  test(
+      'a fresh boot (never reattached) with a version mismatch that '
+      'persists throws BUNDLE_VERSION_MISMATCH naming both versions -- not '
+      'just the reattach path (5A)', () async {
+    firstStartReattached = false;
+    attachInfoVersion = (_) => 'a-stale-bundle-version';
+
+    await expectLater(
+      Pear.start(),
+      throwsA(isA<PearException>()
+          .having((e) => e.code, 'code', PearErrorCode.bundleVersionMismatch)
+          .having((e) => e.message, 'message',
+              allOf(contains(kPearEndBundleVersion),
+                  contains('a-stale-bundle-version')))),
     );
     expect(controlCalls.where((m) => m == 'terminate'), hasLength(2));
   });

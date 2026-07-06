@@ -289,6 +289,51 @@ void main() {
   });
 
   test(
+      'a genuine reattach (native reports reattached: true) adopts the '
+      'generationId the native side echoes in the SAME start() result -- '
+      'not a value of this instance\'s own invention -- so a later exit '
+      'report naming that generation is recognized as current, not dropped '
+      '(flutter_pear-3vh, 5A iOS coverage)', () async {
+    // Modeled the same way pear_test.dart's own reattach tests are: from
+    // this fresh isolate/test's perspective, this IS the very first native
+    // "start" call it makes -- but the native side reports reattached:
+    // true, generationId: 7 (an arbitrary non-1 value, so this test can't
+    // accidentally pass via some hidden default-to-1 assumption), exactly
+    // what happens for real after a genuine Dart hot restart: the native
+    // worklet survived untouched (unlike the stale-generation test above,
+    // where terminate() + a fresh start() simulates a real kill+restart, and
+    // the native side hands back a NEW, bumped generationId instead).
+    messenger.setMockMethodCallHandler(
+        control, (_) async => {'reattached': true, 'generationId': 7});
+    final worklet = await BareWorklet.start();
+    expect(worklet.reattached, isTrue);
+
+    final crashes = <WorkletCrash>[];
+    final crashSub = worklet.onCrash.listen(crashes.add);
+
+    // An exit report naming generation 7 -- the reattached instance's own
+    // adopted generation, not a stale one -- must be treated as CURRENT and
+    // stop the worklet, exactly like the genuine-exit half of the
+    // stale-generation test above.
+    const methodCodec = StandardMethodCodec();
+    const exitCall = MethodCall('onWorkletExit',
+        {'reason': 'worklet IPC ended unexpectedly', 'generationId': 7});
+    await messenger.handlePlatformMessage(
+      'flutter_pear_bare/control',
+      methodCodec.encodeMethodCall(exitCall),
+      (_) {},
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(worklet.state, WorkletState.stopped,
+        reason: 'the reattached instance must recognize generation 7 (the '
+            'value it adopted from its own start() result) as its OWN '
+            'current generation, not treat it as stale');
+    expect(crashes, hasLength(1));
+    await crashSub.cancel();
+  });
+
+  test(
       'onWorkletExit with no generationId at all (older native / no-generation '
       'fake) still works -- backward compatible when neither side sends one',
       () async {
