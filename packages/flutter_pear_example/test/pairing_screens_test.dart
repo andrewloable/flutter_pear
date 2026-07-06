@@ -85,6 +85,50 @@ void main() {
     );
   });
 
+  group('QR/permission channel failure falls back to the manual paste path '
+      '(5A)', () {
+    testWidgets(
+        'a MissingPluginException from checkCameraPermission (iOS, where '
+        'the Kotlin-only channel is absent) shows the broad-catch fallback '
+        'message, not a crash or a permanently spinning section',
+        (tester) async {
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        throw MissingPluginException('No implementation found for method '
+            'checkCameraPermission on channel flutter_pear_example/'
+            'qr_scanner');
+      });
+      await tester.pumpWidget(const MaterialApp(home: JoinRoomScreen()));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+            "Couldn't check camera permission -- use the code below instead."),
+        findsOneWidget,
+      );
+      // Never-dead-ends: the manual paste path must still be fully usable.
+      expect(find.widgetWithText(ElevatedButton, 'Join'), findsOneWidget);
+      expect(find.byType(TextField), findsOneWidget);
+    });
+
+    testWidgets(
+        'an ordinary PlatformException from checkCameraPermission also '
+        'falls back to the same message (not just MissingPluginException)',
+        (tester) async {
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        throw PlatformException(
+            code: 'CAMERA_ERROR', message: 'simulated native failure');
+      });
+      await tester.pumpWidget(const MaterialApp(home: JoinRoomScreen()));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+            "Couldn't check camera permission -- use the code below instead."),
+        findsOneWidget,
+      );
+    });
+  });
+
   group('manual code entry', () {
     testWidgets(
       'a garbage (non-base64) code shows a typed error immediately, never '

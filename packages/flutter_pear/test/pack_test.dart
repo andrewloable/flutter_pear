@@ -5,6 +5,17 @@ import 'package:flutter_test/flutter_test.dart';
 import '../bin/pack.dart';
 
 void main() {
+  test(
+      'bundleHosts is exactly the 64-bit Android ABIs plus both iOS hosts -- '
+      'no 32-bit hosts, no --preset shortcut (flutter_pear-ovt.2.1)', () {
+    expect(bundleHosts, [
+      'android-arm64',
+      'android-x64',
+      'ios-arm64',
+      'ios-arm64-simulator',
+    ]);
+  });
+
   test('buildBundle packs pear-end/index.js to the documented asset path',
       () async {
     try {
