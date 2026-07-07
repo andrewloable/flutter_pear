@@ -11,6 +11,12 @@
 #   tool/release_gate.sh --list         # print gate names, do nothing else
 #   tool/release_gate.sh --only <gate>  # run exactly one gate
 #
+# RELEASE_GATE_ADB_SERIAL=<serial> tool/release_gate.sh   # fresh-machine
+#   gate targets exactly this adb serial, instead of whichever attached
+#   device `adb devices` happens to list first -- useful when a known-bad
+#   device (flutter_pear-1wx: this repo's own dev machine has a permanently
+#   attached, unrelated-project BYD head unit) is also attached.
+#
 # Contract: any gate failure = nonzero exit + the summary names exactly
 # which gate(s) failed. Gates never stop the run early -- every gate always
 # executes so one failure doesn't hide a second, unrelated one. A SKIP of
@@ -208,9 +214,24 @@ gate_fresh-machine() {
   # plain (unflagged) `adb` calls should target when more than one is
   # present (e.g. this repo's historical physical BYD device, which is a
   # different project's hardware and known incompatible with
-  # flutter_pear_bare -- see flutter_pear-ovt.1.8).
+  # flutter_pear_bare -- see flutter_pear-ovt.1.8). RELEASE_GATE_ADB_SERIAL
+  # (flutter_pear-1wx), if set, is used directly rather than picking
+  # whichever "device"-state entry `adb devices` happens to list first --
+  # on THIS machine the BYD is permanently attached and, being connected
+  # long before any emulator this gate boots, reliably wins that race,
+  # deterministically failing the gate on a device it was never meant to
+  # exercise. Falls back to the previous first-match behavior when unset.
   local target
-  target="$(adb devices | awk '$2=="device"{print $1; exit}')"
+  if [ -n "${RELEASE_GATE_ADB_SERIAL:-}" ]; then
+    if adb devices | awk '$2=="device"{print $1}' | grep -qx "$RELEASE_GATE_ADB_SERIAL"; then
+      target="$RELEASE_GATE_ADB_SERIAL"
+    else
+      record fresh-machine FAIL "RELEASE_GATE_ADB_SERIAL=$RELEASE_GATE_ADB_SERIAL is not in the 'device' state (check adb devices)"
+      return
+    fi
+  else
+    target="$(adb devices | awk '$2=="device"{print $1; exit}')"
+  fi
   if [ -z "$target" ]; then
     record fresh-machine FAIL "no device/emulator reached the 'device' state in time"
   else

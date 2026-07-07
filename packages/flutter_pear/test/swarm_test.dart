@@ -565,14 +565,13 @@ void main() {
 
     // `PearSwarm.join`'s own `_wire()` subscribes BEFORE it awaits the
     // `swarm.join` RPC call -- so by the time this `await` resolves, the
-    // replay this fix produces has already been delivered to freshSwarmA's
-    // INTERNAL listener and landed in its synchronous accessors
-    // (`establishedConnections`/`currentState`). A late `.connections.first`
-    // or `.state.listen(...)` attached only AFTER this point would miss it
-    // permanently -- broadcast streams never replay to a late subscriber
-    // (see `establishedConnections`'s own doc) -- so this test deliberately
-    // reads the synchronous accessors instead, exactly like the "already
-    // arrived" race they exist to solve.
+    // replay this fix produces has already landed in `establishedConnections`/
+    // `currentState`, strictly before any caller could possibly attach its
+    // own `.connections`/`.state` listener (flutter_pear-c2b: `.connections`
+    // used to be a plain broadcast stream here, permanently dropping this
+    // exact replay for a listener that -- like every real caller -- can only
+    // attach AFTER `join` returns; `.connections`' own doc now documents the
+    // fix that makes the assertions below possible).
     final freshSwarmA = await PearSwarm.join(
       rpcA,
       topic,
@@ -584,6 +583,22 @@ void main() {
     expect(freshSwarmA.establishedConnections.single.remotePublicKey.hex,
         workletB.peerKey);
 
+    // The bug's exact, real-world symptom (flutter_pear-c2b): a caller that
+    // only subscribes to `.connections` AFTER `join()` resolves -- every
+    // real call site, since there's no way to subscribe any earlier --
+    // must still see the already-replayed connection, not just via the
+    // synchronous accessors above. Before the fix, this `.listen()` call
+    // would never fire at all for this connection: a plain broadcast
+    // stream never replays an `.add()` that happened before a listener
+    // attached, and `_wire()`'s own internal subscription is the only one
+    // that had attached to the RAW rpc events by this point.
+    final laterConnections = <PearConnection>[];
+    final connSub = freshSwarmA.connections.listen(laterConnections.add);
+    await Future<void>.delayed(Duration.zero);
+    expect(laterConnections, hasLength(1));
+    expect(laterConnections.single.remotePublicKey.hex, workletB.peerKey);
+    await connSub.cancel();
+
     // The bug's exact symptom: without the fix, this would have already
     // flipped to `failed` (PearErrorCode.connectTimeout) by now.
     await Future<void>.delayed(const Duration(milliseconds: 100));
@@ -591,5 +606,55 @@ void main() {
 
     await rpcA.dispose();
     await rpcB.dispose();
+  });
+
+  test(
+      '.connections replays an already-established connection to the '
+      'FIRST listener only, not a later second one (flutter_pear-c2b)',
+      () async {
+    final swarm = await joinSwarm();
+    final peerKey = PearCrypto.unsafeTopicFromString('peer-under-test');
+
+    // Nothing has subscribed to .connections yet -- simulates the exact
+    // race: a connection lands entirely before any caller could possibly
+    // be listening.
+    worklet.sendJsonFrame({
+      'ev': PearEventName.swarmConnection,
+      'p': {'topic': topic.hex, 'peer': peerKey.hex},
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(swarm.establishedConnections, hasLength(1));
+
+    final first = <PearConnection>[];
+    final firstSub = swarm.connections.listen(first.add);
+    await Future<void>.delayed(Duration.zero);
+    expect(first, hasLength(1),
+        reason: 'the first-ever listener replays the already-established '
+            'connection');
+
+    // A second, later listener must NOT also get a replay -- otherwise a
+    // caller whose own onConnection callback does something non-idempotent
+    // per call (e.g. main.dart's conn.data.listen(...), which would
+    // double-register and double-deliver every future message) sees this
+    // connection processed twice.
+    final second = <PearConnection>[];
+    final secondSub = swarm.connections.listen(second.add);
+    await Future<void>.delayed(Duration.zero);
+    expect(second, isEmpty,
+        reason: 'a second listener gets ordinary broadcast semantics, no '
+            'replay');
+
+    // Both listeners still receive a genuinely NEW, later connection.
+    final secondPeerKey = PearCrypto.unsafeTopicFromString('peer-two');
+    worklet.sendJsonFrame({
+      'ev': PearEventName.swarmConnection,
+      'p': {'topic': topic.hex, 'peer': secondPeerKey.hex},
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(first, hasLength(2));
+    expect(second, hasLength(1));
+
+    await firstSub.cancel();
+    await secondSub.cancel();
   });
 }

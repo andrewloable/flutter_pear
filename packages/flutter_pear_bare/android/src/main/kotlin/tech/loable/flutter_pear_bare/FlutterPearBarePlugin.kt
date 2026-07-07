@@ -221,7 +221,7 @@ class FlutterPearBarePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     "by default alongside the arm64-v8a/x86_64 ones, or a device whose " +
                     "supported ABIs (${android.os.Build.SUPPORTED_ABIS.joinToString(", ")}) " +
                     "flutter_pear_bare doesn't cover). Reinstall the arm64-v8a or x86_64 " +
-                    "variant. See packages/flutter_pear/docs/troubleshooting.md#abi-mismatch.", e)
+                    "variant. See packages/flutter_pear/doc/troubleshooting.md#abi-mismatch.", e)
         }
         // argv[0] = this app's private files directory (E4.4): bare-os's
         // cwd() resolves to "/" in this sandbox (confirmed on-device, not
