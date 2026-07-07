@@ -66,6 +66,26 @@ void main() {
                 'simulator slice (decision D21)');
       }
     });
+
+    test(
+        'every committed xcframework has an ACTUAL directory for both '
+        'required slices, not just an Info.plist claiming they exist '
+        '(flutter_pear-ovt.5.2)', () {
+      // Deliberately separate from the Info.plist-text test above: an
+      // xcframework whose Info.plist lists a slice but whose slice
+      // directory (and binary) is missing/corrupt would still pass that
+      // one -- exactly the gap flutter_pear-ovt.3.7's ios/tool/preflight.sh
+      // exists to catch at build/consumer time. This is that same check,
+      // pinned here against the repo's OWN committed state.
+      for (final entity in addonsDir.listSync().whereType<Directory>()) {
+        for (final host in iosAddonHosts) {
+          final slice = Directory('${entity.path}/$host');
+          expect(slice.existsSync(), isTrue,
+              reason: '${entity.path} should have an actual $host/ slice '
+                  'directory, not just an Info.plist mention of it');
+        }
+      }
+    });
   });
 
   test(
@@ -229,6 +249,84 @@ void main() {
       expect(pin['repackedSha256'], matches(RegExp(r'^[0-9a-f]{64}$')));
       expect((pin['repackedUrl'] as String).startsWith('PENDING-UPLOAD'), isTrue);
     });
+
+    test(
+        'repackBareKit produces the SAME repackedSha256 across two separate '
+        'runs against byte-identical upstream content (flutter_pear-2nd '
+        'regression -- the rezip step used to bake in each run\'s own '
+        'fresh-extraction mtimes/extended attributes, producing a '
+        'different checksum every time even though the BareKit bytes '
+        'never changed)', () async {
+      // A richer fixture than buildFixtureUpstreamZip's single-file one --
+      // multiple slice directories, each with a binary-ish file and its
+      // own Info.plist, closer to a real xcframework's shape and more
+      // likely to expose an entry-ORDER-dependent non-determinism too
+      // (not just mtimes), since zip archives entries in whatever order
+      // it encounters them on disk.
+      Future<File> buildRicherFixtureUpstreamZip(Directory parent) async {
+        final xcfwDir = Directory('${parent.path}/apple/BareKit.xcframework')
+          ..createSync(recursive: true);
+        File('${xcfwDir.path}/Info.plist').writeAsStringSync('<plist/>');
+        for (final host in iosAddonHosts) {
+          final hostDir = Directory('${xcfwDir.path}/$host/BareKit.framework')
+            ..createSync(recursive: true);
+          File('${hostDir.path}/BareKit')
+              .writeAsBytesSync(List.generate(200, (i) => i % 256));
+          File('${hostDir.path}/Info.plist').writeAsStringSync('<plist/>');
+        }
+        final zip = File('${parent.path}/prebuilds.zip');
+        final result = await Process.run(
+          'zip',
+          ['-qr', zip.path, 'apple'],
+          workingDirectory: parent.path,
+        );
+        expect(result.exitCode, 0,
+            reason: 'fixture zip creation: ${result.stderr}');
+        return zip;
+      }
+
+      final tmp =
+          Directory.systemTemp.createTempSync('fp_pack_barekit_determinism');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final fixtureZip = await buildRicherFixtureUpstreamZip(tmp);
+      final realUpstreamSha = sha256Of(await fixtureZip.readAsBytes());
+
+      Future<String> repackOnceAndReadChecksum(String label) async {
+        final pkgRoot =
+            Directory('${tmp.path}/flutter_pear_$label')..createSync();
+        writeFixtureGradle(pkgRoot.path,
+            body: 'def bareKitVersion = "$fixtureVersion"\n'
+                'def bareKitSha256 = "$realUpstreamSha"\n');
+        final code = await repackBareKit(
+          pkgRoot.path,
+          upload: false,
+          downloadFn: (url, dest) async {
+            // A FRESH copy each call (not the same File object) -- mirrors
+            // a real, separate download producing its own fresh mtimes,
+            // the actual condition that exposed this bug originally.
+            await fixtureZip.copy(dest.path);
+          },
+          uploadFn: (version, zip) async =>
+              'https://example.invalid/should-never-be-called',
+        );
+        expect(code, 0);
+        final pin = jsonDecode(File(
+                '${pkgRoot.path}/../flutter_pear_bare/barekit-pin.json')
+            .readAsStringSync()) as Map;
+        return pin['repackedSha256'] as String;
+      }
+
+      final firstChecksum = await repackOnceAndReadChecksum('run1');
+      // A real gap between runs -- the original bug was mtime-dependent,
+      // so two repacks that happen to land in the same filesystem second
+      // would be a weaker, potentially-flaky proof than a real gap.
+      await Future<void>.delayed(const Duration(seconds: 2));
+      final secondChecksum = await repackOnceAndReadChecksum('run2');
+
+      expect(secondChecksum, firstChecksum,
+          reason: 'byte-identical upstream content repacked twice, 2 '
+              'seconds apart, must produce the SAME repacked zip checksum');
+    }, timeout: const Timeout(Duration(minutes: 1)));
 
     test(
         'repackBareKit aborts nonzero on an upstream checksum mismatch, '

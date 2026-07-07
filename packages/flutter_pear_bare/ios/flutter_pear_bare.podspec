@@ -147,6 +147,19 @@ the primary Swift Package Manager path.
     # doesn't exist yet then (the script_phase fetches it later, before
     # compile), so the flag needs adding explicitly.
     'OTHER_LDFLAGS' => '-framework BareKit $(inherited)',
+    # The 12 committed addon xcframeworks only ship an ios-arm64-simulator
+    # slice (Apple Silicon only) -- unlike BareKit's own upstream release,
+    # which ships a genuine dual-arch ios-arm64_x86_64-simulator slice.
+    # `flutter build ios --simulator` requests a universal arm64+x86_64
+    # simulator binary by default, so CocoaPods' auto-generated "[CP] Copy
+    # XCFrameworks" phase can't find a matching addon slice for x86_64 and
+    # silently skips it -- confirmed by testing ("Unable to find matching
+    # slice ... for the current build architectures (arm64 x86_64)"),
+    # which only then surfaces later as a "Framework ... not found" linker
+    # error. Excluding x86_64 from simulator builds is the standard fix for
+    # an arm64-only-simulator xcframework (Intel Mac simulators are not a
+    # target here); it doesn't limit BareKit, which supports both anyway.
+    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'x86_64',
   }
   # The consuming app's own target (Runner) ALSO needs
   # CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES: precompiled
@@ -154,15 +167,29 @@ the primary Swift Package Manager path.
   # build settings, and GeneratedPluginRegistrant.m (Runner, not this pod)
   # triggering the SAME module build without this override hit the
   # identical "Include of non-modular header" failure independently.
+  #
+  # Runner also needs the x86_64-simulator exclusion above (it's the target
+  # that actually links the addon frameworks in), but NOT via EXCLUDED_ARCHS
+  # -- confirmed by testing that Flutter's own auto-generated
+  # ios/Flutter/Generated.xcconfig sets EXCLUDED_ARCHS[sdk=iphonesimulator*]
+  # = i386 and is #include'd AFTER Pods-Runner.xcconfig in Debug.xcconfig,
+  # so it silently clobbers whatever this podspec sets for that same key on
+  # Runner (the pod's own target above isn't affected -- Generated.xcconfig
+  # only applies to the app target). VALID_ARCHS isn't touched by
+  # Generated.xcconfig, and Xcode intersects it with ARCHS, so restricting
+  # it to arm64 for the simulator SDK achieves the same drop-x86_64 effect
+  # without being overridable by a file this podspec can't edit.
   s.user_target_xcconfig = {
     'CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES' => 'YES',
+    'VALID_ARCHS[sdk=iphonesimulator*]' => 'arm64',
   }
 
-  # NEVER prepare_command: CocoaPods never runs it for :path-installed pods
-  # (CocoaPods#2187), and Flutter installs every plugin pod exactly that
-  # way (development pods via .symlinks/plugins) -- a prepare_command here
-  # would silently never run. execution_position :before_compile instead,
-  # so BareKit.xcframework exists by the time the linker needs it.
+  # NEVER the pre-install hook some CocoaPods pods use for this kind of
+  # fetch: CocoaPods never runs it for :path-installed pods (CocoaPods#2187),
+  # and Flutter installs every plugin pod exactly that way (development pods
+  # via .symlinks/plugins) -- that hook here would silently never run.
+  # execution_position :before_compile instead, so BareKit.xcframework
+  # exists by the time the linker needs it.
   s.script_phase = {
     :name => 'Fetch BareKit (flutter_pear-ovt.3.6)',
     :execution_position => :before_compile,
@@ -173,58 +200,63 @@ FRAMEWORK_DIR="$CACHE_DIR/BareKit.xcframework"
 
 if [ -f "$FRAMEWORK_DIR/Info.plist" ]; then
   echo "flutter_pear_bare: BareKit v#{bare_kit_version} already present at $FRAMEWORK_DIR -- skipping fetch."
-  exit 0
-fi
+else
+  URL=#{repacked_url_sh}
+  case "$URL" in
+    PENDING-UPLOAD*)
+      echo "error: flutter_pear_bare: barekit-pin.json's repackedUrl for v#{bare_kit_version} is still a PENDING-UPLOAD placeholder -- run \\`dart run flutter_pear:pack --repack-barekit\\` (uploading enabled) first. See packages/flutter_pear/doc/troubleshooting.md."
+      exit 1
+      ;;
+  esac
 
-URL=#{repacked_url_sh}
-case "$URL" in
-  PENDING-UPLOAD*)
-    echo "error: flutter_pear_bare: barekit-pin.json's repackedUrl for v#{bare_kit_version} is still a PENDING-UPLOAD placeholder -- run \\`dart run flutter_pear:pack --repack-barekit\\` (uploading enabled) first. See packages/flutter_pear/doc/troubleshooting.md."
+  mkdir -p "$CACHE_DIR"
+  ZIP="$CACHE_DIR/BareKit.xcframework.zip"
+  PART="$ZIP.part"
+  rm -f "$PART"
+
+  echo "flutter_pear_bare: downloading BareKit v#{bare_kit_version}..."
+  ATTEMPT=1
+  DOWNLOAD_OK=0
+  while [ "$ATTEMPT" -le 2 ]; do
+    if curl -fL --silent --show-error -o "$PART" "$URL"; then
+      DOWNLOAD_OK=1
+      break
+    fi
+    if [ "$ATTEMPT" -lt 2 ]; then
+      echo "flutter_pear_bare: download attempt $ATTEMPT failed -- retrying once..."
+    fi
+    ATTEMPT=$((ATTEMPT + 1))
+  done
+  if [ "$DOWNLOAD_OK" -ne 1 ]; then
+    rm -f "$PART"
+    echo "error: flutter_pear_bare: failed to download BareKit v#{bare_kit_version} from $URL after 2 attempts."
     exit 1
-    ;;
-esac
-
-mkdir -p "$CACHE_DIR"
-ZIP="$CACHE_DIR/BareKit.xcframework.zip"
-PART="$ZIP.part"
-rm -f "$PART"
-
-echo "flutter_pear_bare: downloading BareKit v#{bare_kit_version}..."
-ATTEMPT=1
-DOWNLOAD_OK=0
-while [ "$ATTEMPT" -le 2 ]; do
-  if curl -fL --silent --show-error -o "$PART" "$URL"; then
-    DOWNLOAD_OK=1
-    break
   fi
-  if [ "$ATTEMPT" -lt 2 ]; then
-    echo "flutter_pear_bare: download attempt $ATTEMPT failed -- retrying once..."
+
+  ACTUAL_SHA=$(shasum -a 256 "$PART" | awk '{print $1}')
+  EXPECTED_SHA=#{repacked_sha256_sh}
+  if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+    rm -f "$PART"
+    echo "error: flutter_pear_bare: checksum mismatch for BareKit v#{bare_kit_version} from $URL -- expected sha256:$EXPECTED_SHA, got sha256:$ACTUAL_SHA. Delete $CACHE_DIR and rebuild."
+    exit 1
   fi
-  ATTEMPT=$((ATTEMPT + 1))
-done
-if [ "$DOWNLOAD_OK" -ne 1 ]; then
-  rm -f "$PART"
-  echo "error: flutter_pear_bare: failed to download BareKit v#{bare_kit_version} from $URL after 2 attempts."
-  exit 1
+  mv "$PART" "$ZIP"
+
+  EXTRACT_TMP="$CACHE_DIR/.extract_tmp"
+  rm -rf "$EXTRACT_TMP"
+  mkdir -p "$EXTRACT_TMP"
+  unzip -q "$ZIP" -d "$EXTRACT_TMP"
+  rm -rf "$FRAMEWORK_DIR"
+  mv "$EXTRACT_TMP/BareKit.xcframework" "$FRAMEWORK_DIR"
+  rm -rf "$EXTRACT_TMP"
+  echo "flutter_pear_bare: BareKit v#{bare_kit_version} ready at $FRAMEWORK_DIR"
 fi
 
-ACTUAL_SHA=$(shasum -a 256 "$PART" | awk '{print $1}')
-EXPECTED_SHA=#{repacked_sha256_sh}
-if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
-  rm -f "$PART"
-  echo "error: flutter_pear_bare: checksum mismatch for BareKit v#{bare_kit_version} from $URL -- expected sha256:$EXPECTED_SHA, got sha256:$ACTUAL_SHA. Delete $CACHE_DIR and rebuild."
-  exit 1
-fi
-mv "$PART" "$ZIP"
-
-EXTRACT_TMP="$CACHE_DIR/.extract_tmp"
-rm -rf "$EXTRACT_TMP"
-mkdir -p "$EXTRACT_TMP"
-unzip -q "$ZIP" -d "$EXTRACT_TMP"
-rm -rf "$FRAMEWORK_DIR"
-mv "$EXTRACT_TMP/BareKit.xcframework" "$FRAMEWORK_DIR"
-rm -rf "$EXTRACT_TMP"
-echo "flutter_pear_bare: BareKit v#{bare_kit_version} ready at $FRAMEWORK_DIR"
+# flutter_pear-ovt.3.7: runs on EVERY build (fresh fetch or cache-hit alike)
+# -- catches a corrupted/tampered cache or a missing/incomplete committed
+# addon as ONE flutter_pear-branded message, before compile/link ever
+# reach a raw linker error for whichever piece happens to be broken.
+FLUTTER_PEAR_BAREKIT_CACHE_DIR="$CACHE_DIR" "${PODS_TARGET_SRCROOT}/tool/preflight.sh"
     SCRIPT
   }
 end

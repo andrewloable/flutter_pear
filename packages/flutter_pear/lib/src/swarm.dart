@@ -105,13 +105,46 @@ class PearSwarm {
   late final StreamSubscription<bool> _suspendSub;
   Timer? _joinTimer;
   bool _everConnected = false;
+  bool _firstConnectionsListenerAttached = false;
   PearSwarmStatus _currentState =
       (state: PearSwarmState.discovering, error: null);
 
   /// New peer connections discovered on this topic — including a fresh
   /// [PearConnection] for a peer reconnecting after a drop (E6.5, see
   /// [PearConnection]'s own doc for the full ephemeral-connection contract).
-  Stream<PearConnection> get connections => _connections.stream;
+  ///
+  /// The very FIRST listener to ever subscribe (across this [PearSwarm]'s
+  /// whole lifetime) additionally, synchronously replays every connection
+  /// already in [establishedConnections] before continuing with live ones
+  /// (flutter_pear-c2b) — on a REJOIN, pear-end's own SWARM_JOIN handler
+  /// replays `swarmConnection` for an already-connected peer synchronously,
+  /// as part of the very `swarmJoin` RPC response [join] awaits internally;
+  /// that replay lands in [_established] correctly regardless (a plain,
+  /// unconditional list-append inside [_wire]'s handler) but, absent this
+  /// replay, would be lost forever by this stream specifically — a caller's
+  /// own `.connections.listen(...)` can only run AFTER [join] returns,
+  /// strictly after the replay already fired. A SECOND (or later) listener
+  /// gets ordinary broadcast semantics with no replay, matching the
+  /// buffer-once-drain-once convention `flutter_pear_example`'s own
+  /// `PrejoinedSwarmWiring` uses for an analogous, pairing-flow-specific
+  /// gap (the realistic case — one app-level subscriber per swarm — never
+  /// distinguishes first vs. later, but a hypothetical second subscriber
+  /// shouldn't see [establishedConnections] delivered to it twice, e.g. via
+  /// a re-triggered `conn.data.listen(...)` double-registration).
+  Stream<PearConnection> get connections => Stream.multi((controller) {
+        if (!_firstConnectionsListenerAttached) {
+          _firstConnectionsListenerAttached = true;
+          for (final conn in _established) {
+            controller.add(conn);
+          }
+        }
+        final sub = _connections.stream.listen(
+          controller.add,
+          onError: controller.addError,
+          onDone: controller.close,
+        );
+        controller.onCancel = sub.cancel;
+      });
 
   /// Every connection seen so far, in arrival order — this class's
   /// synchronous-snapshot equivalent of [currentState], but for

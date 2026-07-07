@@ -220,6 +220,21 @@ PinCheckResult checkPins(String pkgRoot) {
   } else {
     for (final f in podspecMatches) {
       final text = f.readAsStringSync();
+      // The CocoaPods compat podspec (flutter_pear-ovt.3.6) reads
+      // barekit-pin.json dynamically at `pod install` eval time (Ruby's
+      // JSON.parse(File.read(...))) rather than embedding its own literal
+      // url/sha256 snapshot the way Package.swift's :pack-generated
+      // binaryTarget does -- it IS barekit-pin.json's value, every time, so
+      // there's no separate copy that could ever drift from it. Skip the
+      // cross-check the same way an entirely-absent podspec is skipped,
+      // rather than demanding a hardcoded pin this file deliberately
+      // doesn't have (which would just reintroduce the drift-prone
+      // duplication the single-pin-source decision exists to avoid).
+      if (text.contains('barekit-pin.json')) {
+        skipped.add('${f.path} reads barekit-pin.json dynamically (no '
+            'independent pin to cross-check, flutter_pear-ovt.3.6)');
+        continue;
+      }
       final versionMatch =
           RegExp(r'''v(\d[\d.]*\d)/prebuilds\.zip''').firstMatch(text);
       final shaMatch =

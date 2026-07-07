@@ -126,6 +126,51 @@ void main() {
     messenger.setMockMessageHandler(ipcChannel, null);
   });
 
+  test(
+      'start()\'s configured linger reaches BareWorklet.start as lingerMs '
+      '(flutter_pear-ovt.3.4/5.5, D11) -- PearLifecycle itself is '
+      'deliberately decoupled from BareWorklet (see lifecycle_test.dart), so '
+      'this end-to-end wiring can only be pinned here, through the REAL '
+      'Pear.start()', () async {
+    Map<Object?, Object?>? startArgs;
+    messenger.setMockMethodCallHandler(control, (call) async {
+      controlCalls.add(call.method);
+      if (call.method == 'start') {
+        startArgs = call.arguments as Map<Object?, Object?>?;
+        return {'reattached': false};
+      }
+      return null;
+    });
+
+    final pear = await Pear.start(linger: const Duration(milliseconds: 7500));
+
+    expect(startArgs?['lingerMs'], 7500);
+    await pear.dispose();
+  });
+
+  test(
+      'start() with no explicit linger forwards the documented 20-second '
+      'PearLifecycleDefaults.linger default as lingerMs -- pinned as a '
+      'literal 20000, not PearLifecycleDefaults.linger.inMilliseconds '
+      'itself, so bumping the default can\'t silently pass this test '
+      'unnoticed (it must be a deliberate, reviewed change to both)',
+      () async {
+    Map<Object?, Object?>? startArgs;
+    messenger.setMockMethodCallHandler(control, (call) async {
+      controlCalls.add(call.method);
+      if (call.method == 'start') {
+        startArgs = call.arguments as Map<Object?, Object?>?;
+        return {'reattached': false};
+      }
+      return null;
+    });
+
+    final pear = await Pear.start();
+
+    expect(startArgs?['lingerMs'], 20000);
+    await pear.dispose();
+  });
+
   test('suspend() racing dispose() does not throw (E6.2 regression)', () async {
     // A Completer, not a fixed delay, gates the native "suspend" call so
     // this test deterministically controls exactly when it resolves --

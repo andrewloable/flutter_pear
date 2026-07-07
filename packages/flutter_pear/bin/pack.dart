@@ -323,6 +323,24 @@ void _copyDirectorySync(Directory src, Directory dst) {
   }
 }
 
+/// Sets every file/directory under [root] (inclusive) to the same fixed,
+/// arbitrary mtime -- `touch -t`, not `dart:io`'s [File.setLastModifiedSync]
+/// (which [Directory] doesn't implement at all) -- so [repackBareKit]'s zip
+/// step (flutter_pear-2nd) produces bytes that depend only on file CONTENT,
+/// never on when this particular run happened to extract/copy them.
+void _normalizeMtimesForZip(Directory root) {
+  final paths = [
+    root.path,
+    for (final entity in root.listSync(recursive: true, followLinks: false))
+      if (entity is! Link) entity.path, // -h avoids following; simpler to skip
+  ];
+  final result = Process.runSync('touch', ['-t', '202001010000', ...paths]);
+  if (result.exitCode != 0) {
+    throw StateError('touch failed while normalizing mtimes under '
+        '${root.path}: ${result.stderr}');
+  }
+}
+
 /// Thrown when `flutter_pear_bare/android/build.gradle`'s BareKit pin
 /// (single source of truth, DX2 finding 50 -- Android and iOS must provably
 /// share the same `bareKitVersion`) can't be read.
@@ -574,13 +592,24 @@ Future<int> repackBareKit(
     }
 
     final repackDir = Directory('${tmp.path}/repack')..createSync();
-    _copyDirectorySync(xcfwSrc, Directory('${repackDir.path}/BareKit.xcframework'));
+    final repackedXcfw = Directory('${repackDir.path}/BareKit.xcframework');
+    _copyDirectorySync(xcfwSrc, repackedXcfw);
+    // flutter_pear-2nd: a fresh unzip's mtimes (and any extended attributes
+    // real Apple framework binaries tend to carry -- code-signing/quarantine
+    // metadata) vary run to run even for byte-identical content, and `zip`
+    // bakes both into the archive -- two repacks of the SAME upstream
+    // release produced two different checksums, confirmed by testing.
+    // Pinning every mtime to a fixed epoch plus `-X` (strip extra fields,
+    // which is where those extended attributes would otherwise land) makes
+    // the archive a pure function of its file CONTENT, verified by testing
+    // this exact combination against a controlled fixture.
+    _normalizeMtimesForZip(repackedXcfw);
 
     final repackedZip =
         File('${tmp.path}/BareKit-${pin.version}-ios.xcframework.zip');
     final zipResult = await Process.run(
       'zip',
-      ['-qr', repackedZip.path, 'BareKit.xcframework'],
+      ['-qrX', repackedZip.path, 'BareKit.xcframework'],
       workingDirectory: repackDir.path,
     );
     if (zipResult.exitCode != 0) {

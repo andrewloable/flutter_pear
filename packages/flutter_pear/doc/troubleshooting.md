@@ -150,6 +150,153 @@ exclusion to still apply:
 </manifest>
 ```
 
+## iOS (v0.2)
+
+The CocoaPods compat podspec (`flutter_pear_bare.podspec`, the legacy path
+for SPM-disabled projects/older Flutter) runs its own preflight check
+(`ios/tool/preflight.sh`, flutter_pear-ovt.3.7) on every build, right
+before the fetched BareKit and committed addon xcframeworks are used --
+the four sections below are its possible failures. The primary Swift
+Package Manager path (`Package.swift`) has no equivalent build-time
+preflight: SwiftPM enforces a `binaryTarget`'s checksum at package
+*resolution* time, before any build plan (and therefore any custom hook)
+can run at all (confirmed by testing, flutter_pear-ovt.1.11's
+FEAS-PREFLIGHT-ORDERING finding) -- so for the SPM path, the section below
+maps SwiftPM's own raw errors to their fixes instead.
+
+<a id="ios-addon-missing"></a>
+### `<addon>.xcframework is missing from .../addons`
+
+```
+error: flutter_pear preflight found 1 problem(s) before compile/link:
+  - sodium-native.5.1.0.xcframework is missing from .../flutter_pear_bare/ios/addons -- run `dart run flutter_pear:pack` to regenerate the committed addon xcframeworks, or check out a complete copy of this repo.
+```
+
+One of `flutter_pear_bare`'s 12 committed addon xcframeworks (pear-end's
+own linked native addons, e.g. Hyperswarm's transitive `sodium-native`,
+`udx-native`, etc. -- see the root `CLAUDE.md`'s toolchain table) isn't
+where the podspec expects it. These are checked into the repo and never
+fetched at consumer build time, so this almost always means a shallow or
+partial checkout (a sparse `git clone`, an export that dropped binary
+files, a `.gitattributes`/LFS misconfiguration) rather than anything a
+consumer app did.
+
+**Fix:** check out a complete copy of `flutter_pear` (make sure
+`packages/flutter_pear_bare/ios/addons/*.xcframework` all exist and aren't
+empty), or, if you're a `flutter_pear` maintainer regenerating them, run
+`dart run flutter_pear:pack`.
+
+<a id="ios-sim-slice-missing"></a>
+### `<addon>.xcframework is missing its ios-arm64-simulator slice`
+
+```
+error: flutter_pear preflight found 1 problem(s) before compile/link:
+  - bare-fs.4.7.3.xcframework is missing its ios-arm64-simulator slice. flutter_pear_bare ships arm64-only simulator slices by design (D21) -- an Intel-Mac x86_64 simulator isn't a supported target, so this isn't that. If you're on an Apple Silicon Mac and still see this, bare-fs.4.7.3.xcframework itself is corrupt or incomplete: run `dart run flutter_pear:pack` to regenerate it.
+```
+
+**This is not an Intel-Mac problem to work around** -- v0.2 deliberately
+ships arm64-only iOS Simulator slices for the 12 addon xcframeworks (an
+Intel Mac's x86_64 simulator was never a supported target; see the compat
+podspec's own `VALID_ARCHS`/`EXCLUDED_ARCHS` handling). If you're on an
+Apple Silicon Mac and still see this, the named xcframework itself is
+missing its `ios-arm64-simulator/` subdirectory -- the same shallow/partial
+checkout causes as ["addon missing"](#ios-addon-missing) above apply.
+
+**Fix:** same as above -- check out a complete copy of the repo, or run
+`dart run flutter_pear:pack` if you're regenerating the addons yourself.
+
+<a id="ios-barekit-not-fetched"></a>
+### `BareKit vX.Y.Z has not been fetched yet`
+
+```
+error: flutter_pear preflight found 1 problem(s) before compile/link:
+  - BareKit v2.3.0 has not been fetched yet (expected .../barekit_cache/2.3.0/BareKit.xcframework.zip, from https://...). This step normally runs after the podspec's own fetch script_phase -- re-run the build so that step can complete; if it keeps failing, download the URL yourself and place it at exactly that path.
+```
+
+Preflight runs immediately after the podspec's own BareKit-fetch
+script_phase, in the same build step -- seeing this almost always means
+that fetch step itself failed or was skipped, not a preflight-specific
+problem. Scroll up in the build log for a
+`flutter_pear_bare: failed to download BareKit ...` or
+`flutter_pear_bare: barekit-pin.json's repackedUrl ... is still a
+PENDING-UPLOAD placeholder` message right before this one -- that's the
+real failure; this preflight message is just naming its downstream effect.
+
+**Fix:** resolve whatever the earlier fetch-step message says, then
+rebuild. If you only see this preflight message with no earlier fetch
+error above it (e.g. you ran `ios/tool/preflight.sh` standalone), point
+its `FLUTTER_PEAR_BAREKIT_CACHE_DIR` env var at wherever a real build's
+fetch step would have populated instead.
+
+<a id="ios-barekit-cache-corrupt"></a>
+### `BareKit vX.Y.Z's cached zip ... no longer matches barekit-pin.json's pinned checksum`
+
+```
+error: flutter_pear preflight found 1 problem(s) before compile/link:
+  - BareKit v2.3.0's cached zip at .../BareKit.xcframework.zip no longer matches barekit-pin.json's pinned checksum (expected sha256:..., got sha256:...) -- it was corrupted or tampered with after the original fetch.
+```
+
+Unlike the fetch step's own checksum check (which only runs right after a
+fresh download), preflight re-verifies the **cached** zip on every single
+build -- catching corruption or tampering that happened between builds,
+not just during the download itself.
+
+**Fix:** delete the cache directory named in the error and rebuild -- the
+next run re-fetches from scratch and re-verifies, same remedy as the
+fetch step's own [checksum mismatch](#checksum-mismatch) case.
+
+<a id="ios-spm-errors"></a>
+### SwiftPM raw errors (`Package.swift`, no preflight possible)
+
+SwiftPM validates and resolves every `binaryTarget` before your build plan
+even exists, so none of these can be intercepted with a friendlier
+message the way the CocoaPods leg's preflight above can -- match the
+verbatim text you're seeing against the cases below instead.
+
+**`invalid URL scheme for binary target 'BareKit'; valid schemes are:
+'https'`** -- `barekit-pin.json`'s `repackedUrl` is still the
+`PENDING-UPLOAD` placeholder text (flutter_pear-ovt.2.3's intentional
+upload-skip state, e.g. before this project's first real BareKit release
+build), or someone hand-edited `Package.swift` (never do this -- it's
+generated by `dart run flutter_pear:pack`, see its own `DO NOT EDIT BY
+HAND` header) with a non-`https` URL. **Fix:** wait for a real release
+build, where `repackedUrl` is a real, published `https://` URL, or (repo
+maintainers only) run `dart run flutter_pear:pack --repack-barekit`
+(uploading enabled) to publish one now.
+
+**`checksum of downloaded artifact of binary target 'BareKit' (...) does
+not match checksum specified by the manifest (...)`** -- the published
+BareKit artifact at the pinned URL doesn't match `Package.swift`'s baked-in
+checksum (a corrupted upload, a mirror/proxy serving something else, or a
+stale local SwiftPM cache holding an older artifact under the same URL).
+**Fix:** run `rm -rf ~/Library/Caches/org.swift.swiftpm` (SwiftPM's
+resolution cache) and `flutter clean`, then rebuild; if it still mismatches
+from a genuinely fresh download, this is a repo-maintainer-side pinning bug
+(the checksum in a landed `Package.swift` doesn't match its own
+`repackedUrl`'s real content) -- file an issue rather than working around
+it locally.
+
+**`failed downloading '...' : badResponseStatusCode(...)`** (or any other
+network/HTTP failure resolving BareKit's `url:`) -- the pinned URL isn't
+reachable from this machine (network outage, corporate firewall/proxy
+blocking the host, or the URL itself is stale/removed). **Fix:** confirm
+the URL from `Package.swift`'s `BareKit` `binaryTarget` (or the
+`FLUTTER_PEAR_BAREKIT_URL` environment-variable override, if you've set
+one for local testing) is reachable from this machine by hand (`curl -I
+<url>`); there's no SwiftPM-side mirror override today (unlike the
+CocoaPods leg's manual-fallback path) -- route around the network problem
+itself (VPN, proxy config, etc.) instead.
+
+**`no library for this platform was found in .../<addon>.xcframework`**
+(building for the iOS Simulator) -- see
+["sim slice missing"](#ios-sim-slice-missing) above; the exact same
+arm64-only-simulator-by-design explanation and fix apply here, just
+surfaced as Xcode's own raw xcframework-slice error instead of a
+`flutter_pear`-branded preflight message (SwiftPM has no build-tool-plugin
+mechanism wired in for this today -- see this file's note on
+flutter_pear-ovt.3.7's docs-only choice for the SPM leg, in its own issue
+notes, for why).
+
 <a id="emulator-nat"></a>
 ## Two emulators (or an emulator + a real device) won't connect
 
