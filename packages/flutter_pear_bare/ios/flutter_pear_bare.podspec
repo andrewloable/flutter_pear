@@ -34,11 +34,17 @@ repacked_sha256_sh = Shellwords.escape(repacked_sha256)
 
 # Version-scoped (like the Android Gradle fetch's own build/bare-kit/<version>/
 # and the SPM path's url:/checksum: pin) so bumping bareKitVersion starts a
-# fresh cache rather than silently reusing a stale binary. PODS_TARGET_SRCROOT
-# is this pod's own source directory -- for a :path (development pod), which
-# is how Flutter installs ALL plugins including this one, that's the real
-# checked-out flutter_pear_bare/ios/ directory itself, not a copy.
-cache_dir = "${PODS_TARGET_SRCROOT}/.barekit_cache/#{bare_kit_version}"
+# fresh cache rather than silently reusing a stale binary. Podspec-relative
+# (not an absolute/PODS_TARGET_SRCROOT-based path): a plain vendored_frameworks
+# entry (like the 12 committed addons already use) is the only wiring that
+# reliably reaches Swift's explicit-module dependency scanner -- manually
+# driving FRAMEWORK_SEARCH_PATHS/OTHER_LDFLAGS at an arbitrary cache location
+# was tried first and rejected (the scanner resolved #import <BareKit/
+# BareKit.h> against a different, precomputed search path that never
+# included it, confirmed by testing). vendored_frameworks tolerates the
+# path not existing yet at `pod install` time; the script_phase below
+# populates it before the linker/compiler ever need it.
+cache_relative_dir = "barekit_cache/#{bare_kit_version}"
 
 Pod::Spec.new do |s|
   s.name             = 'flutter_pear_bare'
@@ -52,32 +58,104 @@ the primary Swift Package Manager path.
   s.homepage         = 'https://github.com/andrewloable/flutter_pear'
   s.license          = { :type => 'MIT' }
   s.author           = { 'flutter_pear' => 'noreply@example.com' }
+  # s.source is required even though Flutter always resolves plugin pods
+  # as CocoaPods "development pods" (a Podfile :path entry it generates
+  # itself, symlinked via .symlinks/plugins/) -- removing it outright
+  # (tried during this task's own development) fails validation with
+  # "Missing required attribute `source`". { :path => '.' } is Flutter's
+  # own official podspec template's exact convention (plugin_darwin_spm/
+  # darwin.tmpl/projectName.podspec.tmpl) despite `pod install` printing a
+  # benign "acceptable ones are: git, hg, http, svn" WARNING (not an
+  # error) about it on every single Flutter plugin built this way.
   s.source           = { :path => '.' }
 
   # The SAME Swift source the SPM package (flutter_pear_bare/Package.swift)
   # builds -- one source tree, two manifests, per Flutter's own documented
-  # dual-build-system plugin convention. #if canImport(CBareKit) in
-  # FlutterPearBarePlugin.swift skips the SPM-only shim-module import here;
-  # SWIFT_OBJC_BRIDGING_HEADER below supplies the same BareWorklet/BareIPC
-  # symbols this build system's own way instead.
-  s.source_files     = 'flutter_pear_bare/Sources/flutter_pear_bare/*.swift'
+  # dual-build-system plugin convention. FlutterPearBarePlugin.swift's
+  # `#if canImport(CBareKit) import CBareKit #endif` is false here (no such
+  # module exists on this path) -- BareWorklet/BareIPC instead become part
+  # of THIS pod's own auto-generated module (public_header_files +
+  # DEFINES_MODULE below), visible to this Swift file with no import at
+  # all (same-module ObjC-to-Swift visibility, standard for a mixed
+  # CocoaPods framework pod). A bridging header was tried first and
+  # rejected outright by Xcode ("Using bridging headers with framework
+  # targets is unsupported": CocoaPods builds every pod as a framework
+  # target); a separate hand-written module.modulemap (mirroring the SPM
+  # CBareKit shim exactly) was tried second and rejected too ("Redefinition
+  # of module" against CocoaPods' own auto-generated one, once
+  # DEFINES_MODULE = YES is also set, which this needs regardless).
+  # public_header_files only DISTINGUISHES which of source_files' matches
+  # are public -- it doesn't independently pull in files source_files
+  # itself doesn't already match, so the include/*.h glob must ALSO be
+  # part of source_files (a Swift-only glob here, tried first, is why
+  # consumers -- e.g. GeneratedPluginRegistrant.m -- failed to find this
+  # header via the compiled framework's own umbrella header even though
+  # this pod's OWN Swift file could already see it via HEADER_SEARCH_PATHS
+  # below; confirmed by testing).
+  s.source_files     = [
+    'flutter_pear_bare/Sources/flutter_pear_bare/*.swift',
+    'flutter_pear_bare/Sources/flutter_pear_bare/include/*.h',
+  ]
+  s.public_header_files = 'flutter_pear_bare/Sources/flutter_pear_bare/include/*.h'
   s.dependency 'Flutter'
   s.platform         = :ios, '13.0'
   s.swift_version    = '5.9'
 
-  # The 12 addon xcframeworks are committed (never fetched) -- present at
-  # `pod install` time, so a plain vendored_frameworks entry is fine for
-  # these. BareKit itself is NOT listed here (see below): it doesn't exist
-  # until the script_phase fetches it, and CocoaPods' handling of a
-  # vendored_frameworks entry that's absent at `pod install` time isn't
-  # reliable enough to depend on -- FRAMEWORK_SEARCH_PATHS/OTHER_LDFLAGS
-  # below wire it explicitly instead.
+  # The 12 addon xcframeworks are committed (never fetched, always present
+  # at `pod install` time); BareKit.xcframework is fetched by the
+  # script_phase below, into cache_relative_dir, before this same list is
+  # actually needed at compile/link time. Globbed via the absolute
+  # __dir__ (reliable regardless of Dir.pwd when the podspec is evaluated)
+  # but STORED as podspec-relative paths -- `pod install` rejects an
+  # absolute vendored_frameworks entry outright ("File patterns must be
+  # relative and cannot start with a slash"), caught by actually running
+  # `pod install` during this task's own development, not guessed.
   s.vendored_frameworks = Dir.glob(File.join(__dir__, 'addons/*.xcframework'))
+    .map { |p| "addons/#{File.basename(p)}" } +
+    ["#{cache_relative_dir}/BareKit.xcframework"]
 
   s.pod_target_xcconfig = {
-    'SWIFT_OBJC_BRIDGING_HEADER' => '$(PODS_TARGET_SRCROOT)/flutter_pear_bare/Sources/flutter_pear_bare/CocoaPods-Bridging-Header.h',
-    'FRAMEWORK_SEARCH_PATHS' => "\"#{cache_dir}\" $(inherited)",
+    'DEFINES_MODULE' => 'YES',
+    # BareKit.xcframework has no module map of its own -- Clang's module
+    # purity check otherwise rejects FlutterPearBareUmbrella.h's #import
+    # of it from inside this pod's OWN modular framework ("Include of
+    # non-modular header inside framework module"), the standard,
+    # documented Xcode escape hatch for exactly this "wrap a modulemap-
+    # less third-party framework" scenario.
+    'CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES' => 'YES',
+    # The xcconfig boolean above alone did not suffice (confirmed by
+    # testing) -- Swift's own Clang importer needs the raw flag passed
+    # through explicitly via -Xcc for its module-purity check specifically.
+    'OTHER_SWIFT_FLAGS' => '-Xcc -Wno-non-modular-include-in-framework-module $(inherited)',
+    # CocoaPods' own auto-generated umbrella header #imports
+    # FlutterPearBareUmbrella.h by bare filename -- the nested
+    # Sources/flutter_pear_bare/include/ path (needed so SPM's
+    # publicHeadersPath-equivalent nesting matches) isn't on CocoaPods'
+    # own default header search path, so it must be added explicitly.
+    'HEADER_SEARCH_PATHS' => '$(PODS_TARGET_SRCROOT)/flutter_pear_bare/Sources/flutter_pear_bare/include $(inherited)',
+    # Xcode 16+'s Swift explicit-module-build dependency scanner still
+    # fails to find BareKit/BareKit.h even via a native vendored_frameworks
+    # entry (confirmed by testing) -- falling back to the older, per-
+    # target-build-settings-respecting implicit scanner fixes it.
+    'SWIFT_ENABLE_EXPLICIT_MODULES' => 'NO',
+    'CLANG_ENABLE_EXPLICIT_MODULES' => 'NO',
+    # vendored_frameworks alone gets BareKit compiling (search paths for
+    # the module scan above) but NOT linking -- confirmed by testing
+    # ("Undefined symbol: _OBJC_CLASS_$_BareWorklet/_BareIPC"). CocoaPods
+    # only auto-adds a vendored framework's link flags for frameworks it
+    # can actually see when computing them at `pod install` time; BareKit
+    # doesn't exist yet then (the script_phase fetches it later, before
+    # compile), so the flag needs adding explicitly.
     'OTHER_LDFLAGS' => '-framework BareKit $(inherited)',
+  }
+  # The consuming app's own target (Runner) ALSO needs
+  # CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES: precompiled
+  # Clang modules are cached keyed partly by the compiling context's own
+  # build settings, and GeneratedPluginRegistrant.m (Runner, not this pod)
+  # triggering the SAME module build without this override hit the
+  # identical "Include of non-modular header" failure independently.
+  s.user_target_xcconfig = {
+    'CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES' => 'YES',
   }
 
   # NEVER prepare_command: CocoaPods never runs it for :path-installed pods
@@ -90,7 +168,7 @@ the primary Swift Package Manager path.
     :execution_position => :before_compile,
     :script => <<-SCRIPT
 set -e
-CACHE_DIR="#{cache_dir}"
+CACHE_DIR="${PODS_TARGET_SRCROOT}/#{cache_relative_dir}"
 FRAMEWORK_DIR="$CACHE_DIR/BareKit.xcframework"
 
 if [ -f "$FRAMEWORK_DIR/Info.plist" ]; then
