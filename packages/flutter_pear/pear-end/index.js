@@ -30,7 +30,7 @@ const c = require('compact-encoding')
 const crypto = require('hypercore-crypto')
 const fs = require('bare-fs')
 const path = require('bare-path')
-const { pipelinePromise } = require('streamx')
+const { pipelinePromise, Writable } = require('streamx')
 const { Method, EventName, ErrorCode, SwarmState, FrameType, HandshakeField } = require('./schema')
 
 // Identifies this worklet process/generation. Generated once at boot, never
@@ -547,6 +547,82 @@ function handleFrame (buf) {
     )
 }
 
+// True if [target] resolves strictly inside [root] -- not equal to it, and
+// not merely string-prefixed by it (a naive startsWith would wrongly accept
+// a sibling like /root-evil as being inside /root). Used by
+// [guardMirrorDestination] as the DRIVE_MIRROR_TO_DISK "path-escape" check.
+function isContainedPath (root, target) {
+  const rel = path.relative(root, target)
+  return rel !== '' && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)
+}
+
+// Wraps a real Localdrive destination for DRIVE_MIRROR_TO_DISK (zip-slip
+// hardening, plan decision 36): every write-type call mirror-drive makes on
+// the destination -- `symlink`, `createWriteStream`, `del` -- is
+// intercepted first.
+//
+// `symlink` is rejected UNCONDITIONALLY, never delegated to the real
+// Localdrive: symlinks are never legitimately needed for this drive-to-disk
+// use case, and Localdrive.symlink() writes a RELATIVE linkname's target
+// uncontained (only an absolute-looking linkname gets resolved against the
+// drive root first) -- a malicious peer publishing symlink `/x` -> `../../..`
+// then file `/x/payload` would otherwise plant a symlink the OS later
+// follows outside `root` for that second, unrelated entry. Rejecting every
+// symlink outright closes this completely, rather than trying to validate
+// individual targets.
+//
+// `createWriteStream` and `del` additionally resolve their key against
+// `root` and reject with `path-escape` if the resolved path isn't strictly
+// contained -- defense in depth alongside the unconditional symlink
+// rejection (Localdrive's own `unix-path-resolve`-based key resolution
+// already throws on a `..`-escaping KEY; this catches the resolved-path
+// case explicitly per plan decision 36's own wording, and protects against
+// a future entry type or an already-symlinked destination from outside this
+// mirror run).
+//
+// [onReject] is called `(key, reason)` for every rejection, `reason` being
+// exactly `'symlink-rejected'` or `'path-escape'`.
+function guardMirrorDestination (localDrive, root, onReject) {
+  // A Proxy, not a hand-rolled object listing only the write-type methods:
+  // mirror-drive also calls .ready()/.entry()/.list()/.core/.getBlobs (some
+  // conditionally) on its destination for lifecycle and diffing -- a
+  // bespoke stand-in would need to track every one of those exactly, and
+  // silently break (or throw "not a function") if a future mirror-drive
+  // version calls one more. Delegating through Reflect for anything not
+  // explicitly guarded means this stays correct by construction.
+  return new Proxy(localDrive, {
+    get (target, prop, receiver) {
+      if (prop === 'symlink') {
+        return async (key) => { onReject(key, 'symlink-rejected') }
+      }
+      if (prop === 'del') {
+        return async (key) => {
+          if (!isContainedPath(root, target.toPath(key))) {
+            onReject(key, 'path-escape')
+            return
+          }
+          return target.del(key)
+        }
+      }
+      if (prop === 'createWriteStream') {
+        return (key, opts) => {
+          if (!isContainedPath(root, target.toPath(key))) {
+            onReject(key, 'path-escape')
+            // mirror-drive pipes the source read stream INTO whatever this
+            // returns -- a real writable sink that just discards every
+            // chunk, so the pipeline still completes cleanly without ever
+            // touching disk for this entry.
+            return new Writable({ write (data, cb) { cb(null) } })
+          }
+          return target.createWriteStream(key, opts)
+        }
+      }
+      const value = Reflect.get(target, prop, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    }
+  })
+}
+
 async function handle ({ m, p }) {
   switch (m) {
     // Request/response, not a fire-once event: works correctly whether
@@ -981,15 +1057,36 @@ async function handle ({ m, p }) {
       return withStorageErrors(async () => {
         const drive = getOpenDriveOrThrow(p.drive)
         const localDrive = new Localdrive(p.localDir)
+        // Zip-slip hardening (plan decision 36, Eng2 finding 6): mirror-drive
+        // propagates a remote peer's symlink entries verbatim, and
+        // Localdrive.symlink() writes a RELATIVE linkname's target
+        // uncontained (only an absolute-looking linkname gets resolved
+        // against the drive root) -- a malicious peer publishes symlink /x
+        // -> ../../.. then file /x/payload for an arbitrary write outside
+        // p.localDir. Wrapping the mirror destination rather than patching
+        // node_modules/localdrive: symlinks are never legitimately needed
+        // for this drive-to-disk use case, so rejecting every symlink
+        // entry outright (not attempting to validate individual targets)
+        // closes the hole completely, plus a containment check on every
+        // write-type key as defense in depth.
+        let rejected = 0
+        const guarded = guardMirrorDestination(localDrive, p.localDir, (key, reason) => {
+          rejected++
+          send({
+            ev: EventName.DRIVE_MIRROR_WARNING,
+            p: { drive: p.drive, path: key, reason }
+          })
+        })
         // mirror-drive (the Pear ecosystem's own tool for this) streams
         // and diffs -- only changed files actually copy, and nothing here
         // reimplements that copy logic by hand.
-        const mirror = drive.mirror(localDrive)
+        const mirror = drive.mirror(guarded)
         await mirror.done()
         return {
           added: mirror.count.add,
           changed: mirror.count.change,
-          removed: mirror.count.remove
+          removed: mirror.count.remove,
+          rejected
         }
       })
     }
