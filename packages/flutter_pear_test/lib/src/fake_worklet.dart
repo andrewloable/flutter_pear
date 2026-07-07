@@ -672,14 +672,43 @@ class FakeBareWorklet implements WorkletIpc {
         // would just be re-testing that library, not this wrapper. Upgrade
         // if a test ever needs to assert prune/no-op-on-unchanged behavior.
         var added = 0;
+        var rejected = 0;
+        // Zip-slip hardening (flutter_pear-ovt.2.7/2.8): every injected
+        // symlink is rejected unconditionally, same as the real worklet --
+        // never written, never followed.
+        for (final path in drive.symlinks.keys) {
+          rejected++;
+          _emitEvent(PearEventName.driveMirrorWarning, {
+            'drive': drive.keyHex,
+            'path': path,
+            'reason': 'symlink-rejected',
+          });
+        }
         for (final entry in drive.files.entries) {
+          // A simplified stand-in for the real containment check (which
+          // resolves the destination path and compares it against
+          // localDir): this fake has no on-disk symlinks to pre-position a
+          // real escape through, so a literal `..` segment in the entry's
+          // OWN key is the fake's whole hostile-path surface -- sufficient
+          // to reproduce the OBSERVABLE contract (rejection + event +
+          // count) app-dev tests need, without re-implementing real
+          // filesystem path resolution.
+          if (entry.key.contains('..')) {
+            rejected++;
+            _emitEvent(PearEventName.driveMirrorWarning, {
+              'drive': drive.keyHex,
+              'path': entry.key,
+              'reason': 'path-escape',
+            });
+            continue;
+          }
           final target = File(_joinDrivePath(localDir, entry.key));
           final existedBefore = await target.exists();
           if (!existedBefore) added++;
           await target.create(recursive: true);
           await target.writeAsBytes(entry.value);
         }
-        return {'added': added, 'changed': 0, 'removed': 0};
+        return {'added': added, 'changed': 0, 'removed': 0, 'rejected': rejected};
       case PearMethod.driveClose:
         final driveKeyHex = params['drive'] as String;
         _requireDrive(driveKeyHex); // throws unknownDrive if never opened
@@ -1350,6 +1379,13 @@ class _FakeDrive {
   final String keyHex;
   final Map<String, Uint8List> files = {};
   final Set<FakeBareWorklet> _owners = {};
+
+  /// Hostile symlink entries injected via [FailureInjection.injectDriveSymlink]
+  /// (flutter_pear-ovt.2.8) -- virtual path -> the symlink's (never
+  /// followed) target. `PearMethod.driveMirrorToDisk` rejects every one of
+  /// these unconditionally, mirroring the real worklet's zip-slip
+  /// hardening (flutter_pear-ovt.2.7).
+  final Map<String, String> symlinks = {};
 
   /// The worklet that created this drive via `drive.open(name:)` -- the
   /// only one allowed to [PearMethod.drivePut]/[PearMethod.driveDelete] on

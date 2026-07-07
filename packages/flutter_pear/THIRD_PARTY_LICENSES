@@ -12871,5 +12871,8 @@ THE SOFTWARE.
 ========================================================================
 bare-kit@2.3.0  (Apache-2.0)
 ========================================================================
-Prebuilt native binaries (including the bare runtime itself) fetched from https://github.com/holepunchto/bare-kit/releases/tag/v2.3.0 at Android build time -- not an npm package, so no LICENSE file lives under node_modules. Apache-2.0 per LICENSING.md; see the upstream release for the full license text.
+Prebuilt native binaries (including the bare runtime itself), not an npm package, so no LICENSE file lives under node_modules. Apache-2.0 per LICENSING.md; see the upstream release for the full license text. Covers BOTH the Android .so and iOS .xcframework forms this repo ships:
+  Android: fetched from https://github.com/holepunchto/bare-kit/releases/download/v2.3.0/prebuilds.zip at build time (checksum-pinned in flutter_pear_bare/android/build.gradle).
+  iOS: BareKit.xcframework repacked from the same upstream release and rehosted at PENDING-UPLOAD: run `dart run flutter_pear:pack --repack-barekit` (uploading enabled) to publish the repacked BareKit-2.3.0-ios.xcframework.zip and fill this in (two-link checksum chain in flutter_pear_bare/barekit-pin.json: https://github.com/holepunchto/bare-kit/releases/download/v2.3.0/prebuilds.zip -> PENDING-UPLOAD: run `dart run flutter_pear:pack --repack-barekit` (uploading enabled) to publish the repacked BareKit-2.3.0-ios.xcframework.zip and fill this in).
+The committed iOS addon xcframeworks under flutter_pear_bare/ios/addons/ are built from the same npm modules already attributed above in this file -- the Android .so and iOS .xcframework forms are two build outputs of identical source, not separate dependencies needing their own entries.
 

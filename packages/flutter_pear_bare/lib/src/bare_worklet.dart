@@ -132,11 +132,25 @@ class BareWorklet implements WorkletIpc {
 
   /// Starts the worklet from the bundled pear-end, or from [bundlePath] if given.
   ///
+  /// [lingerMs] (flutter_pear-ovt.3.4, D11): on iOS, how long the native
+  /// host should let the worklet keep running after the app backgrounds
+  /// before it suspends it itself (`BareWorklet.suspendWithLinger`), armed
+  /// on every `didEnterBackgroundNotification` regardless of Dart's own
+  /// isolate ever getting a chance to run -- the iOS host's real fix for
+  /// D11's finding that Dart's own linger `Timer` freezes for the whole
+  /// background duration and only fires on foreground return, too late to
+  /// have suspended anything for real. The Android host ignores this key
+  /// entirely (its Dart-side timer already suspends correctly there, DX2
+  /// #52's "don't silently bypass a public API" is satisfied by passing
+  /// the SAME configured value either host might need, not by only
+  /// sending it where it's used today). Omitted from the channel call
+  /// entirely when null.
+  ///
   /// Returns the singleton worklet. Calling it again while one is already
   /// running returns the existing instance (and, across a hot restart,
   /// reattaches to the still-running native worklet rather than spawning a
   /// second one).
-  static Future<BareWorklet> start({String? bundlePath}) async {
+  static Future<BareWorklet> start({String? bundlePath, int? lingerMs}) async {
     final existing = _instance;
     if (existing != null && existing._state != WorkletState.stopped) {
       return existing;
@@ -145,8 +159,10 @@ class BareWorklet implements WorkletIpc {
     _instance = w;
     _ipc.setMessageHandler(w._onIpc);
     _control.setMethodCallHandler(w._onControlCall);
-    final result = await _control.invokeMethod<Map<Object?, Object?>>(
-        'start', {'bundlePath': bundlePath});
+    final result = await _control.invokeMethod<Map<Object?, Object?>>('start', {
+      'bundlePath': bundlePath,
+      if (lingerMs != null) 'lingerMs': lingerMs,
+    });
     w._reattached = result?['reattached'] == true;
     w._generationId = result?['generationId'] as int?;
     w._state = WorkletState.running;

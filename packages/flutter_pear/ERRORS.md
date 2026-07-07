@@ -215,6 +215,24 @@ this file (GitHub, pub.dev, a local viewer, ...).
 - **Fix:** Check `PearDrive.exists()` first, and that the path matches
   exactly what the writer `put()` — drive paths are case-sensitive.
 
+### `PearDrive.mirrorToDisk` silently-rejected entries (not an error code)
+
+Not a `PearException` — `mirrorToDisk` still succeeds, but some entries
+from the source drive may not have been written:
+
+- **Problem:** A file you expected `mirrorToDisk` to write never showed up
+  in the destination directory, with no exception thrown.
+- **Cause:** Zip-slip hardening — the worklet rejects, instead of writing,
+  any entry that was either a symlink from the source drive
+  (`'symlink-rejected'`, rejected unconditionally regardless of its target)
+  or whose resolved destination path wasn't strictly inside the mirror
+  directory (`'path-escape'`). Both are only possible from an untrusted
+  peer's drive; your own writes never trigger this.
+- **Fix:** Check `PearDriveMirrorResult.rejected` (nonzero means something
+  was skipped) and subscribe to `PearDrive.mirrorWarnings` for the
+  per-entry `{path, reason}` detail — see `doc/troubleshooting.md` for a
+  walked-through example.
+
 <a id="MALFORMED_OP"></a>
 ### MALFORMED_OP
 

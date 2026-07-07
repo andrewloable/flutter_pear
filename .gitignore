@@ -138,9 +138,7 @@ packages/flutter_pear/pear-end/version.js
 
 # v0.2 iOS spike artifacts (throwaway, never committed -- see flutter_pear-ovt.1)
 /.spike/
-# BareKit.xcframework symlink into .spike/ and the throwaway spike JS bundle
-# asset (flutter_pear-ovt.1.4) -- committed artifacts rule: BareKit binaries
-# and spike bundles never get committed, gitignored same as .spike/ itself.
-packages/flutter_pear_example/ios/BareKitShim/BareKit.xcframework
-packages/flutter_pear_example/ios/BareKitShim/addons/
 packages/flutter_pear_example/assets/ios-spike.bundle
+
+# SPM local resolution/workspace state (like .build/ or node_modules/, never committed)
+**/ios/**/.swiftpm/

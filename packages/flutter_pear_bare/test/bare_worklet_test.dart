@@ -47,6 +47,39 @@ void main() {
   });
 
   test(
+      'start() forwards lingerMs in the start payload when supplied '
+      '(flutter_pear-ovt.3.4, D11: the iOS host needs this to honor a '
+      'custom PearLifecycle(linger:) for its own native suspendWithLinger)',
+      () async {
+    Map<Object?, Object?>? capturedArgs;
+    messenger.setMockMethodCallHandler(control, (call) async {
+      capturedArgs = call.arguments as Map<Object?, Object?>?;
+      return {'reattached': false};
+    });
+
+    final w = await BareWorklet.start(lingerMs: 5000);
+
+    expect(capturedArgs?['lingerMs'], 5000);
+    await w.terminate();
+  });
+
+  test(
+      'start() omits lingerMs from the start payload entirely when not '
+      'supplied -- not a null value, which would still be a present key',
+      () async {
+    Map<Object?, Object?>? capturedArgs;
+    messenger.setMockMethodCallHandler(control, (call) async {
+      capturedArgs = call.arguments as Map<Object?, Object?>?;
+      return {'reattached': false};
+    });
+
+    final w = await BareWorklet.start();
+
+    expect(capturedArgs?.containsKey('lingerMs'), isFalse);
+    await w.terminate();
+  });
+
+  test(
       'start() while already running (same isolate) reattaches to the SAME '
       'instance -- native "start" is never invoked a second time (E6.3)',
       () async {

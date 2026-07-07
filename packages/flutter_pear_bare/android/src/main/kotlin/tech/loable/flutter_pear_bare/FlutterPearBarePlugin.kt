@@ -19,6 +19,35 @@ private const val TAG = "FlutterPearBarePlugin"
 private const val BUNDLE_ASSET_SUBPATH = "assets/pear-end.bundle"
 private const val BUNDLE_PACKAGE = "flutter_pear"
 
+// Worklet lifecycle (mirrors WorkletState in bare_worklet.dart). This
+// comment block is duplicated VERBATIM in FlutterPearBarePlugin.kt and
+// FlutterPearBarePlugin.swift (eng-4A) -- edit both together, never just
+// one, or the two hosts silently drift apart.
+//
+//   stopped --start() (fresh boot)--> running --suspend()--> suspended
+//      ^                                 |  ^                    |
+//      |                                 |  |--------resume()----|
+//      |--------------terminate()--------|
+//      |
+//      |--onWorkletExit (crash backstop, from EITHER running or suspended)
+//
+//   Reattach: start() on an already-running worklet (e.g. a Dart hot
+//   restart) goes running -> running directly, same generation id, never
+//   through stopped. A fresh start() (stopped -> running) always bumps the
+//   generation id. onWorkletExit always reports the generation captured
+//   when the exit was detected, so a stale straggler from an earlier
+//   generation is never misattributed to the current one (flutter_pear-3vh).
+//
+// iOS-only addition (flutter_pear-ovt.3.4, D11): Dart's own linger Timer
+// (lifecycle.dart) was found to freeze entirely while the app is
+// backgrounded on the simulator, only firing once the app returns to the
+// foreground -- too late to have suspended anything for real. The iOS host
+// arms BareKit's own suspendWithLinger on didEnterBackgroundNotification,
+// which BareKit tracks natively and can act on even if the Dart isolate
+// never runs again before the process is reclaimed. The Android host has
+// no equivalent observer: its Dart-side timer already suspends correctly,
+// so it needs no functional change for D11, only this mirrored comment.
+
 /**
  * Boots a Bare Kit [Worklet] from the bundled pear-end and pipes its [IPC]
  * bidirectionally to Dart over the `flutter_pear_bare/ipc` channel.

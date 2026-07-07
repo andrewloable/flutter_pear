@@ -32,8 +32,8 @@ dev_dependencies:
 flutter:
   plugin:
     platforms:
-      # ponytail: Android-only for M0. iOS (Swift + podspec) is M1 — add the
-      # `ios:` block then, mirroring react-native-bare-kit's CocoaPods setup.
       android:
         package: tech.loable.flutter_pear_bare
+        pluginClass: FlutterPearBarePlugin
+      ios:
         pluginClass: FlutterPearBarePlugin

@@ -140,6 +140,39 @@ void main() {
     expect(result.added, 2);
     expect(await File('${mirrorDir.path}/a.txt').readAsString(), 'A');
     expect(await File('${mirrorDir.path}/b.txt').readAsString(), 'B');
+    expect(result.rejected, 0);
+    await mirrorDir.delete(recursive: true);
+  });
+
+  test(
+      'mirrorToDisk() rejects a hostile symlink entry -- reported in '
+      'rejected, never written to disk, and surfaced on mirrorWarnings '
+      '(flutter_pear-ovt.2.7/2.8 zip-slip hardening)', () async {
+    final drive = await PearDrive.open(rpc, name: 'hostile-drive');
+    await drive.put('/legit.txt', await writeLocalFile('legit.txt', 'ok'));
+    worklet.injectDriveSymlink(drive.key.hex, '/x', '../../../etc/passwd');
+
+    final warnings = <PearDriveMirrorWarning>[];
+    final sub = drive.mirrorWarnings.listen(warnings.add);
+
+    final mirrorDir =
+        await Directory.systemTemp.createTemp('flutter_pear-mirror-hostile-');
+    final result = await drive.mirrorToDisk(mirrorDir.path);
+    // mirrorWarnings is a broadcast stream fed by the same event pipe as
+    // every other Pear event -- give its listener a turn before asserting.
+    await Future<void>.delayed(Duration.zero);
+
+    expect(result.rejected, 1);
+    expect(result.added, 1); // /legit.txt still mirrors normally
+    expect(await File('${mirrorDir.path}/legit.txt').readAsString(), 'ok');
+    expect(await File('${mirrorDir.path}/x').exists(), isFalse,
+        reason: 'the rejected symlink must never be written to disk');
+
+    expect(warnings, hasLength(1));
+    expect(warnings.single.path, '/x');
+    expect(warnings.single.reason, 'symlink-rejected');
+
+    await sub.cancel();
     await mirrorDir.delete(recursive: true);
   });
 

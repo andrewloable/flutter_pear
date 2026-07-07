@@ -64,6 +64,18 @@ extension FailureInjection on FakeBareWorklet {
     _sendState(topicHex, PearSwarmState.failed, reason: reason);
   }
 
+  /// Injects a symlink entry at [path] into the drive [driveKeyHex] (opened
+  /// via `PearMethod.driveOpen` already) -- simulates an untrusted peer's
+  /// drive publishing one, without needing a real second worklet
+  /// (flutter_pear-ovt.2.8). `PearMethod.driveMirrorToDisk` rejects every
+  /// symlink entry unconditionally regardless of [linkTarget]'s shape,
+  /// mirroring the real worklet's zip-slip hardening
+  /// (flutter_pear-ovt.2.7) -- [linkTarget] is recorded for inspection
+  /// only, never interpreted or followed by this fake.
+  void injectDriveSymlink(String driveKeyHex, String path, String linkTarget) {
+    _requireDrive(driveKeyHex).symlinks[path] = linkTarget;
+  }
+
   // Connection-drop-mid-stream is intentionally NOT a new hook here --
   // disconnectFrom (fake_worklet.dart, added in E3.2) already IS this
   // hook: it simulates a live peer connection ending out from under an

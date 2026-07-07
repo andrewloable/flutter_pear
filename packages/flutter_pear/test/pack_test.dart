@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -213,7 +214,7 @@ void main() {
     File('${nm.path}/@hyperswarm/secret-stream/NOTICE')
         .writeAsStringSync('Copyright Holepunch');
 
-    final count = await collectThirdPartyLicenses(tmp.path);
+    final count = await collectThirdPartyLicenses(tmp.path, skipBareKitAttribution: true);
     expect(count, 2);
 
     final tpl = File('${tmp.path}/THIRD_PARTY_LICENSES').readAsStringSync();
@@ -229,7 +230,7 @@ void main() {
   test('missing node_modules is a no-op returning 0', () async {
     final tmp = Directory.systemTemp.createTempSync('fp_pack_empty');
     addTearDown(() => tmp.deleteSync(recursive: true));
-    expect(await collectThirdPartyLicenses(tmp.path), 0);
+    expect(await collectThirdPartyLicenses(tmp.path, skipBareKitAttribution: true), 0);
   });
 
   test(
@@ -244,7 +245,7 @@ void main() {
         .writeAsStringSync('{"name":"mystery-pkg","version":"1.0.0"}');
 
     await expectLater(
-      () => collectThirdPartyLicenses(tmp.path),
+      () => collectThirdPartyLicenses(tmp.path, skipBareKitAttribution: true),
       throwsA(isA<LicenseViolationException>()
           .having((e) => e.toString(), 'message', contains('mystery-pkg'))),
     );
@@ -262,7 +263,7 @@ void main() {
         .writeAsStringSync('GNU GENERAL PUBLIC LICENSE');
 
     await expectLater(
-      () => collectThirdPartyLicenses(tmp.path),
+      () => collectThirdPartyLicenses(tmp.path, skipBareKitAttribution: true),
       throwsA(isA<LicenseViolationException>()
           .having((e) => e.toString(), 'message', contains('copyleft-pkg'))),
     );
@@ -281,7 +282,7 @@ void main() {
     File('${nm.path}/dual-licensed-pkg/LICENSE').writeAsStringSync('...');
 
     await expectLater(
-      () => collectThirdPartyLicenses(tmp.path),
+      () => collectThirdPartyLicenses(tmp.path, skipBareKitAttribution: true),
       throwsA(isA<LicenseViolationException>().having(
           (e) => e.toString(), 'message', contains('dual-licensed-pkg'))),
     );
@@ -302,7 +303,7 @@ void main() {
         .writeAsStringSync('GNU GENERAL PUBLIC LICENSE Version 3');
 
     await expectLater(
-      () => collectThirdPartyLicenses(tmp.path),
+      () => collectThirdPartyLicenses(tmp.path, skipBareKitAttribution: true),
       throwsA(isA<LicenseViolationException>()
           .having((e) => e.toString(), 'message', contains('sneaky-copyleft'))),
     );
@@ -342,7 +343,7 @@ void main() {
     File('${nestedNm.path}/dup-pkg-dir/LICENSE')
         .writeAsStringSync('NESTED-COPY-TEXT');
 
-    await collectThirdPartyLicenses(tmp.path);
+    await collectThirdPartyLicenses(tmp.path, skipBareKitAttribution: true);
     final result = File('${tmp.path}/THIRD_PARTY_LICENSES').readAsStringSync();
     expect(result, contains('HOISTED-COPY-TEXT'));
     expect(result, isNot(contains('NESTED-COPY-TEXT')));
@@ -361,7 +362,7 @@ void main() {
         '{"name":"corestore-like","version":"7.11.0","license":"MIT"}');
     // Deliberately no LICENSE file, mirroring the real corestore package.
 
-    final count = await collectThirdPartyLicenses(tmp.path);
+    final count = await collectThirdPartyLicenses(tmp.path, skipBareKitAttribution: true);
     expect(count, 1);
     final tpl = File('${tmp.path}/THIRD_PARTY_LICENSES').readAsStringSync();
     expect(tpl, contains('corestore-like@7.11.0'));
@@ -387,7 +388,7 @@ void main() {
         '{"name":"inner","version":"3.0.0","license":"ISC"}');
     File('${nestedNm.path}/inner/LICENSE').writeAsStringSync('ISC — inner');
 
-    final count = await collectThirdPartyLicenses(tmp.path);
+    final count = await collectThirdPartyLicenses(tmp.path, skipBareKitAttribution: true);
     expect(count, 2);
     final tpl = File('${tmp.path}/THIRD_PARTY_LICENSES').readAsStringSync();
     expect(tpl, contains('outer@1.0.0'));
@@ -395,46 +396,117 @@ void main() {
     expect(tpl, contains('ISC — inner'));
   });
 
-  test(
-      'bare-kit static entry is added when a sibling '
-      'flutter_pear_bare/android/build.gradle declares bareKitVersion',
-      () async {
-    final parent =
-        Directory.systemTemp.createTempSync('fp_pack_barekit_ok_parent');
-    addTearDown(() => parent.deleteSync(recursive: true));
+  /// A fixture parent dir with pear-end/node_modules + a sibling
+  /// flutter_pear_bare/{android/build.gradle, barekit-pin.json} -- the full
+  /// set _addBareKitStaticEntry now requires (flutter_pear-ovt.2.6).
+  /// [gradleContent]/[pinJson] let a test corrupt exactly one piece;
+  /// [omitPin] entirely skips writing barekit-pin.json.
+  Directory buildBareKitFixture({
+    String gradleContent = 'def bareKitVersion = "9.9.9"\n',
+    bool omitPin = false,
+    Map<String, String>? pinJson,
+  }) {
+    final parent = Directory.systemTemp.createTempSync('fp_pack_barekit_fixture');
     final pkgRoot = Directory('${parent.path}/flutter_pear')..createSync();
-    Directory('${pkgRoot.path}/pear-end/node_modules')
-        .createSync(recursive: true);
+    Directory('${pkgRoot.path}/pear-end/node_modules').createSync(recursive: true);
     final bareDir = Directory('${parent.path}/flutter_pear_bare/android')
       ..createSync(recursive: true);
-    File('${bareDir.path}/build.gradle')
-        .writeAsStringSync('def bareKitVersion = "9.9.9"\n');
+    File('${bareDir.path}/build.gradle').writeAsStringSync(gradleContent);
+    if (!omitPin) {
+      final pin = pinJson ??
+          {
+            'bareKitVersion': '9.9.9',
+            'upstreamUrl': 'https://github.com/holepunchto/bare-kit/releases/'
+                'download/v9.9.9/prebuilds.zip',
+            'upstreamSha256': 'a' * 64,
+            'repackedUrl': 'https://github.com/example/repo/releases/'
+                'download/barekit-v9.9.9/BareKit-9.9.9-ios.xcframework.zip',
+            'repackedSha256': 'b' * 64,
+            'generatedBy': 'test fixture',
+          };
+      File('${parent.path}/flutter_pear_bare/barekit-pin.json')
+          .writeAsStringSync(jsonEncode(pin));
+    }
+    return pkgRoot;
+  }
+
+  test(
+      'bare-kit static entry is added, covering both the Android and iOS '
+      'fetch and the addon-provenance sentence, when a sibling build.gradle '
+      '+ barekit-pin.json both exist', () async {
+    final pkgRoot = buildBareKitFixture();
+    addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
 
     final count = await collectThirdPartyLicenses(pkgRoot.path);
     expect(count, 0); // no real node_modules packages, just the static entry
     final tpl = File('${pkgRoot.path}/THIRD_PARTY_LICENSES').readAsStringSync();
     expect(tpl, contains('bare-kit@9.9.9'));
     expect(tpl, contains('Apache-2.0'));
+    expect(tpl, contains('releases/download/v9.9.9/prebuilds.zip')); // upstream
+    expect(tpl, contains('releases/download/barekit-v9.9.9')); // repacked
+    expect(tpl, contains('ios/addons/')); // addon-provenance sentence
+  });
+
+  test(
+      'bare-kit static entry fails loud (throws, never soft-skips) if the '
+      'sibling build.gradle is entirely missing (flutter_pear-ovt.2.6)',
+      () async {
+    final parent =
+        Directory.systemTemp.createTempSync('fp_pack_barekit_nogradle');
+    addTearDown(() => parent.deleteSync(recursive: true));
+    final pkgRoot = Directory('${parent.path}/flutter_pear')..createSync();
+    Directory('${pkgRoot.path}/pear-end/node_modules')
+        .createSync(recursive: true);
+    // No flutter_pear_bare/ sibling directory at all.
+
+    await expectLater(
+      () => collectThirdPartyLicenses(pkgRoot.path),
+      throwsA(isA<LicenseViolationException>().having(
+          (e) => e.toString(), 'message', contains('build.gradle'))),
+    );
+    expect(
+        File('${pkgRoot.path}/THIRD_PARTY_LICENSES').existsSync(), isFalse,
+        reason: 'a failed attribution must never write a partial manifest');
   });
 
   test(
       'bare-kit static entry fails loud if the sibling build.gradle has no '
       'parseable bareKitVersion', () async {
-    final parent =
-        Directory.systemTemp.createTempSync('fp_pack_barekit_bad_parent');
-    addTearDown(() => parent.deleteSync(recursive: true));
-    final pkgRoot = Directory('${parent.path}/flutter_pear')..createSync();
-    Directory('${pkgRoot.path}/pear-end/node_modules')
-        .createSync(recursive: true);
-    final bareDir = Directory('${parent.path}/flutter_pear_bare/android')
-      ..createSync(recursive: true);
-    File('${bareDir.path}/build.gradle')
-        .writeAsStringSync('// no version declared here\n');
+    final pkgRoot = buildBareKitFixture(gradleContent: '// no version declared here\n');
+    addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
 
     await expectLater(
       () => collectThirdPartyLicenses(pkgRoot.path),
       throwsA(isA<LicenseViolationException>()
           .having((e) => e.toString(), 'message', contains('bareKitVersion'))),
+    );
+  });
+
+  test(
+      'bare-kit static entry fails loud with a run-the-repack-step message '
+      'when barekit-pin.json is missing', () async {
+    final pkgRoot = buildBareKitFixture(omitPin: true);
+    addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
+
+    await expectLater(
+      () => collectThirdPartyLicenses(pkgRoot.path),
+      throwsA(isA<LicenseViolationException>().having(
+          (e) => e.toString(),
+          'message',
+          allOf(contains('barekit-pin.json'), contains('--repack-barekit')))),
+    );
+  });
+
+  test(
+      'bare-kit static entry fails loud when barekit-pin.json is missing '
+      'upstreamUrl/repackedUrl', () async {
+    final pkgRoot = buildBareKitFixture(pinJson: const {'bareKitVersion': '9.9.9'});
+    addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
+
+    await expectLater(
+      () => collectThirdPartyLicenses(pkgRoot.path),
+      throwsA(isA<LicenseViolationException>().having(
+          (e) => e.toString(), 'message', contains('upstreamUrl'))),
     );
   });
 
@@ -451,14 +523,146 @@ void main() {
     File('${pkgDir.path}/LICENSE').writeAsStringSync('MIT — noisy-pkg');
     File('${pkgDir.path}/NOTICE').writeAsStringSync('Copyright Noisy Corp');
 
-    await collectThirdPartyLicenses(tmp.path);
+    await collectThirdPartyLicenses(tmp.path, skipBareKitAttribution: true);
     expect(File('${tmp.path}/NOTICE').readAsStringSync(),
         contains('Copyright Noisy Corp'));
 
     // Remove the module that contributed the NOTICE entry, then rerun.
     pkgDir.deleteSync(recursive: true);
-    await collectThirdPartyLicenses(tmp.path);
+    await collectThirdPartyLicenses(tmp.path, skipBareKitAttribution: true);
     expect(File('${tmp.path}/NOTICE').readAsStringSync(),
         isNot(contains('Copyright Noisy Corp')));
+  });
+
+  group('checkArtifactSizes (flutter_pear-ovt.2.5, eng-review 1A)', () {
+    // Mirrors _enumerateCommittedArtifacts' expected layout: assets/
+    // pear-end.bundle, flutter_pear_bare/{android/.../jniLibs/<abi>/*.so,
+    // ios/addons/*.xcframework/**, barekit-pin.json}.
+    Directory buildFixturePkgRoot({
+      int bundleBytes = 10,
+      bool includeOtherArtifacts = true,
+    }) {
+      final tmp = Directory.systemTemp.createTempSync('fp_pack_sizes');
+      final pkgRoot = Directory('${tmp.path}/flutter_pear')..createSync();
+      final bareRoot = Directory('${tmp.path}/flutter_pear_bare')..createSync();
+
+      Directory('${pkgRoot.path}/assets').createSync(recursive: true);
+      File('${pkgRoot.path}/$bundleAssetPath')
+          .writeAsBytesSync(List.filled(bundleBytes, 0));
+
+      if (!includeOtherArtifacts) return pkgRoot;
+
+      final abiDir = Directory(
+          '${bareRoot.path}/android/src/main/jniLibs/arm64-v8a')
+        ..createSync(recursive: true);
+      File('${abiDir.path}/libsodium-native.so').writeAsBytesSync(List.filled(5, 0));
+
+      final xcfwDir =
+          Directory('${bareRoot.path}/ios/addons/sodium-native.5.1.0.xcframework')
+            ..createSync(recursive: true);
+      File('${xcfwDir.path}/Info.plist').writeAsBytesSync(List.filled(20, 0));
+
+      File('${bareRoot.path}/barekit-pin.json').writeAsBytesSync(List.filled(30, 0));
+
+      return pkgRoot;
+    }
+
+    Future<int?> fixedArchiveSize(int bytes) => Future.value(bytes);
+
+    test(
+        'a tiny maxArtifactBytes override fires the guard (nonzero) against '
+        'a real fixture file that would otherwise pass', () async {
+      // includeOtherArtifacts: false -- an isolated single-file fixture, so
+      // this test (and its mutation spot-check) unambiguously exercises the
+      // one bundle file's own size comparison rather than incidentally
+      // passing because some OTHER small fixture file also happens to
+      // satisfy a broken comparison.
+      final pkgRoot =
+          buildFixturePkgRoot(bundleBytes: 1000, includeOtherArtifacts: false);
+      addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
+
+      final code = await checkArtifactSizes(
+        pkgRoot.path,
+        beforeSizes: const {},
+        maxArtifactBytes: 10, // well under the 1000-byte fixture bundle
+        archiveSizeFn: (_) => fixedArchiveSize(1024),
+      );
+
+      expect(code, isNot(0));
+    });
+
+    test(
+        'every fixture artifact under the (default-sized) threshold passes '
+        'with a zero exit', () async {
+      final pkgRoot = buildFixturePkgRoot();
+      addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
+
+      final code = await checkArtifactSizes(
+        pkgRoot.path,
+        beforeSizes: const {},
+        archiveSizeFn: (_) => fixedArchiveSize(1024),
+      );
+
+      expect(code, 0);
+    });
+
+    test(
+        'an archive size at or above maxArchiveBytes fails, even when '
+        'every individual artifact is tiny', () async {
+      final pkgRoot = buildFixturePkgRoot();
+      addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
+
+      final code = await checkArtifactSizes(
+        pkgRoot.path,
+        beforeSizes: const {},
+        maxArchiveBytes: 100,
+        archiveSizeFn: (_) => fixedArchiveSize(200),
+      );
+
+      expect(code, isNot(0));
+    });
+
+    test(
+        'a growth delta against a real beforeSizes snapshot never itself '
+        'causes a failure -- only the ceilings do', () async {
+      final pkgRoot = buildFixturePkgRoot(bundleBytes: 1000);
+      addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
+
+      // A deliberately-stale "before" snapshot (a path that no longer
+      // exists, and a smaller size for the bundle) -- exercises the
+      // before/after diff and total-delta arithmetic on a real fixture
+      // tree without asserting on printed text (this codebase's other
+      // pack.dart tests don't capture stdout either; the return code is
+      // the contract).
+      final code = await checkArtifactSizes(
+        pkgRoot.path,
+        beforeSizes: {
+          '${pkgRoot.path}/$bundleAssetPath': 1,
+          '${pkgRoot.path}/no-longer-exists.bin': 999,
+        },
+        archiveSizeFn: (_) => fixedArchiveSize(1024),
+      );
+
+      expect(code, 0);
+    });
+
+    test('fails loud when the archive size can\'t be parsed', () async {
+      final pkgRoot = buildFixturePkgRoot();
+      addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
+
+      final code = await checkArtifactSizes(
+        pkgRoot.path,
+        beforeSizes: const {},
+        archiveSizeFn: (_) => Future.value(null),
+      );
+
+      expect(code, isNot(0));
+    });
+
+    test('FLUTTER_PEAR_PACK_MAX_ARTIFACT/_MAX_ARCHIVE default constants are '
+        'the documented 95MB/100MB ceilings', () {
+      expect(defaultMaxArtifactBytes, 95 * 1024 * 1024);
+      expect(defaultMaxArchiveBytes, 100 * 1024 * 1024);
+    });
   });
 }

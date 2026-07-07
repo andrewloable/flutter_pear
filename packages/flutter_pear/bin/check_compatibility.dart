@@ -399,6 +399,38 @@ List<CompatibilityMismatch> checkCompatibility(String pkgRoot) {
     '$claudeMdPath Toolchain table',
   );
 
+  final packageSwiftPath = '$bareRoot/ios/flutter_pear_bare/Package.swift';
+  final packageSwift = _readOrThrow(packageSwiftPath);
+  check(
+    'iOS deployment target (Package.swift)',
+    toolchainRow.get('iOS deployment target', toolchainTableName, compatMdPath),
+    _extractOrThrow(
+      packageSwift,
+      RegExp(r'''\.iOS\(\.v(\d+)\)'''),
+      'a platforms: [.iOS(.vNN)] entry',
+      packageSwiftPath,
+    ),
+    packageSwiftPath,
+  );
+
+  // The podspec's own s.platform declaration is a decimal version string
+  // ('13.0'), unlike Package.swift's bare integer (.v13) -- only the
+  // leading integer is compared against the same table cell (flutter_pear-
+  // ovt.3.6's own DO step 3: "keep the two values identical").
+  final podspecPath = '$bareRoot/ios/flutter_pear_bare.podspec';
+  final podspec = _readOrThrow(podspecPath);
+  check(
+    'iOS deployment target (podspec)',
+    toolchainRow.get('iOS deployment target', toolchainTableName, compatMdPath),
+    _extractOrThrow(
+      podspec,
+      RegExp("platform\\s*=\\s*:ios,\\s*'(\\d+)(?:\\.\\d+)?'"),
+      "an s.platform = :ios, '<version>' entry",
+      podspecPath,
+    ),
+    podspecPath,
+  );
+
   _lastCheckedCount = checkedCount;
   return mismatches;
 }

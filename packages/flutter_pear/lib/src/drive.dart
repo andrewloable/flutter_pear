@@ -1,10 +1,32 @@
+import 'dart:async';
+
 import 'crypto.dart';
 import 'rpc.dart';
 import 'schema.dart';
 import 'swarm.dart';
 
-/// File counts from one [PearDrive.mirrorToDisk] call.
-typedef PearDriveMirrorResult = ({int added, int changed, int removed});
+/// File counts from one [PearDrive.mirrorToDisk] call. [rejected] counts
+/// entries skipped instead of written -- see [PearDrive.mirrorWarnings] for
+/// why each one was (zip-slip hardening: a symlink entry or a
+/// containment-escaping path from an untrusted peer drive). Parses as `0`
+/// when absent from the worklet's response, so a hot-restart reattach to an
+/// already-running worklet that predates this field never throws over a
+/// missing key.
+typedef PearDriveMirrorResult = ({
+  int added,
+  int changed,
+  int removed,
+  int rejected,
+});
+
+/// One [PearDrive.mirrorWarnings] event: a [PearDrive.mirrorToDisk] entry
+/// rejected instead of written to disk. [path] is the rejected entry's key
+/// within the mirrored (source) drive; [reason] is exactly
+/// `'symlink-rejected'` (the peer's drive contained a symlink entry --
+/// rejected unconditionally, regardless of its target) or `'path-escape'`
+/// (the entry's resolved destination path wasn't strictly inside the
+/// mirror directory).
+typedef PearDriveMirrorWarning = ({String path, String reason});
 
 /// A Hyperdrive file store opened via [PearDrive.open] (E5.5) — wrapper 3 of
 /// 5 in the data-structure family, built on the same Corestore substrate as
@@ -27,9 +49,33 @@ typedef PearDriveMirrorResult = ({int added, int changed, int removed});
 /// await drive.get('/photo.jpg', '/local/path/to/downloaded.jpg');
 /// ```
 class PearDrive {
-  PearDrive._(this._rpc, this.key);
+  PearDrive._(this._rpc, this.key) {
+    _eventSub = _rpc.events.listen((e) {
+      if (e.name != PearEventName.driveMirrorWarning) return;
+      final p = e.payload;
+      if (p is! Map || p['drive'] != key.hex) return;
+      _mirrorWarnings.add((
+        path: p['path'] as String,
+        reason: p['reason'] as String,
+      ));
+    });
+  }
 
   final PearRpc _rpc;
+
+  final StreamController<PearDriveMirrorWarning> _mirrorWarnings =
+      StreamController<PearDriveMirrorWarning>.broadcast();
+  late final StreamSubscription<PearEvent> _eventSub;
+
+  /// Fires once per [mirrorToDisk] entry rejected instead of written to
+  /// disk -- scoped to just THIS drive's key, so mirroring several drives
+  /// concurrently never cross-contaminates each other's warnings. A
+  /// broadcast [Stream], not a callback (matches every other Pear event
+  /// stream): subscribe before calling [mirrorToDisk] to observe every
+  /// individual rejection as it happens; [PearDriveMirrorResult.rejected]
+  /// is the authoritative total count either way, even for a subscriber
+  /// that attaches too late to catch every event.
+  Stream<PearDriveMirrorWarning> get mirrorWarnings => _mirrorWarnings.stream;
 
   /// This drive's public key.
   final PearKey key;
@@ -116,6 +162,12 @@ class PearDrive {
   /// Mirrors the ENTIRE drive to the local directory [localDir] — only
   /// changed files actually copy (diff-aware, via the Pear ecosystem's own
   /// `mirror-drive`, not a naive whole-drive re-copy).
+  ///
+  /// A symlink entry from an untrusted peer drive, or an entry whose
+  /// resolved destination path would have escaped [localDir], is never
+  /// written -- rejected instead (zip-slip hardening). See
+  /// [PearDriveMirrorResult.rejected] for the count and [mirrorWarnings]
+  /// for a per-entry stream of why.
   Future<PearDriveMirrorResult> mirrorToDisk(String localDir) async {
     final result = await _rpc.call(PearMethod.driveMirrorToDisk,
         {'drive': key.hex, 'localDir': localDir}) as Map;
@@ -123,10 +175,15 @@ class PearDrive {
       added: result['added'] as int,
       changed: result['changed'] as int,
       removed: result['removed'] as int,
+      rejected: (result['rejected'] as int?) ?? 0,
     );
   }
 
   /// Closes this drive. Further [put]/[get]/[exists]/[delete]/[list]/
   /// [replicate]/[mirrorToDisk] calls fail with [PearErrorCode.driveClosed].
-  Future<void> close() => _rpc.call(PearMethod.driveClose, {'drive': key.hex});
+  Future<void> close() async {
+    await _rpc.call(PearMethod.driveClose, {'drive': key.hex});
+    await _eventSub.cancel();
+    await _mirrorWarnings.close();
+  }
 }

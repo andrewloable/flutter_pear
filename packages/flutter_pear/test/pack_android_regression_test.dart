@@ -99,7 +99,11 @@ void main() {
 
     expect(await buildBundle(pkgRoot.path), 0);
     expect(await linkNativeAddons(pkgRoot.path), 0);
-    await collectThirdPartyLicenses(pkgRoot.path);
+    // skipBareKitAttribution: this fixture only regenerates the Android
+    // bundle/jniLibs to check byte-identity -- it has no sibling
+    // flutter_pear_bare/ checkout (build.gradle/barekit-pin.json), which
+    // _addBareKitStaticEntry now requires by default (flutter_pear-ovt.2.6).
+    await collectThirdPartyLicenses(pkgRoot.path, skipBareKitAttribution: true);
 
     final regeneratedBundle = File('${pkgRoot.path}/$bundleAssetPath');
     final committedBundle = File('$realPkgRoot/$bundleAssetPath');
