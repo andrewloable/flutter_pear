@@ -1,0 +1,4 @@
+module CBareKit {
+  header "CBareKit.h"
+  export *
+}

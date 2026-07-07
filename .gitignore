@@ -90,6 +90,12 @@ unlinked_spec.ds
 **/ios/ServiceDefinitions.json
 **/ios/Runner/GeneratedPluginRegistrant.*
 
+# flutter_pear_bare's CocoaPods podspec fetches BareKit.xcframework at build
+# time (script_phase, see barekit-pin.json) -- never commit the local cache
+# it downloads into, same as jniLibs/Pods aren't committed on other platforms.
+**/ios/barekit_cache/
+**/ios/.barekit_cache/
+
 # macOS
 **/Flutter/ephemeral/
 **/Pods/
