@@ -8,18 +8,19 @@ import '../bin/check_pins.dart';
 void main() {
   test(
       'checkPins finds zero mismatches against this repo\'s real, current '
-      'state, with exactly the 4 not-yet-landed legs skipped', () {
+      'state, with exactly the 3 not-yet-landed legs skipped', () {
     // `flutter test` runs with the package root as the working directory --
     // exactly the pkgRoot check_pins.dart itself expects.
     final pkgRoot = Directory.current.path;
     final result = checkPins(pkgRoot);
     expect(result.mismatches, isEmpty,
         reason: result.mismatches.map((m) => m.describe()).join('\n'));
-    expect(result.skipped, hasLength(4),
-        reason: 'barekit-pin.json, Package.swift, the podspec, and the '
-            'Swift host all postdate this repo\'s current state -- if this '
-            'count changed, one of them landed and this test (and the '
-            'fixture below) needs updating');
+    expect(result.skipped, hasLength(3),
+        reason: 'Package.swift, the podspec, and the Swift host still '
+            'postdate this repo\'s current state (barekit-pin.json landed '
+            'via flutter_pear-ovt.2.3) -- if this count changed, one of '
+            'them landed and this test (and the fixture below) needs '
+            'updating');
   });
 
   test(
@@ -27,8 +28,8 @@ void main() {
       'not-yet-real ones) passes with zero mismatches and zero skips', () {
     final fixture = _buildFixture(
       barekitPinJson: const {
-        'version': '2.3.0',
-        'sha256':
+        'bareKitVersion': '2.3.0',
+        'upstreamSha256':
             'a386063fa405b0bb4967490e84745075f007f95359c9871c5b7a45c18c2f49e2',
       },
       packageSwiftContent: _packageSwift(
@@ -67,7 +68,7 @@ void main() {
       'is caught and named exactly, with both files and both values', () {
     final fixture = _buildFixture(
       bareKitVersionInGradle: '2.3.0',
-      barekitPinJson: {'version': '9.9.9', 'sha256': 'aa' * 32},
+      barekitPinJson: {'bareKitVersion': '9.9.9', 'upstreamSha256': 'aa' * 32},
     );
     addTearDown(() => fixture.root.deleteSync(recursive: true));
 
@@ -88,7 +89,7 @@ void main() {
       'is caught and named exactly', () {
     final fixture = _buildFixture(
       bareKitSha256InGradle: 'aa' * 32,
-      barekitPinJson: {'version': '2.3.0', 'sha256': 'bb' * 32},
+      barekitPinJson: {'bareKitVersion': '2.3.0', 'upstreamSha256': 'bb' * 32},
     );
     addTearDown(() => fixture.root.deleteSync(recursive: true));
 

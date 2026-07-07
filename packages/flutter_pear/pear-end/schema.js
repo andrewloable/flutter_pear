@@ -98,7 +98,12 @@ const EventName = {
   PAIRING_CANDIDATE: 'pairing.candidate',
   // A base's merged view changed within an active BASE_WATCH's subscription
   // -- E5.8.
-  BASE_UPDATE: 'base.update'
+  BASE_UPDATE: 'base.update',
+  // A DRIVE_MIRROR_TO_DISK entry was rejected instead of written to disk --
+  // zip-slip hardening (plan decision 36): symlink entries and
+  // containment-escaping paths from an untrusted peer drive never reach
+  // disk, but a dev debugging a file that never arrived needs to see why.
+  DRIVE_MIRROR_WARNING: 'drive.mirrorWarning'
 }
 
 const ErrorCode = {

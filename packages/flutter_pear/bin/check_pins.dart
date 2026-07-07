@@ -152,11 +152,17 @@ PinCheckResult checkPins(String pkgRoot) {
     } catch (e) {
       throw PinCheckException('could not parse $barekitPinJsonPath as JSON: $e');
     }
-    final version = json['version'] as String?;
-    final sha256 = json['sha256'] as String?;
+    // Field names match repackBareKit's actual output (flutter_pear-ovt.2.3):
+    // "bareKitVersion" + "upstreamSha256" -- the two-link checksum chain's
+    // FIRST link, the same upstream prebuilds.zip version+checksum Android's
+    // Gradle pin already records (repackedUrl/repackedSha256, the SECOND
+    // link, describe the repacked asset itself, not upstream, so they don't
+    // belong in this cross-pin consistency comparison).
+    final version = json['bareKitVersion'] as String?;
+    final sha256 = json['upstreamSha256'] as String?;
     if (version == null || sha256 == null) {
-      throw PinCheckException(
-          '$barekitPinJsonPath must have string "version" and "sha256" keys');
+      throw PinCheckException('$barekitPinJsonPath must have string '
+          '"bareKitVersion" and "upstreamSha256" keys');
     }
     pinSources.add((
       label: 'barekit-pin.json',

@@ -1,0 +1,8 @@
+{
+  "bareKitVersion": "2.3.0",
+  "upstreamUrl": "https://github.com/holepunchto/bare-kit/releases/download/v2.3.0/prebuilds.zip",
+  "upstreamSha256": "a386063fa405b0bb4967490e84745075f007f95359c9871c5b7a45c18c2f49e2",
+  "repackedUrl": "PENDING-UPLOAD: run `dart run flutter_pear:pack --repack-barekit` (uploading enabled) to publish the repacked BareKit-2.3.0-ios.xcframework.zip and fill this in",
+  "repackedSha256": "9788ad37564523f6043422684540e290e4c3fcd33ce1bbcb8c3333820d55bd57",
+  "generatedBy": "dart run flutter_pear:pack --repack-barekit"
+}

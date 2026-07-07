@@ -38,6 +38,16 @@ Future<void> main(List<String> args) async {
   if (code != 0) exit(code);
   final linkCode = await linkNativeAddons(pkgRoot);
   if (linkCode != 0) exit(linkCode);
+  final linkIosCode = await linkNativeAddonsIos(pkgRoot);
+  if (linkIosCode != 0) exit(linkIosCode);
+  final repackCode = await repackBareKit(
+    pkgRoot,
+    force: args.contains('--repack-barekit'),
+    upload: !args.contains('--no-upload'),
+  );
+  if (repackCode != 0) exit(repackCode);
+  final packageSwiftCode = await generatePackageSwift(pkgRoot);
+  if (packageSwiftCode != 0) exit(packageSwiftCode);
   try {
     await collectThirdPartyLicenses(pkgRoot);
   } on LicenseViolationException catch (e) {
@@ -173,6 +183,569 @@ Future<int> linkNativeAddons(String pkgRoot) async {
   } finally {
     tmpOut.deleteSync(recursive: true);
   }
+}
+
+/// `bare-link --host` values for the committed iOS addon xcframeworks --
+/// device arm64 (`ios-arm64`) plus simulator arm64 (`ios-arm64-simulator`)
+/// ONLY (decision D21: no `x86_64` simulator slice; Intel Mac devs get docs
+/// in a later task). Verified (flutter_pear-ovt.1.5) that `bare-link`
+/// natively emits ready xcframeworks for these two hosts in one invocation
+/// -- no manual harvesting/`xcodebuild -create-xcframework` fallback
+/// needed. A documented top-level const, not inlined, so tests can assert
+/// it without running bare-link.
+const iosAddonHosts = ['ios-arm64', 'ios-arm64-simulator'];
+
+/// Runs `bare-link` against pear-end's resolved `node_modules` for
+/// [iosAddonHosts] and commits the resulting per-addon `.xcframework`
+/// bundles into `flutter_pear_bare`'s own `ios/addons/` -- the iOS
+/// counterpart to [linkNativeAddons]'s committed Android `jniLibs`, same
+/// flutter_pear-k2y decision (native addons are committed maintainer-time
+/// artifacts, never resolved at a consumer's build time).
+///
+/// Verifies at least one xcframework was produced AND every xcframework's
+/// `Info.plist` lists BOTH required slices in `AvailableLibraries` BEFORE
+/// touching the committed `ios/addons/` directory at all -- same
+/// fail-loud-before-wiping contract as [linkNativeAddons].
+///
+/// Returns 0 on success, a nonzero code if `bare-link` itself failed or
+/// produced a short/malformed result, or 0 without doing anything if
+/// `pear-end/node_modules` is missing (matching [linkNativeAddons]'s and
+/// [collectThirdPartyLicenses]'s established skip-with-a-note behavior).
+Future<int> linkNativeAddonsIos(String pkgRoot) async {
+  final pearEndDir = '$pkgRoot/pear-end';
+  if (!Directory('$pearEndDir/node_modules').existsSync()) {
+    stderr.writeln(
+        'skip linkNativeAddonsIos: $pearEndDir/node_modules missing — '
+        'run `npm install` in pear-end/ first.');
+    return 0;
+  }
+
+  final tmpOut = Directory.systemTemp.createTempSync('fp_pack_addons_ios');
+  try {
+    final result = await Process.run(
+      'bare-link',
+      [
+        for (final host in iosAddonHosts) ...['--host', host],
+        '--out', tmpOut.path,
+      ],
+      workingDirectory: pearEndDir,
+    );
+    stdout.write(result.stdout);
+    stderr.write(result.stderr);
+    if (result.exitCode != 0) {
+      stderr.writeln('bare-link failed. Install it: npm i -g bare-link');
+      return result.exitCode;
+    }
+
+    final xcframeworks = tmpOut
+        .listSync()
+        .whereType<Directory>()
+        .where((d) => _basename(d).endsWith('.xcframework'))
+        .toList();
+    if (xcframeworks.isEmpty) {
+      stderr.writeln('linkNativeAddonsIos: bare-link produced no '
+          '.xcframework bundles -- leaving the previously-committed '
+          'ios/addons/ untouched rather than wiping it based on an empty '
+          'result.');
+      return 1;
+    }
+    for (final xcfw in xcframeworks) {
+      final plist = File('${xcfw.path}/Info.plist');
+      if (!plist.existsSync()) {
+        stderr.writeln('linkNativeAddonsIos: ${_basename(xcfw)} has no '
+            'Info.plist -- leaving the previously-committed ios/addons/ '
+            'untouched.');
+        return 1;
+      }
+      final plistText = plist.readAsStringSync();
+      final missing = iosAddonHosts
+          .where((h) => !plistText.contains('<string>$h</string>'))
+          .toList();
+      if (missing.isNotEmpty) {
+        stderr.writeln('linkNativeAddonsIos: ${_basename(xcfw)}\'s '
+            'Info.plist is missing slice(s) ${missing.join(', ')} -- '
+            'leaving the previously-committed ios/addons/ untouched.');
+        return 1;
+      }
+    }
+
+    final addonsRoot = Directory('$pkgRoot/../flutter_pear_bare/ios/addons');
+    final currentNames = xcframeworks.map(_basename).toSet();
+    // Prune addons no longer produced (a dependency drop) before writing
+    // the current set, mirroring linkNativeAddons's ABI-pruning behavior --
+    // safe now that every xcframework is already confirmed well-formed
+    // above.
+    if (addonsRoot.existsSync()) {
+      for (final entry in addonsRoot.listSync().whereType<Directory>()) {
+        if (!currentNames.contains(_basename(entry))) {
+          entry.deleteSync(recursive: true);
+        }
+      }
+    } else {
+      addonsRoot.createSync(recursive: true);
+    }
+    for (final xcfw in xcframeworks) {
+      final dst = Directory('${addonsRoot.path}/${_basename(xcfw)}');
+      if (dst.existsSync()) dst.deleteSync(recursive: true);
+      _copyDirectorySync(xcfw, dst);
+    }
+    stdout.writeln(
+        'wrote ${addonsRoot.path}/*.xcframework (${xcframeworks.length} addons)');
+    return 0;
+  } finally {
+    tmpOut.deleteSync(recursive: true);
+  }
+}
+
+/// Recursively copies [src] to [dst] (`dart:io` has no built-in equivalent
+/// of a shell `cp -R`) -- used for xcframework bundles, whose nested
+/// per-slice `.framework/` directories a flat file-by-file copy (adequate
+/// for the Android `.so` case in [linkNativeAddons]) can't handle.
+void _copyDirectorySync(Directory src, Directory dst) {
+  dst.createSync(recursive: true);
+  for (final entity in src.listSync()) {
+    final name = _basename(entity);
+    if (entity is Directory) {
+      _copyDirectorySync(entity, Directory('${dst.path}/$name'));
+    } else if (entity is File) {
+      entity.copySync('${dst.path}/$name');
+    } else if (entity is Link) {
+      Link('${dst.path}/$name').createSync(entity.targetSync());
+    }
+  }
+}
+
+/// Thrown when `flutter_pear_bare/android/build.gradle`'s BareKit pin
+/// (single source of truth, DX2 finding 50 -- Android and iOS must provably
+/// share the same `bareKitVersion`) can't be read.
+class BareKitPinException implements Exception {
+  BareKitPinException(this.message);
+  final String message;
+  @override
+  String toString() => 'BareKitPinException: $message';
+}
+
+/// The two facts [repackBareKit] reads out of `build.gradle` before doing
+/// anything else: the pinned Bare Kit release version, and the SHA256
+/// [verifySha256]-checks the FULL upstream `prebuilds.zip` against at
+/// Android build time. Both must match what `barekit-pin.json` records, or
+/// Android and iOS would silently pin different Bare Kit releases.
+typedef BareKitGradlePin = ({String version, String upstreamSha256});
+
+/// Parses [BareKitGradlePin] out of `flutter_pear_bare/android/build.gradle`
+/// -- same regex approach as [_addBareKitStaticEntry]'s `bareKitVersion`
+/// read, extended to also require `bareKitSha256`. Throws
+/// [BareKitPinException] if either is missing, rather than silently
+/// repacking against an unpinned or stale version.
+BareKitGradlePin readBareKitGradlePin(String pkgRoot) {
+  final gradleFile = File('$pkgRoot/../flutter_pear_bare/android/build.gradle');
+  if (!gradleFile.existsSync()) {
+    throw BareKitPinException('${gradleFile.path} not found');
+  }
+  final text = gradleFile.readAsStringSync();
+  final versionMatch =
+      RegExp(r'''bareKitVersion\s*=\s*["']([^"']+)["']''').firstMatch(text);
+  if (versionMatch == null) {
+    throw BareKitPinException(
+        'could not find bareKitVersion in ${gradleFile.path}');
+  }
+  final shaMatch = RegExp(r'''bareKitSha256\s*=\s*["']([0-9a-fA-F]{64})["']''')
+      .firstMatch(text);
+  if (shaMatch == null) {
+    throw BareKitPinException(
+        'could not find a 64-hex-char bareKitSha256 in ${gradleFile.path}');
+  }
+  return (
+    version: versionMatch.group(1)!,
+    upstreamSha256: shaMatch.group(1)!.toLowerCase(),
+  );
+}
+
+/// Default [repackBareKit] `download` implementation: a plain HTTP(S) GET
+/// to [dest]. Real network I/O, factored out so tests can inject a fake
+/// instead (DO step 7: keep network out of unit tests).
+Future<void> _httpDownload(String url, File dest) async {
+  final client = HttpClient();
+  try {
+    final request = await client.getUrl(Uri.parse(url));
+    final response = await request.close();
+    if (response.statusCode != 200) {
+      throw BareKitPinException(
+          'GET $url returned HTTP ${response.statusCode}');
+    }
+    await response.pipe(dest.openWrite());
+  } finally {
+    client.close(force: true);
+  }
+}
+
+/// True if a HEAD request to [url] succeeds (2xx) -- used by
+/// [repackBareKit]'s idempotence check to confirm a previously-recorded
+/// `repackedUrl` still actually resolves before trusting it enough to skip
+/// a fresh repack.
+Future<bool> _urlHeadOk(String url) async {
+  final client = HttpClient();
+  try {
+    final request = await client.headUrl(Uri.parse(url));
+    final response = await request.close();
+    await response.drain<void>();
+    return response.statusCode >= 200 && response.statusCode < 300;
+  } catch (_) {
+    return false;
+  } finally {
+    client.close(force: true);
+  }
+}
+
+/// Default [repackBareKit] `upload` implementation: `gh release create`
+/// (idempotent -- `--target` is fine to omit; ignores an "already exists"
+/// failure) followed by `gh release upload`, deriving owner/repo from
+/// `gh repo view` so this works from any clone/fork. Returns the resulting
+/// `releases/download` URL. Real `gh` I/O, factored out so tests can inject
+/// a fake instead (DO step 7).
+Future<String> _ghUpload(String version, File zip) async {
+  final tag = 'barekit-v$version';
+  final assetName = 'BareKit-$version-ios.xcframework.zip';
+
+  final createResult = await Process.run(
+      'gh', ['release', 'create', tag, '--title', tag, '--notes', 'Repacked BareKit.xcframework for SPM (flutter_pear-ovt.2.3).']);
+  // "release already exists" is expected and fine on a re-repack of the
+  // same version; any OTHER failure is not.
+  if (createResult.exitCode != 0 &&
+      !'${createResult.stderr}'.contains('already exists')) {
+    throw BareKitPinException(
+        'gh release create $tag failed: ${createResult.stderr}');
+  }
+
+  final uploadResult = await Process.run('gh', [
+    'release', 'upload', tag, '${zip.path}#$assetName',
+    '--clobber',
+  ]);
+  if (uploadResult.exitCode != 0) {
+    throw BareKitPinException(
+        'gh release upload failed: ${uploadResult.stderr}');
+  }
+
+  final viewResult =
+      await Process.run('gh', ['repo', 'view', '--json', 'nameWithOwner']);
+  if (viewResult.exitCode != 0) {
+    throw BareKitPinException(
+        'gh repo view failed: ${viewResult.stderr}');
+  }
+  final nameWithOwner =
+      (jsonDecode(viewResult.stdout as String) as Map)['nameWithOwner'] as String;
+  return 'https://github.com/$nameWithOwner/releases/download/$tag/$assetName';
+}
+
+/// Repacks upstream `holepunchto/bare-kit`'s release `prebuilds.zip` (one
+/// ~354MB multi-platform archive) down to just `BareKit.xcframework` at
+/// archive root -- the layout SPM's `url:`/`checksum:` binaryTarget
+/// requires, and a ~90%+ size cut per consumer (plan decision 31, Eng2
+/// finding 1). Writes the committed two-link checksum chain
+/// `flutter_pear_bare/barekit-pin.json`: [BareKitGradlePin]'s version and
+/// upstream checksum (link 1, already Android's own pin) plus the repacked
+/// asset's own URL and checksum (link 2) -- an auditable "maintainer
+/// re-packed this, here's proof against upstream's own release" chain, not
+/// a from-scratch build.
+///
+/// Idempotent by default: if `barekit-pin.json` already records the current
+/// [BareKitGradlePin.version] and its `repackedUrl` still resolves (a live
+/// HEAD request), this returns 0 without downloading anything. [force]
+/// (`--repack-barekit`) skips that check and always re-runs the full
+/// pipeline.
+///
+/// [upload] controls whether the repacked zip is actually published
+/// (`gh release create`/`upload`, via [uploadFn]) -- when `false`
+/// (`--repack-barekit --no-upload`), every other step still runs for real
+/// (download, upstream checksum verify, extract, re-zip, compute
+/// `repackedSha256`) and the pin is still written, but `repackedUrl` is
+/// left as an explicit `PENDING-UPLOAD:` sentinel instead of a real link,
+/// so a maintainer can verify the pipeline without publishing a release
+/// asset. A later plain re-run (no flags) does NOT silently attempt the
+/// real upload just because that sentinel URL fails the idempotence
+/// check's HEAD request above -- it fails loud instead, requiring
+/// `--repack-barekit` (uploading enabled) to explicitly opt into actually
+/// publishing. (This exact gap -- an ordinary re-run silently cascading
+/// into a real `gh release create`/`upload` -- caused an unintended public
+/// release during this feature's own development; the check above closes
+/// it rather than just documenting it as a footgun.)
+///
+/// [downloadFn]/[uploadFn] are the impure boundary (real network/`gh`
+/// calls) -- injectable so tests exercise every pure step (pin parsing,
+/// checksum verification, extraction, re-zip, JSON shape) without touching
+/// the network (DO step 7).
+Future<int> repackBareKit(
+  String pkgRoot, {
+  bool force = false,
+  bool upload = true,
+  Future<void> Function(String url, File dest) downloadFn = _httpDownload,
+  Future<String> Function(String version, File zip) uploadFn = _ghUpload,
+}) async {
+  final BareKitGradlePin pin;
+  try {
+    pin = readBareKitGradlePin(pkgRoot);
+  } on BareKitPinException catch (e) {
+    stderr.writeln('repackBareKit: $e');
+    return 1;
+  }
+
+  final pinFile = File('$pkgRoot/../flutter_pear_bare/barekit-pin.json');
+  if (pinFile.existsSync()) {
+    Map<String, dynamic>? existing;
+    try {
+      existing = jsonDecode(pinFile.readAsStringSync()) as Map<String, dynamic>;
+    } catch (_) {
+      existing = null;
+    }
+    final existingUrl = existing?['repackedUrl'] as String?;
+    final sameVersion = existing != null && existing['bareKitVersion'] == pin.version;
+
+    if (!force && sameVersion && existingUrl != null &&
+        !existingUrl.startsWith('PENDING-UPLOAD') &&
+        await _urlHeadOk(existingUrl)) {
+      stdout.writeln('barekit-pin.json already up to date for '
+          '${pin.version} (repackedUrl resolves) -- skipping repack. Use '
+          '--repack-barekit to force.');
+      return 0;
+    }
+
+    // A PENDING-UPLOAD sentinel means an earlier run deliberately verified
+    // the pipeline (--no-upload) but never actually published -- an
+    // ordinary re-run must NOT silently escalate into a real upload just
+    // because the idempotence check above correctly fails against a
+    // placeholder URL (this exact gap caused a real, unintended
+    // `gh release create`/`upload` earlier in flutter_pear-ovt.2.3's own
+    // development). Uploading now requires the caller to explicitly pass
+    // --repack-barekit, the same flag that forces everything else.
+    if (upload && !force && sameVersion &&
+        existingUrl != null && existingUrl.startsWith('PENDING-UPLOAD')) {
+      stderr.writeln('repackBareKit: barekit-pin.json for ${pin.version} is '
+          'still PENDING-UPLOAD from an earlier --no-upload run -- refusing '
+          'to silently attempt a real upload. Re-run with --repack-barekit '
+          '(uploading enabled) to actually publish it now.');
+      return 1;
+    }
+  }
+
+  final upstreamUrl = 'https://github.com/holepunchto/bare-kit/releases/'
+      'download/v${pin.version}/prebuilds.zip';
+  final tmp = Directory.systemTemp.createTempSync('fp_pack_barekit_repack');
+  try {
+    final zipFile = File('${tmp.path}/prebuilds.zip');
+    stdout.writeln('downloading $upstreamUrl ...');
+    await downloadFn(upstreamUrl, zipFile);
+
+    final actualSha =
+        sha256.convert(await zipFile.readAsBytes()).toString();
+    if (actualSha != pin.upstreamSha256) {
+      stderr.writeln(
+          'repackBareKit: upstream checksum mismatch for $upstreamUrl -- '
+          'expected ${pin.upstreamSha256}, got $actualSha. Aborting before '
+          'any upload.');
+      return 1;
+    }
+
+    // Upstream ships BareKit.xcframework under apple/ alongside other
+    // platforms' prebuilds (flutter_pear-ovt.1.2's spike finding) -- only
+    // that one subtree is needed, not the full ~354MB archive.
+    final extractDir = Directory('${tmp.path}/extracted')
+      ..createSync(recursive: true);
+    final unzipResult = await Process.run('unzip', [
+      '-q', zipFile.path, 'apple/BareKit.xcframework/*',
+      '-d', extractDir.path,
+    ]);
+    if (unzipResult.exitCode != 0) {
+      stderr.writeln('repackBareKit: unzip failed: ${unzipResult.stderr}');
+      return unzipResult.exitCode;
+    }
+    final xcfwSrc = Directory('${extractDir.path}/apple/BareKit.xcframework');
+    if (!xcfwSrc.existsSync()) {
+      stderr.writeln('repackBareKit: apple/BareKit.xcframework/ not found '
+          'in $upstreamUrl -- upstream\'s archive layout may have changed.');
+      return 1;
+    }
+
+    final repackDir = Directory('${tmp.path}/repack')..createSync();
+    _copyDirectorySync(xcfwSrc, Directory('${repackDir.path}/BareKit.xcframework'));
+
+    final repackedZip =
+        File('${tmp.path}/BareKit-${pin.version}-ios.xcframework.zip');
+    final zipResult = await Process.run(
+      'zip',
+      ['-qr', repackedZip.path, 'BareKit.xcframework'],
+      workingDirectory: repackDir.path,
+    );
+    if (zipResult.exitCode != 0) {
+      stderr.writeln('repackBareKit: zip failed: ${zipResult.stderr}');
+      return zipResult.exitCode;
+    }
+
+    final repackedSha256 =
+        sha256.convert(await repackedZip.readAsBytes()).toString();
+
+    String repackedUrl;
+    if (upload) {
+      stdout.writeln('uploading ${repackedZip.path} via gh release ...');
+      repackedUrl = await uploadFn(pin.version, repackedZip);
+    } else {
+      repackedUrl = 'PENDING-UPLOAD: run `dart run flutter_pear:pack '
+          '--repack-barekit` (uploading enabled) to publish the repacked '
+          'BareKit-${pin.version}-ios.xcframework.zip and fill this in';
+    }
+
+    final pinJson = {
+      'bareKitVersion': pin.version,
+      'upstreamUrl': upstreamUrl,
+      'upstreamSha256': pin.upstreamSha256,
+      'repackedUrl': repackedUrl,
+      'repackedSha256': repackedSha256,
+      'generatedBy': 'dart run flutter_pear:pack --repack-barekit',
+    };
+    pinFile.writeAsStringSync(
+        '${const JsonEncoder.withIndent('  ').convert(pinJson)}\n');
+    stdout.writeln('wrote ${pinFile.path}');
+    return 0;
+  } finally {
+    tmp.deleteSync(recursive: true);
+  }
+}
+
+/// Thrown when [generatePackageSwift] can't find a well-formed
+/// `barekit-pin.json` or a non-empty `ios/addons/` to generate from.
+class PackageSwiftException implements Exception {
+  PackageSwiftException(this.message);
+  final String message;
+  @override
+  String toString() => 'PackageSwiftException: $message';
+}
+
+/// Path (relative to `flutter_pear_bare`) [generatePackageSwift] writes to
+/// -- `ios/` is the SPM package root so `ios/addons/` sits INSIDE it
+/// (SwiftPM rejects binary target paths outside the package directory). A
+/// single const, not inlined, so the Swift-host epic (which owns Flutter
+/// tooling integration and may relocate the manifest) only has one line to
+/// change.
+const packageSwiftRelativePath = 'ios/Package.swift';
+
+/// Derives a Swift-identifier-safe target name from an addon xcframework's
+/// directory name (e.g. `bare-fs.4.7.3.xcframework` -> `AddonBareFs`) --
+/// strips `.xcframework` and the trailing dotted version, then PascalCases
+/// the remaining kebab-case package name with an `Addon` prefix. Same
+/// convention the throwaway SPM shim spike used (flutter_pear-ovt.1.4), so
+/// a maintainer reading both isn't looking at two different schemes.
+String addonTargetName(String xcframeworkDirName) {
+  final withoutExt =
+      xcframeworkDirName.replaceAll(RegExp(r'\.xcframework$'), '');
+  final withoutVersion = withoutExt.replaceAll(RegExp(r'(\.\d+)+$'), '');
+  final pascal = withoutVersion
+      .split('-')
+      .where((s) => s.isNotEmpty)
+      .map((s) => s[0].toUpperCase() + s.substring(1))
+      .join();
+  return 'Addon$pascal';
+}
+
+/// Generates `flutter_pear_bare/ios/Package.swift` (CEO decision 14): one
+/// pin source (`barekit-pin.json` + the committed `ios/addons/*.xcframework`
+/// from [linkNativeAddonsIos]), never hand-edited. Fails loud (nonzero,
+/// writes nothing) if the pin is missing/malformed or `ios/addons/` has no
+/// xcframeworks -- a partial manifest missing a target every addon
+/// dlopens by name would be worse than no manifest at all.
+///
+/// Deterministic: addon targets are sorted by directory name, so unchanged
+/// inputs regenerate a byte-identical file. The `BareKit` binary target's
+/// `url` reads the `FLUTTER_PEAR_BAREKIT_URL` environment variable at SPM
+/// RESOLUTION time (`ProcessInfo.processInfo.environment`, evaluated when
+/// Xcode/`swift package resolve` reads the manifest, not at `:pack` time)
+/// when set, falling back to the pinned `repackedUrl` -- an enterprise
+/// proxy, air-gapped build, or a deleted-release recovery can override
+/// where the binary is fetched from without ever touching the pinned
+/// `checksum` (DX2 finding 48): a swapped URL still has to produce bytes
+/// matching the same checksum, so this can redirect delivery but never
+/// silently swap in different bytes.
+Future<int> generatePackageSwift(String pkgRoot) async {
+  final bareRoot = '$pkgRoot/../flutter_pear_bare';
+  final pinFile = File('$bareRoot/barekit-pin.json');
+  if (!pinFile.existsSync()) {
+    stderr.writeln('generatePackageSwift: ${pinFile.path} missing -- run '
+        'the BareKit repack step first.');
+    return 1;
+  }
+  final Map<String, dynamic> pin;
+  try {
+    pin = jsonDecode(pinFile.readAsStringSync()) as Map<String, dynamic>;
+  } catch (e) {
+    stderr.writeln('generatePackageSwift: could not parse ${pinFile.path}: $e');
+    return 1;
+  }
+  final repackedUrl = pin['repackedUrl'] as String?;
+  final repackedSha256 = pin['repackedSha256'] as String?;
+  if (repackedUrl == null || repackedSha256 == null) {
+    stderr.writeln('generatePackageSwift: ${pinFile.path} is missing '
+        'repackedUrl/repackedSha256.');
+    return 1;
+  }
+
+  final addonsDir = Directory('$bareRoot/ios/addons');
+  if (!addonsDir.existsSync()) {
+    stderr.writeln('generatePackageSwift: ${addonsDir.path} missing -- run '
+        'the iOS addon link step first.');
+    return 1;
+  }
+  final addonDirNames = addonsDir
+      .listSync()
+      .whereType<Directory>()
+      .map(_basename)
+      .where((n) => n.endsWith('.xcframework'))
+      .toList()
+    ..sort();
+  if (addonDirNames.isEmpty) {
+    stderr.writeln(
+        'generatePackageSwift: ${addonsDir.path} has no xcframeworks.');
+    return 1;
+  }
+
+  final addonTargets =
+      addonDirNames.map((n) => (name: addonTargetName(n), dirName: n)).toList();
+  final allTargetNames = ['BareKit', ...addonTargets.map((a) => a.name)];
+
+  final b = StringBuffer()
+    ..writeln('// swift-tools-version:5.9')
+    ..writeln('// GENERATED by `dart run flutter_pear:pack` from '
+        'barekit-pin.json -- DO NOT EDIT BY HAND (flutter_pear-ovt.2.4).')
+    ..writeln('//')
+    ..writeln('// Known SPM url: binaryTarget issues to watch for:')
+    ..writeln('// - Xcode Cloud cache collision: flutter/flutter#187710')
+    ..writeln('// - Cache-resolution footgun: flutter/flutter#186054')
+    ..writeln('import Foundation')
+    ..writeln('import PackageDescription')
+    ..writeln()
+    ..writeln('let bareKitURL = ProcessInfo.processInfo.environment['
+        '"FLUTTER_PEAR_BAREKIT_URL"] ?? "$repackedUrl"')
+    ..writeln()
+    ..writeln('let package = Package(')
+    ..writeln('    name: "BareKitShim",')
+    ..writeln('    platforms: [.iOS(.v13)],')
+    ..writeln('    products: [')
+    ..writeln('        .library(name: "BareKitShim", targets: '
+        '[${allTargetNames.map((n) => '"$n"').join(', ')}]),')
+    ..writeln('    ],')
+    ..writeln('    targets: [')
+    ..writeln('        .binaryTarget(name: "BareKit", url: bareKitURL, '
+        'checksum: "$repackedSha256"),');
+  for (final a in addonTargets) {
+    b.writeln('        .binaryTarget(name: "${a.name}", '
+        'path: "addons/${a.dirName}"),');
+  }
+  b
+    ..writeln('    ]')
+    ..writeln(')');
+
+  final outFile = File('$bareRoot/$packageSwiftRelativePath');
+  outFile.parent.createSync(recursive: true);
+  outFile.writeAsStringSync(b.toString());
+  stdout.writeln('wrote ${outFile.path}');
+  return 0;
 }
 
 /// SPDX identifiers this repo accepts for a bundled dependency (E9.2,
