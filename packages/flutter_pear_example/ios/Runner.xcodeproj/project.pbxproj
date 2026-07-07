@@ -9,27 +9,13 @@
 /* Begin PBXBuildFile section */
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
-		39A7890EA680EE8AAA555C0F /* SpikeBareHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 755BD96D79DEBC3A82A61700 /* SpikeBareHost.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
-		42FDFE9560150F386E8DFDCE /* AddonFsNativeExtensions in Frameworks */ = {isa = PBXBuildFile; productRef = E9581C260EC76652E72E9377 /* AddonFsNativeExtensions */; };
-		491C10F17CBFB28BF4C332EA /* AddonSodiumNative in Frameworks */ = {isa = PBXBuildFile; productRef = 5E7E8C029FF75F9F947427E2 /* AddonSodiumNative */; };
-		4D92EC5853BDC752D18F58D5 /* BareKitShim in Frameworks */ = {isa = PBXBuildFile; productRef = 433030E61BE2E8E05BDD8A4A /* BareKitShim */; };
-		571E303F05C2B5C7748123E3 /* AddonBareUrl in Frameworks */ = {isa = PBXBuildFile; productRef = 2F6CC43AA1021A16EEA15FD4 /* AddonBareUrl */; };
-		6CCF9AB3A45EBC1559D1FAC8 /* AddonBareInspect in Frameworks */ = {isa = PBXBuildFile; productRef = BEB521F040A7E7E04E6C25BF /* AddonBareInspect */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
-		797CD37F149FDDE1276185DD /* AddonBareType in Frameworks */ = {isa = PBXBuildFile; productRef = A55F8C34CB953B58FD09A7D9 /* AddonBareType */; };
-		95503CA26EC87EE332329262 /* AddonBareOs in Frameworks */ = {isa = PBXBuildFile; productRef = D86CFC80F1E9304ADBE552C7 /* AddonBareOs */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
-		9E3E880037C4D4CA27019581 /* AddonUdxNative in Frameworks */ = {isa = PBXBuildFile; productRef = EE7885DEE822AA94836AE902 /* AddonUdxNative */; };
-		B8A9ADC3B04768BF2B2A1B4C /* AddonRabinNative in Frameworks */ = {isa = PBXBuildFile; productRef = 26FCB76DDA5E564EEA05734C /* AddonRabinNative */; };
-		BAC783ACD7DC89E9CAD6B89C /* AddonBareFs in Frameworks */ = {isa = PBXBuildFile; productRef = F5EEF14CB5841EF201ACA6CB /* AddonBareFs */; };
-		BF987AB93DFEF349672D345A /* AddonQuickbitNative in Frameworks */ = {isa = PBXBuildFile; productRef = D2D5FDD0DC1E1E12020B4E7A /* AddonQuickbitNative */; };
-		D034CB17FF5F8C824904FA07 /* AddonSimdleNative in Frameworks */ = {isa = PBXBuildFile; productRef = C1CF4A723900D8470B020D77 /* AddonSimdleNative */; };
-		D0EA47D2D2C6A0CBF5FDDB87 /* AddonRocksdbNative in Frameworks */ = {isa = PBXBuildFile; productRef = BDF002A7906D71CE118593C8 /* AddonRocksdbNative */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,7 +49,6 @@
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		755BD96D79DEBC3A82A61700 /* SpikeBareHost.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpikeBareHost.swift; sourceTree = "<group>"; };
 		7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
@@ -82,19 +67,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */,
-				4D92EC5853BDC752D18F58D5 /* BareKitShim in Frameworks */,
-				BAC783ACD7DC89E9CAD6B89C /* AddonBareFs in Frameworks */,
-				6CCF9AB3A45EBC1559D1FAC8 /* AddonBareInspect in Frameworks */,
-				95503CA26EC87EE332329262 /* AddonBareOs in Frameworks */,
-				797CD37F149FDDE1276185DD /* AddonBareType in Frameworks */,
-				571E303F05C2B5C7748123E3 /* AddonBareUrl in Frameworks */,
-				42FDFE9560150F386E8DFDCE /* AddonFsNativeExtensions in Frameworks */,
-				BF987AB93DFEF349672D345A /* AddonQuickbitNative in Frameworks */,
-				B8A9ADC3B04768BF2B2A1B4C /* AddonRabinNative in Frameworks */,
-				D0EA47D2D2C6A0CBF5FDDB87 /* AddonRocksdbNative in Frameworks */,
-				D034CB17FF5F8C824904FA07 /* AddonSimdleNative in Frameworks */,
-				491C10F17CBFB28BF4C332EA /* AddonSodiumNative in Frameworks */,
-				9E3E880037C4D4CA27019581 /* AddonUdxNative in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -152,7 +124,6 @@
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
-				755BD96D79DEBC3A82A61700 /* SpikeBareHost.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -195,19 +166,6 @@
 			name = Runner;
 			packageProductDependencies = (
 				78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */,
-				433030E61BE2E8E05BDD8A4A /* BareKitShim */,
-				F5EEF14CB5841EF201ACA6CB /* AddonBareFs */,
-				BEB521F040A7E7E04E6C25BF /* AddonBareInspect */,
-				D86CFC80F1E9304ADBE552C7 /* AddonBareOs */,
-				A55F8C34CB953B58FD09A7D9 /* AddonBareType */,
-				2F6CC43AA1021A16EEA15FD4 /* AddonBareUrl */,
-				E9581C260EC76652E72E9377 /* AddonFsNativeExtensions */,
-				D2D5FDD0DC1E1E12020B4E7A /* AddonQuickbitNative */,
-				26FCB76DDA5E564EEA05734C /* AddonRabinNative */,
-				BDF002A7906D71CE118593C8 /* AddonRocksdbNative */,
-				C1CF4A723900D8470B020D77 /* AddonSimdleNative */,
-				5E7E8C029FF75F9F947427E2 /* AddonSodiumNative */,
-				EE7885DEE822AA94836AE902 /* AddonUdxNative */,
 			);
 			productName = Runner;
 			productReference = 97C146EE1CF9000F007C117D /* Runner.app */;
@@ -244,7 +202,6 @@
 			mainGroup = 97C146E51CF9000F007C117D;
 			packageReferences = (
 				781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "FlutterGeneratedPluginSwiftPackage" */,
-				989B00732CA717D1B15D0544 /* XCLocalSwiftPackageReference "BareKitShim" */,
 			);
 			productRefGroup = 97C146EF1CF9000F007C117D /* Products */;
 			projectDirPath = "";
@@ -327,7 +284,6 @@
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
-				39A7890EA680EE8AAA555C0F /* SpikeBareHost.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -678,81 +634,12 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage;
 		};
-		989B00732CA717D1B15D0544 /* XCLocalSwiftPackageReference "BareKitShim" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = BareKitShim;
-		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		26FCB76DDA5E564EEA05734C /* AddonRabinNative */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 989B00732CA717D1B15D0544 /* XCLocalSwiftPackageReference "BareKitShim" */;
-			productName = AddonRabinNative;
-		};
-		2F6CC43AA1021A16EEA15FD4 /* AddonBareUrl */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 989B00732CA717D1B15D0544 /* XCLocalSwiftPackageReference "BareKitShim" */;
-			productName = AddonBareUrl;
-		};
-		433030E61BE2E8E05BDD8A4A /* BareKitShim */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 989B00732CA717D1B15D0544 /* XCLocalSwiftPackageReference "BareKitShim" */;
-			productName = BareKitShim;
-		};
-		5E7E8C029FF75F9F947427E2 /* AddonSodiumNative */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 989B00732CA717D1B15D0544 /* XCLocalSwiftPackageReference "BareKitShim" */;
-			productName = AddonSodiumNative;
-		};
 		78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = FlutterGeneratedPluginSwiftPackage;
-		};
-		A55F8C34CB953B58FD09A7D9 /* AddonBareType */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 989B00732CA717D1B15D0544 /* XCLocalSwiftPackageReference "BareKitShim" */;
-			productName = AddonBareType;
-		};
-		BDF002A7906D71CE118593C8 /* AddonRocksdbNative */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 989B00732CA717D1B15D0544 /* XCLocalSwiftPackageReference "BareKitShim" */;
-			productName = AddonRocksdbNative;
-		};
-		BEB521F040A7E7E04E6C25BF /* AddonBareInspect */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 989B00732CA717D1B15D0544 /* XCLocalSwiftPackageReference "BareKitShim" */;
-			productName = AddonBareInspect;
-		};
-		C1CF4A723900D8470B020D77 /* AddonSimdleNative */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 989B00732CA717D1B15D0544 /* XCLocalSwiftPackageReference "BareKitShim" */;
-			productName = AddonSimdleNative;
-		};
-		D2D5FDD0DC1E1E12020B4E7A /* AddonQuickbitNative */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 989B00732CA717D1B15D0544 /* XCLocalSwiftPackageReference "BareKitShim" */;
-			productName = AddonQuickbitNative;
-		};
-		D86CFC80F1E9304ADBE552C7 /* AddonBareOs */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 989B00732CA717D1B15D0544 /* XCLocalSwiftPackageReference "BareKitShim" */;
-			productName = AddonBareOs;
-		};
-		E9581C260EC76652E72E9377 /* AddonFsNativeExtensions */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 989B00732CA717D1B15D0544 /* XCLocalSwiftPackageReference "BareKitShim" */;
-			productName = AddonFsNativeExtensions;
-		};
-		EE7885DEE822AA94836AE902 /* AddonUdxNative */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 989B00732CA717D1B15D0544 /* XCLocalSwiftPackageReference "BareKitShim" */;
-			productName = AddonUdxNative;
-		};
-		F5EEF14CB5841EF201ACA6CB /* AddonBareFs */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 989B00732CA717D1B15D0544 /* XCLocalSwiftPackageReference "BareKitShim" */;
-			productName = AddonBareFs;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

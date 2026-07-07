@@ -336,6 +336,15 @@ abstract final class PearEventName {
   /// [PearMethod.baseWatch] call this belongs to (a base may have more than
   /// one concurrent watch). See `PearBase.watch` (E5.8).
   static const baseUpdate = 'base.update';
+
+  /// A [PearMethod.driveMirrorToDisk] entry was rejected instead of
+  /// written to disk — zip-slip hardening: a symlink entry from an
+  /// untrusted peer drive, or a path that would have escaped the mirror
+  /// destination directory. Payload: `{drive, path, reason}` — `drive` is
+  /// the source drive's key (hex), `path` is the rejected entry's key
+  /// within that drive, and `reason` is exactly `'symlink-rejected'` or
+  /// `'path-escape'`. See `PearDrive.mirrorWarnings`.
+  static const driveMirrorWarning = 'drive.mirrorWarning';
 }
 
 /// Connection-state vocabulary for `PearSwarm.state` — also the wire value

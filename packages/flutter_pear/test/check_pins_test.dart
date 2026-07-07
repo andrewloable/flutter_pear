@@ -8,19 +8,21 @@ import '../bin/check_pins.dart';
 void main() {
   test(
       'checkPins finds zero mismatches against this repo\'s real, current '
-      'state, with exactly the 3 not-yet-landed legs skipped', () {
+      'state, with exactly the 2 not-yet-landed legs skipped', () {
     // `flutter test` runs with the package root as the working directory --
     // exactly the pkgRoot check_pins.dart itself expects.
     final pkgRoot = Directory.current.path;
     final result = checkPins(pkgRoot);
     expect(result.mismatches, isEmpty,
         reason: result.mismatches.map((m) => m.describe()).join('\n'));
-    expect(result.skipped, hasLength(3),
-        reason: 'Package.swift, the podspec, and the Swift host still '
+    expect(result.skipped, hasLength(2),
+        reason: 'Package.swift\'s BareKit url and the podspec still '
             'postdate this repo\'s current state (barekit-pin.json landed '
-            'via flutter_pear-ovt.2.3) -- if this count changed, one of '
-            'them landed and this test (and the fixture below) needs '
-            'updating');
+            'via flutter_pear-ovt.2.3, the real Swift host landed via '
+            'flutter_pear-ovt.3.1, and flutter_pear-ovt.3.5 retired the '
+            'pack epoch\'s original second Package.swift) -- if this count '
+            'changed, one of them landed and this test (and the fixture '
+            'below) needs updating');
   });
 
   test(
@@ -181,6 +183,36 @@ void main() {
     expect(shaMismatches, hasLength(1));
     expect(shaMismatches.single.sourceB, contains('Package.swift'));
   });
+
+  test(
+      'a real, generated Package.swift whose BareKit url is still the '
+      'PENDING-UPLOAD sentinel (flutter_pear-ovt.2.3\'s intentional '
+      'upload-skip state) is gracefully skipped, not a thrown parse error '
+      '(flutter_pear-ovt.2.4)', () {
+    final fixture = _buildFixture(
+      packageSwiftContent: '''
+// swift-tools-version:5.9
+import Foundation
+import PackageDescription
+let bareKitURL = ProcessInfo.processInfo.environment["FLUTTER_PEAR_BAREKIT_URL"] ?? "PENDING-UPLOAD: run `dart run flutter_pear:pack --repack-barekit` to publish and fill this in"
+let package = Package(
+    name: "BareKitShim",
+    targets: [
+        .binaryTarget(name: "BareKit", url: bareKitURL, checksum: "${'a' * 64}")
+    ]
+)
+''',
+    );
+    addTearDown(() => fixture.root.deleteSync(recursive: true));
+
+    final result = checkPins(fixture.pkgRoot);
+    expect(result.mismatches, isEmpty,
+        reason: result.mismatches.map((m) => m.describe()).join('\n'));
+    expect(
+        result.skipped.any((s) => s.contains('Package.swift') && s.contains('PENDING-UPLOAD')),
+        isTrue,
+        reason: 'expected a PENDING-UPLOAD skip entry, got: ${result.skipped}');
+  });
 }
 
 class _Fixture {
@@ -300,7 +332,8 @@ end
 
 String _swiftHost({required String assetName}) => '''
 import Flutter
+private let bundleAssetSubpath = "$assetName"
 func startWorklet() {
-  let key = FlutterDartProject.lookupKey(forAsset: "$assetName", fromPackage: "flutter_pear")
+  let key = FlutterDartProject.lookupKey(forAsset: bundleAssetSubpath, fromPackage: "flutter_pear")
 }
 ''';

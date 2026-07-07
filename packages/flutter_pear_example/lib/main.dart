@@ -10,6 +10,15 @@ import 'pairing_screens.dart';
 
 void main() => runApp(const ChatApp());
 
+/// Set via `--dart-define` by `tool/ios_hot_restart_gate.sh`
+/// (flutter_pear-ovt.3.2) to skip straight to [ChatScreen] and auto-join this
+/// topic on launch, so a scripted hot-restart gate can observe
+/// `Pear.start()`'s `reattached` status without driving any UI. Empty (the
+/// default) for every real run, which restores the ordinary tap-through home
+/// screen.
+const _gateAutoJoinTopic =
+    String.fromEnvironment('FLUTTER_PEAR_GATE_AUTO_JOIN_TOPIC');
+
 /// The two promised demos (see `project_plan.md`): chat (E7.1/E7.2) and
 /// file-drop (E7.7, proving the E5.5 bulk-file path).
 class ChatApp extends StatelessWidget {
@@ -17,9 +26,11 @@ class ChatApp extends StatelessWidget {
   const ChatApp({super.key});
 
   @override
-  Widget build(BuildContext context) => const MaterialApp(
+  Widget build(BuildContext context) => MaterialApp(
         title: 'flutter_pear demos',
-        home: _DemoHomeScreen(),
+        home: _gateAutoJoinTopic.isEmpty
+            ? const _DemoHomeScreen()
+            : const ChatScreen(),
       );
 }
 
@@ -241,6 +252,9 @@ class _ChatScreenState extends State<ChatScreen> {
     // pairing flow, E7.2).
     if (pear != null && swarm != null) {
       _wireSwarm(pear, swarm, wiring: widget.prejoinedWiring);
+    } else if (_gateAutoJoinTopic.isNotEmpty) {
+      _topicController.text = _gateAutoJoinTopic;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _join());
     }
   }
 
@@ -276,6 +290,9 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     try {
       final pear = await Pear.start();
+      // Greppable for tool/ios_hot_restart_gate.sh (flutter_pear-ovt.3.2) --
+      // the only way to observe reattach-vs-fresh-boot from outside the app.
+      debugPrint('flutter_pear example: reattached=${pear.worklet.reattached}');
       final topic = PearCrypto.unsafeTopicFromString(topicText);
       final swarm = await pear.join(topic);
       setState(() => _wireSwarm(pear, swarm));

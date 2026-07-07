@@ -310,6 +310,125 @@ void main() {
               'pin without an explicit --repack-barekit (force: true)');
     });
   });
+
+  group('Package.swift generation (flutter_pear-ovt.2.4, 3.5)', () {
+    Directory buildFixturePkgRoot({
+      Map<String, String>? pin,
+      List<String> addonDirNames = const ['sodium-native.5.1.0.xcframework', 'udx-native.1.20.7.xcframework'],
+    }) {
+      final tmp = Directory.systemTemp.createTempSync('fp_pack_swift_gen');
+      final pkgRoot = Directory('${tmp.path}/flutter_pear')..createSync();
+      final bareRoot = Directory('${tmp.path}/flutter_pear_bare')..createSync();
+      if (pin != null) {
+        File('${bareRoot.path}/barekit-pin.json').writeAsStringSync(jsonEncode(pin));
+      }
+      final addonsDir = Directory('${bareRoot.path}/ios/addons')..createSync(recursive: true);
+      for (final name in addonDirNames) {
+        Directory('${addonsDir.path}/$name').createSync(recursive: true);
+      }
+      return pkgRoot;
+    }
+
+    Map<String, String> fixturePin({String url = 'https://example.invalid/BareKit.xcframework.zip'}) => {
+          'bareKitVersion': '2.3.0',
+          'upstreamUrl': 'https://github.com/holepunchto/bare-kit/releases/download/v2.3.0/prebuilds.zip',
+          'upstreamSha256': 'a386063fa405b0bb4967490e84745075f007f95359c9871c5b7a45c18c2f49e2',
+          'repackedUrl': url,
+          'repackedSha256': 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210'
+              .substring(0, 64),
+          'generatedBy': 'test fixture',
+        };
+
+    test(
+        'a fixture pin + fake addon dirs produce a manifest with every '
+        'target name, the pinned checksum, the FLUTTER_PEAR_BAREKIT_URL '
+        'lookup, and the do-not-edit header', () async {
+      final pkgRoot = buildFixturePkgRoot(pin: fixturePin());
+      addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
+
+      expect(await generatePackageSwift(pkgRoot.path), 0);
+
+      final manifest =
+          File('${pkgRoot.path}/../flutter_pear_bare/$packageSwiftRelativePath')
+              .readAsStringSync();
+      expect(manifest, contains('DO NOT EDIT BY HAND'));
+      expect(manifest, contains('FLUTTER_PEAR_BAREKIT_URL'));
+      expect(manifest, contains('https://example.invalid/BareKit.xcframework.zip'));
+      expect(manifest, contains(fixturePin()['repackedSha256']!));
+      expect(manifest, contains('"BareKit"'));
+      expect(manifest, contains('"AddonSodiumNative"'));
+      expect(manifest, contains('addons/sodium-native.5.1.0.xcframework'));
+      expect(manifest, contains('"AddonUdxNative"'));
+      expect(manifest, contains('addons/udx-native.1.20.7.xcframework'));
+      // flutter_pear-ovt.3.5: the real Flutter-plugin manifest, not the
+      // pack epic's original standalone BareKitShim -- a hyphenated
+      // product name (Flutter's own SPM-plugin naming convention), a
+      // FlutterFramework dependency (what makes `import Flutter` resolve
+      // in FlutterPearBarePlugin.swift), and the CBareKit shim target
+      // (BareKit.xcframework ships no module map).
+      expect(manifest, contains('name: "flutter_pear_bare"'));
+      expect(manifest, contains('.library(name: "flutter-pear-bare"'));
+      expect(manifest, contains('.package(name: "FlutterFramework"'));
+      expect(manifest, contains('name: "CBareKit"'));
+      expect(manifest, contains('publicHeadersPath: "include"'));
+    });
+
+    test('fails (nonzero, writes nothing) when barekit-pin.json is missing',
+        () async {
+      final pkgRoot = buildFixturePkgRoot(pin: null);
+      addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
+
+      expect(await generatePackageSwift(pkgRoot.path), isNot(0));
+      expect(
+          File('${pkgRoot.path}/../flutter_pear_bare/$packageSwiftRelativePath')
+              .existsSync(),
+          isFalse);
+    });
+
+    test('fails (nonzero, writes nothing) when ios/addons has no '
+        'xcframeworks', () async {
+      final pkgRoot = buildFixturePkgRoot(pin: fixturePin(), addonDirNames: const []);
+      addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
+
+      expect(await generatePackageSwift(pkgRoot.path), isNot(0));
+      expect(
+          File('${pkgRoot.path}/../flutter_pear_bare/$packageSwiftRelativePath')
+              .existsSync(),
+          isFalse);
+    });
+
+    test('two runs on identical inputs produce a byte-identical manifest '
+        '(addons sorted by name)', () async {
+      final pkgRoot = buildFixturePkgRoot(
+        pin: fixturePin(),
+        addonDirNames: const [
+          'udx-native.1.20.7.xcframework',
+          'sodium-native.5.1.0.xcframework',
+        ],
+      );
+      addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
+
+      expect(await generatePackageSwift(pkgRoot.path), 0);
+      final manifestFile =
+          File('${pkgRoot.path}/../flutter_pear_bare/$packageSwiftRelativePath');
+      final first = manifestFile.readAsStringSync();
+
+      expect(await generatePackageSwift(pkgRoot.path), 0);
+      final second = manifestFile.readAsStringSync();
+
+      expect(first, second);
+      // Sorted regardless of the addon directories' creation order above.
+      expect(first.indexOf('AddonSodiumNative'),
+          lessThan(first.indexOf('AddonUdxNative')));
+    });
+
+    test('addonTargetName derives a Swift-identifier-safe PascalCase name '
+        'from a kebab-case, versioned xcframework directory name', () {
+      expect(addonTargetName('sodium-native.5.1.0.xcframework'), 'AddonSodiumNative');
+      expect(addonTargetName('bare-fs.4.7.3.xcframework'), 'AddonBareFs');
+      expect(addonTargetName('udx-native.1.20.7.xcframework'), 'AddonUdxNative');
+    });
+  });
 }
 
 String sha256Of(List<int> bytes) => sha256.convert(bytes).toString();

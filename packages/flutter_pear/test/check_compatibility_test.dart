@@ -153,6 +153,38 @@ void main() {
 
     expect(checkCompatibility(fixture.pkgRoot), isEmpty);
   });
+
+  test(
+      'a mismatched iOS deployment target in the :pack-generated '
+      'Package.swift is caught and named (flutter_pear-ovt.3.5)', () {
+    final fixture =
+        _buildFixture(iosDeploymentTargetInPackageSwift: '15');
+    addTearDown(() => fixture.root.deleteSync(recursive: true));
+
+    final mismatches = checkCompatibility(fixture.pkgRoot);
+
+    expect(mismatches, hasLength(1));
+    expect(mismatches.single.field, 'iOS deployment target (Package.swift)');
+    expect(mismatches.single.tableValue, '13');
+    expect(mismatches.single.actualValue, '15');
+    expect(mismatches.single.actualSource, contains('Package.swift'));
+  });
+
+  test(
+      'a mismatched iOS deployment target in the CocoaPods compat podspec '
+      'is caught and named -- checked independently of Package.swift so '
+      'either side drifting is caught (flutter_pear-ovt.3.6)', () {
+    final fixture = _buildFixture(iosDeploymentTargetInPodspec: '15.0');
+    addTearDown(() => fixture.root.deleteSync(recursive: true));
+
+    final mismatches = checkCompatibility(fixture.pkgRoot);
+
+    expect(mismatches, hasLength(1));
+    expect(mismatches.single.field, 'iOS deployment target (podspec)');
+    expect(mismatches.single.tableValue, '13');
+    expect(mismatches.single.actualValue, '15');
+    expect(mismatches.single.actualSource, contains('.podspec'));
+  });
 }
 
 class _Fixture {
@@ -176,6 +208,8 @@ _Fixture _buildFixture({
   String? workspacePubspecMelosDecoyComment,
   bool addGeneratedBuildDirNdkOffender = false,
   bool addNdkVersionInsideComment = false,
+  String iosDeploymentTargetInPackageSwift = '13',
+  String iosDeploymentTargetInPodspec = '13.0',
 }) {
   final root = Directory.systemTemp.createTempSync('fp_check_compat');
   final pkgRoot = '${root.path}/packages/flutter_pear';
@@ -273,6 +307,25 @@ distributionPath=wrapper/dists
 distributionUrl=https\\://services.gradle.org/distributions/gradle-9.1.0-all.zip
 ''');
 
+  Directory('${root.path}/packages/flutter_pear_bare/ios/flutter_pear_bare')
+      .createSync(recursive: true);
+  File('${root.path}/packages/flutter_pear_bare/ios/flutter_pear_bare/Package.swift')
+      .writeAsStringSync('''
+let package = Package(
+    name: "flutter_pear_bare",
+    platforms: [.iOS(.v$iosDeploymentTargetInPackageSwift)],
+    targets: []
+)
+''');
+
+  File('${root.path}/packages/flutter_pear_bare/ios/flutter_pear_bare.podspec')
+      .writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = "flutter_pear_bare"
+  s.platform = :ios, '$iosDeploymentTargetInPodspec'
+end
+''');
+
   final melosDecoyLine = workspacePubspecMelosDecoyComment == null
       ? ''
       : '# historical note: this repo has used '
@@ -303,9 +356,9 @@ ${melosDecoyLine}dev_dependencies:
 
 ## Toolchain
 
-| flutter_pear version | Flutter SDK | Dart SDK | Melos | Android Gradle Plugin (flutter_pear_bare) | Kotlin (flutter_pear_bare) | Gradle (example app dev/CI wrapper) | Android compileSdk | Android minSdk | Android NDK | Supported ABIs | JDK |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| 0.0.1 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 24 | not pinned | arm64-v8a, x86_64 | 17 |
+| flutter_pear version | Flutter SDK | Dart SDK | Melos | Android Gradle Plugin (flutter_pear_bare) | Kotlin (flutter_pear_bare) | Gradle (example app dev/CI wrapper) | Android compileSdk | Android minSdk | Android NDK | Supported ABIs | JDK | iOS deployment target |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0.0.1 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 24 | not pinned | arm64-v8a, x86_64 | 17 | 13 |
 ''');
   }
 

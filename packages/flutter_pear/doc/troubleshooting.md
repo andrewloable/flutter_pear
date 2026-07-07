@@ -183,3 +183,35 @@ app's resources. If connections drop faster than that document describes,
 that's a bug worth reporting — if they drop roughly in line with it,
 that's the documented, OS-imposed limit, not a build/install problem at
 all.
+
+## A file never arrived after `mirrorToDisk`, with no exception thrown
+
+`PearDrive.mirrorToDisk` mirrors an untrusted peer's ENTIRE drive to a
+local directory — since the peer isn't trusted, the worklet rejects
+(instead of writing) two kinds of hostile entries rather than failing the
+whole call:
+
+- **`symlink-rejected`** — the source drive contained a symlink entry.
+  Rejected unconditionally, regardless of what it points to: symlinks are
+  never legitimately needed for a drive-to-disk mirror, and honoring one
+  from an untrusted peer is exactly the zip-slip vector this guards
+  against (a symlink planted at one path, then a later entry routed
+  through it, escaping the mirror directory).
+- **`path-escape`** — the entry's own resolved destination path wasn't
+  strictly inside the mirror directory.
+
+Neither reason can come from your own writes — only from a peer's drive
+you're mirroring. To see what happened:
+
+```dart
+final sub = drive.mirrorWarnings.listen((w) {
+  print('mirrorToDisk rejected ${w.path}: ${w.reason}');
+});
+final result = await drive.mirrorToDisk(localDir);
+print('${result.rejected} entr${result.rejected == 1 ? 'y' : 'ies'} rejected');
+await sub.cancel();
+```
+
+`result.rejected` is the authoritative count even if you subscribe to
+`mirrorWarnings` too late to catch every individual event — check it first
+if a file's mere absence, without an exception, is your only symptom.

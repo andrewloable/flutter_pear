@@ -26,12 +26,13 @@ import 'swarm.dart';
 /// await pear.dispose();
 /// ```
 class Pear {
-  Pear._(this.worklet, this._rpc) {
+  Pear._(this.worklet, this._rpc, Duration linger) {
     lifecycle = PearLifecycle(
       // Auto-triggered, not caller-awaited -- _guardedAutoCall reports
       // instead of silently swallowing a failure (see its own doc).
       onSuspend: () => unawaited(_guardedAutoCall(suspend)),
       onResume: () => unawaited(_guardedAutoCall(resume)),
+      linger: linger,
     );
   }
 
@@ -63,6 +64,14 @@ class Pear {
   /// Starts the worklet (from the bundled pear-end, or [bundlePath] if given).
   ///
   /// Always asks the worklet's [PearMethod.attachInfo] for the bundle
+  /// [linger] (flutter_pear-ovt.3.4, D11) is [lifecycle]'s configured
+  /// linger window, forwarded to [BareWorklet.start] so the iOS host can
+  /// honor it for its own native `suspendWithLinger` even if Dart's own
+  /// isolate never gets a chance to run while backgrounded (DX2 #52: a
+  /// public API's configured value must reach whichever host actually
+  /// needs it, not be silently bypassed).
+  ///
+  /// Always asks the worklet's [PearMethod.attachInfo] for the bundle
   /// version it's actually running (E6.3, LOCKED rule: reattach only when
   /// HEALTHY and version-matched, else kill + cleanly restart — never
   /// require an app reinstall). If [BareWorklet.reattached] reports this
@@ -83,8 +92,14 @@ class Pear {
   /// silently proceeding — there's nothing left to retry with, and a
   /// version mismatch specifically means the bundled asset itself is
   /// likely stale (someone forgot to re-run `dart run flutter_pear:pack`).
-  static Future<Pear> start({String? bundlePath}) async {
-    var worklet = await BareWorklet.start(bundlePath: bundlePath);
+  static Future<Pear> start({
+    String? bundlePath,
+    Duration linger = PearLifecycleDefaults.linger,
+  }) async {
+    var worklet = await BareWorklet.start(
+      bundlePath: bundlePath,
+      lingerMs: linger.inMilliseconds,
+    );
     var rpc = PearRpc(worklet);
     try {
       String? bundleVersion;
@@ -110,7 +125,10 @@ class Pear {
       if (bundleVersion != kPearEndBundleVersion) {
         await rpc.dispose();
         await worklet.terminate();
-        worklet = await BareWorklet.start(bundlePath: bundlePath);
+        worklet = await BareWorklet.start(
+          bundlePath: bundlePath,
+          lingerMs: linger.inMilliseconds,
+        );
         rpc = PearRpc(worklet);
         // Second attempt: always a fresh boot (whatever was running got
         // terminated above), so the normal timeout applies -- and a
@@ -145,7 +163,7 @@ class Pear {
       rethrow;
     }
 
-    return Pear._(worklet, rpc);
+    return Pear._(worklet, rpc, linger);
   }
 
   /// The [PearMethod.attachInfo] probe [start] uses for both its reattach

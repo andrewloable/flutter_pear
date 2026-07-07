@@ -59,6 +59,7 @@ void main() {
     expect(PearEventName.beeUpdate, 'bee.update');
     expect(PearEventName.pairingCandidate, 'pairing.candidate');
     expect(PearEventName.baseUpdate, 'base.update');
+    expect(PearEventName.driveMirrorWarning, 'drive.mirrorWarning');
 
     expect(PearErrorCode.unknownPeer, 'UNKNOWN_PEER');
     expect(PearErrorCode.unknownMethod, 'UNKNOWN_METHOD');
@@ -179,6 +180,7 @@ void main() {
     expect(jsValue('BEE_UPDATE'), PearEventName.beeUpdate);
     expect(jsValue('PAIRING_CANDIDATE'), PearEventName.pairingCandidate);
     expect(jsValue('BASE_UPDATE'), PearEventName.baseUpdate);
+    expect(jsValue('DRIVE_MIRROR_WARNING'), PearEventName.driveMirrorWarning);
 
     expect(jsValue('UNKNOWN_PEER'), PearErrorCode.unknownPeer);
     expect(jsValue('UNKNOWN_METHOD'), PearErrorCode.unknownMethod);

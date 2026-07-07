@@ -182,6 +182,19 @@ PinCheckResult checkPins(String pkgRoot) {
   } else {
     for (final f in packageSwiftMatches) {
       final text = f.readAsStringSync();
+      // generatePackageSwift (flutter_pear-ovt.2.4) writes a real,
+      // generated Package.swift the moment barekit-pin.json + ios/addons/
+      // exist -- but its BareKit url can itself still be the PENDING-UPLOAD
+      // sentinel (flutter_pear-ovt.2.3) when the repacked asset hasn't
+      // actually been published yet. That's a real, named, legitimate
+      // intermediate repo state, not a malformed file -- skip it the same
+      // way an entirely-absent Package.swift is skipped, rather than
+      // throwing a generic parse error that reads like a bug.
+      if (text.contains('PENDING-UPLOAD')) {
+        skipped.add('${f.path} has a PENDING-UPLOAD BareKit url (repack '
+            'not published yet, flutter_pear-ovt.2.3)');
+        continue;
+      }
       final urlMatch =
           RegExp(r'''url:\s*"[^"]*v(\d[\d.]*\d)/[^"]*"''').firstMatch(text);
       final checksumMatch =
@@ -293,12 +306,21 @@ PinCheckResult checkPins(String pkgRoot) {
   // implementation -- excluded so a landed BareKitShim-style Package.swift
   // (checked separately above) doesn't get mistaken for "the Swift host has
   // landed" and silently suppress this leg's own SKIPPED-MISSING line.
+  //
+  // Matches a NAMED CONSTANT declaration (`bundleAssetSubpath = "..."`),
+  // not a `lookupKey(forAsset: "...")` call site: the real host
+  // (FlutterPearBarePlugin.swift, flutter_pear-ovt.3.1) factors the asset
+  // path into a top-level `private let bundleAssetSubpath = ...` constant,
+  // passed to lookupKey(forAsset:fromPackage:) by reference -- mirroring
+  // the Kotlin host's own BUNDLE_ASSET_SUBPATH constant (checked the same
+  // way just above), not the inline-literal style the since-removed T0
+  // spike host used.
   final swiftHostMatches = Directory(bareRoot).existsSync()
       ? _findFiles(Directory(bareRoot), '.swift')
           .where((f) => f.uri.pathSegments.last != 'Package.swift')
       : const <File>[];
   final swiftHostsWithAsset = swiftHostMatches.where((f) => RegExp(
-          r'''lookupKey\(forAsset:\s*"([^"]+)"''')
+          r'''bundleAssetSubpath\s*=\s*"([^"]+)"''')
       .hasMatch(f.readAsStringSync()));
   if (swiftHostsWithAsset.isEmpty) {
     skipped.add('flutter_pear_bare/ios/**/*.swift host not landed yet '
@@ -306,7 +328,7 @@ PinCheckResult checkPins(String pkgRoot) {
   } else {
     for (final f in swiftHostsWithAsset) {
       final text = f.readAsStringSync();
-      final m = RegExp(r'''lookupKey\(forAsset:\s*"([^"]+)"''').firstMatch(text);
+      final m = RegExp(r'''bundleAssetSubpath\s*=\s*"([^"]+)"''').firstMatch(text);
       checkedCount++;
       if (m!.group(1) != bundleAssetPath) {
         mismatches.add(PinMismatch(
