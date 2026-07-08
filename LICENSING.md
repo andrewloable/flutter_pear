@@ -8,10 +8,27 @@
 
 ## What we bundle, and under what license
 
-flutter_pear redistributes the Pear stack two ways:
+flutter_pear redistributes the Pear stack three ways:
 
-- the **pear-end** JavaScript bundle (Hyper\* modules, built with bare-pack), and
-- prebuilt **Bare Kit** native binaries.
+- the **pear-end** JavaScript bundle (Hyper\* modules, built with bare-pack),
+- prebuilt **Bare Kit** native binaries (Android, via Gradle fetch; iOS, via
+  a maintainer-repacked release asset — see below), and
+- prebuilt **native addon** binaries (`sodium-native`, `udx-native`, etc.) —
+  Android `.so` files under `flutter_pear_bare/android/.../jniLibs/`, iOS
+  `.xcframework` bundles under `flutter_pear_bare/ios/addons/`, the same
+  underlying addon set on both platforms.
+
+**iOS-specific redistribution note:** upstream `holepunchto/bare-kit`
+(**Apache-2.0**, per the license table below) ships one multi-platform
+`prebuilds.zip` per release; SwiftPM's `binaryTarget` mechanism needs a
+single, ready-made xcframework zip rather than a build-time extraction step,
+so this repo's maintainer extracts `BareKit.xcframework` from that upstream
+zip, re-zips it standalone, and republishes it as a GitHub release asset on
+this repo (`andrewloable/flutter_pear`) — checksum-pinned in
+`flutter_pear_bare/barekit-pin.json`. This is a repackaging, not a
+relicensing: the redistributed binary is still Apache-2.0 (Bare Kit's own
+license), unmodified except for its zip container, and the Apache-2.0 §4
+obligations below apply to it exactly as they do to the pear-end bundle.
 
 Everything in that graph is **permissive — MIT or Apache-2.0. There is no
 copyleft (no GPL / AGPL / LGPL / MPL / SSPL) anywhere.** Upstream lives in the

@@ -6,13 +6,14 @@
 # in that recipe breaks this script instead of silently drifting out of
 # sync.
 #
-# KNOWN GAP (see this fixture's README and flutter_pear-ovt.5.11's bd
-# notes): steps 3-4 below (the exact Info.plist copy-paste block) are a
-# PLACEHOLDER -- flutter_pear-ovt.6 (the docs epic) and its prerequisite
-# flutter_pear-ovt.1.12 (the TCC spike that determines the real required
-# Info.plist key(s)/wording) have not landed as of this writing. Swap in
-# the real block, and update the "doc source" comment below to cite it,
-# once shipped.
+# REMAINING GAP (see this fixture's README and flutter_pear-ovt.5.11's bd
+# notes): steps 3-4 below paste the same NSLocalNetworkUsageDescription
+# string shipped in packages/flutter_pear_example/ios/Runner/Info.plist
+# (flutter_pear-ovt.4.1), confirmed technically sufficient by
+# flutter_pear-ovt.1.12's closed FEAS-TCC spike -- but no polished
+# flutter_pear-ovt.6 consumer doc page exists yet to formally prescribe
+# this exact copy. Re-point at that doc once it ships; if its wording
+# differs, update both to match.
 #
 # The documented recipe (plan F1/D18, DX2 decision 46), each step
 # source-annotated:
@@ -22,8 +23,8 @@
 #      (a bare `pub upgrade` cannot cross the already-published ^0.0.1
 #      caret).
 #   3-4. Paste the NSLocalNetworkUsageDescription Info.plist block -- iOS
-#      14+ requires a usage string for LAN access; PLACEHOLDER pending the
-#      docs epic (see KNOWN GAP above).
+#      14+ requires a usage string for LAN access; sourced from the shipped
+#      example app's Info.plist (see REMAINING GAP above re: the doc page).
 #   5. `flutter run` -- Flutter-standard.
 #
 # Two legs:
@@ -92,9 +93,9 @@ if grep -qE "^\s*path:\s" pubspec.yaml; then
   exit 1
 fi
 
-echo "== leg 2: recipe steps 3-4/5 -- Info.plist NSLocalNetworkUsageDescription (PLACEHOLDER, see KNOWN GAP) =="
+echo "== leg 2: recipe steps 3-4/5 -- Info.plist NSLocalNetworkUsageDescription (sourced from the shipped example app, see REMAINING GAP) =="
 /usr/libexec/PlistBuddy -c \
-  "Add :NSLocalNetworkUsageDescription string 'This app uses the local network to discover and connect to nearby peers.'" \
+  "Add :NSLocalNetworkUsageDescription string 'flutter_pear demos connect directly to your other devices over the local network to exchange chat messages and files.'" \
   ios/Runner/Info.plist || {
   echo "FIXTURE RESULT: PlistBuddy failed to insert NSLocalNetworkUsageDescription" >&2
   exit 1

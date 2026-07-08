@@ -19,14 +19,17 @@ annotated with its source:
    `flutter_pear`-specific.
 2. `dart pub add flutter_pear:^$FLUTTER_PEAR_VERSION` -- DX2 decision 46 (a
    bare `pub upgrade` cannot cross the already-published `^0.0.1` caret).
-3-4. Paste the `NSLocalNetworkUsageDescription` Info.plist block --
-   **PLACEHOLDER**, not the doc-prescribed copy-paste text.
-   `flutter_pear-ovt.6` (the docs epic) and its prerequisite
-   `flutter_pear-ovt.1.12` (the TCC spike that determines the real required
-   Info.plist key(s)/wording) have not landed as of this writing
-   (2026-07-07). Flagged `bd human` on `flutter_pear-ovt.5.11` -- swap in
-   the real block and update the doc-source comment in `run_check.sh` once
-   it ships.
+3-4. Paste the `NSLocalNetworkUsageDescription` Info.plist block -- the
+   **real, shipped copy** from
+   `packages/flutter_pear_example/ios/Runner/Info.plist`
+   (`flutter_pear-ovt.4.1`), confirmed technically sufficient (only this
+   one key, no `NSBonjourServices`, no multicast entitlement) by
+   `flutter_pear-ovt.1.12`'s closed FEAS-TCC spike. **Remaining gap**: no
+   polished `flutter_pear-ovt.6` consumer doc page exists yet to formally
+   prescribe this exact copy -- that epic hasn't started. Re-point at it
+   and update the comment in `run_check.sh` once it ships; if its wording
+   differs, update both to match rather than let them drift silently.
+   Tracked on `flutter_pear-ovt.5.11`.
 5. `flutter run` on a simulator -- Flutter-standard.
 
 ## Commands

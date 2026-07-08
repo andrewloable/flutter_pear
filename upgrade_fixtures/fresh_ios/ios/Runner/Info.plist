@@ -26,15 +26,23 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<!-- PLACEHOLDER pending flutter_pear-ovt.6's shipped iOS setup doc and
-	     flutter_pear-ovt.1.12's TCC spike answer (both not yet landed as of
-	     flutter_pear-ovt.5.11) -- iOS 14+ requires a usage string for LAN
-	     access (Hyperswarm holepunching to a LAN peer), the simulator does
-	     not enforce this check so it can't be verified here; swap in the
-	     doc's exact copy-paste block once shipped and re-point this
-	     comment at it. -->
+	<!-- Sourced from packages/flutter_pear_example/ios/Runner/Info.plist
+	     (shipped there by flutter_pear-ovt.4.1), the same string real
+	     consumers see today. Confirmed sufficient -- no NSBonjourServices
+	     array, no com.apple.developer.networking.multicast entitlement --
+	     by flutter_pear-ovt.1.12's closed FEAS-TCC spike (source-level
+	     proof: hyperdht always gathers and offers this device's LAN-local
+	     addresses during connection handshake, unconditionally, which is
+	     exactly what triggers iOS 14+'s Local Network prompt; zero
+	     multicast/broadcast/mDNS usage anywhere in the Hyperswarm stack).
+	     The simulator does not enforce this TCC check, so it can't be
+	     verified here -- only on a real device. REMAINING GAP: no polished
+	     flutter_pear-ovt.6 consumer-facing doc page exists yet to formally
+	     prescribe this copy; re-point this comment at it once that lands,
+	     and if its wording differs from this string, update both to match
+	     (this fixture must fail on drift, not silently diverge). -->
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>This app uses the local network to discover and connect to nearby peers.</string>
+	<string>flutter_pear demos connect directly to your other devices over the local network to exchange chat messages and files.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

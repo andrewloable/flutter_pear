@@ -8,21 +8,22 @@ import '../bin/check_pins.dart';
 void main() {
   test(
       'checkPins finds zero mismatches against this repo\'s real, current '
-      'state, with exactly the 2 not-yet-landed legs skipped', () {
+      'state, with exactly the 1 not-yet-landed leg skipped', () {
     // `flutter test` runs with the package root as the working directory --
     // exactly the pkgRoot check_pins.dart itself expects.
     final pkgRoot = Directory.current.path;
     final result = checkPins(pkgRoot);
     expect(result.mismatches, isEmpty,
         reason: result.mismatches.map((m) => m.describe()).join('\n'));
-    expect(result.skipped, hasLength(2),
-        reason: 'Package.swift\'s BareKit url and the podspec still '
-            'postdate this repo\'s current state (barekit-pin.json landed '
-            'via flutter_pear-ovt.2.3, the real Swift host landed via '
-            'flutter_pear-ovt.3.1, and flutter_pear-ovt.3.5 retired the '
-            'pack epoch\'s original second Package.swift) -- if this count '
-            'changed, one of them landed and this test (and the fixture '
-            'below) needs updating');
+    expect(result.skipped, hasLength(1),
+        reason: 'only the podspec should still be skipped (it reads '
+            'barekit-pin.json dynamically at pod-install time, '
+            'flutter_pear-ovt.3.6, so it has no independent literal pin to '
+            'cross-check) -- Package.swift now carries a real, published '
+            'BareKit url+checksum (flutter_pear-ovt.6.1\'s own discovery: '
+            'the earlier PENDING-UPLOAD sentinel was resolved). If this '
+            'count changed, a leg landed or un-landed and this test (and '
+            'the fixture below) needs updating');
   });
 
   test(
@@ -97,8 +98,9 @@ void main() {
 
     final result = checkPins(fixture.pkgRoot);
     final shaMismatches =
-        result.mismatches.where((m) => m.field == 'BareKit sha256');
+        result.mismatches.where((m) => m.field.startsWith('BareKit sha256'));
     expect(shaMismatches, hasLength(1));
+    expect(shaMismatches.single.field, 'BareKit sha256 (upstream)');
     expect(
       shaMismatches.single.describe(),
       allOf(contains('aa' * 32), contains('bb' * 32)),
@@ -168,20 +170,46 @@ void main() {
   });
 
   test(
-      'a Package.swift with a mismatched checksum vs build.gradle is caught, '
-      'even while barekit-pin.json and the podspec stay unlanded (skipped, '
-      'not silently passed)', () {
+      'a Package.swift checksum mismatch against barekit-pin.json\'s '
+      'repackedSha256 (its own lineage) is caught and named', () {
     final fixture = _buildFixture(
+      barekitPinJson: {
+        'bareKitVersion': '2.3.0',
+        'upstreamSha256': _defaultSha256,
+        'repackedSha256': 'dd' * 32,
+      },
       packageSwiftContent: _packageSwift(version: '2.3.0', checksum: 'cc' * 32),
     );
     addTearDown(() => fixture.root.deleteSync(recursive: true));
 
     final result = checkPins(fixture.pkgRoot);
-    expect(result.skipped, hasLength(3)); // barekit-pin.json, podspec, swift host
     final shaMismatches =
-        result.mismatches.where((m) => m.field == 'BareKit sha256');
-    expect(shaMismatches, hasLength(1));
-    expect(shaMismatches.single.sourceB, contains('Package.swift'));
+        result.mismatches.where((m) => m.field == 'BareKit sha256 (repacked)');
+    expect(shaMismatches, hasLength(1),
+        reason: result.mismatches.map((m) => m.describe()).join('\n'));
+    expect(
+      shaMismatches.single.describe(),
+      allOf(contains('cc' * 32), contains('dd' * 32)),
+    );
+  });
+
+  test(
+      'a Package.swift checksum is NEVER compared against build.gradle\'s '
+      'upstream checksum -- they pin different artifacts (repacked vs '
+      'upstream) and must not cross-compare, even when barekit-pin.json '
+      'stays unlanded so there is nothing in Package.swift\'s own lineage '
+      'to check it against', () {
+    final fixture = _buildFixture(
+      bareKitSha256InGradle: _defaultSha256,
+      packageSwiftContent:
+          _packageSwift(version: '2.3.0', checksum: 'cc' * 32),
+    );
+    addTearDown(() => fixture.root.deleteSync(recursive: true));
+
+    final result = checkPins(fixture.pkgRoot);
+    expect(result.skipped, hasLength(3)); // barekit-pin.json, podspec, swift host
+    expect(result.mismatches, isEmpty,
+        reason: result.mismatches.map((m) => m.describe()).join('\n'));
   });
 
   test(

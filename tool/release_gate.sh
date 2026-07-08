@@ -403,12 +403,18 @@ gate_ipa-inspect() {
     causes="$causes addons-dir($addons_dir does not exist -- epic 2 BareKit-repack not landed yet, cannot derive the expected addon framework list)"
   else
     while IFS= read -r -d '' xcfw; do
-      local base name
+      local base
       base="$(basename "$xcfw" .xcframework)"
-      name="$(echo "$base" | sed -E 's/[.][0-9]+([.][0-9]+)*$//')"
-      if [ ! -d "$app/Frameworks/${name}.framework" ]; then
+      # Embedded frameworks keep their FULL versioned name (e.g.
+      # bare-fs.4.7.3.framework, matching the source xcframework's own
+      # name exactly) -- an earlier version of this check stripped the
+      # trailing version suffix before comparing, which meant it was
+      # always looking for an unversioned bare-fs.framework that never
+      # existed, a permanent false positive confirmed against a real
+      # archive build (flutter_pear-ovt.6.7).
+      if [ ! -d "$app/Frameworks/${base}.framework" ]; then
         ok=0
-        causes="$causes ${name}.framework(not embedded, expected from $base)"
+        causes="$causes ${base}.framework(not embedded)"
       fi
     done < <(find "$addons_dir" -maxdepth 1 -iname "*.xcframework" -print0)
   fi

@@ -135,8 +135,17 @@ PinCheckResult checkPins(String pkgRoot) {
   );
   checkedCount += 2;
 
-  final pinSources = <({String label, String path, String? version, String? sha256})>[
-    (label: 'Android Gradle', path: bareGradlePath, version: gradleVersion, sha256: gradleSha256),
+  // sha256Kind separates two DIFFERENT artifacts that both get called "the
+  // BareKit checksum" but must never be cross-compared: 'upstream' pins
+  // verify holepunchto's own prebuilds.zip (Android's Gradle task downloads
+  // and processes that directly); 'repacked' pins verify the SEPARATE,
+  // self-hosted, single-xcframework zip repackBareKit produces JUST for
+  // iOS's SPM/CocoaPods binary-target mechanisms (which need a ready-made
+  // single-artifact zip, not a script-time extraction step). version always
+  // has to agree everywhere regardless of kind; sha256 only has to agree
+  // within the same kind.
+  final pinSources = <({String label, String path, String? version, String? sha256, String sha256Kind})>[
+    (label: 'Android Gradle', path: bareGradlePath, version: gradleVersion, sha256: gradleSha256, sha256Kind: 'upstream'),
   ];
 
   final barekitPinJsonPath = '$bareRoot/barekit-pin.json';
@@ -169,7 +178,22 @@ PinCheckResult checkPins(String pkgRoot) {
       path: barekitPinJsonPath,
       version: version,
       sha256: sha256,
+      sha256Kind: 'upstream',
     ));
+    // repackedSha256 (the two-link chain's SECOND link) is the checksum the
+    // iOS-only artifact below actually gets pinned against -- added as its
+    // own 'repacked'-kind source, only once the field itself has landed
+    // (repackBareKit predates that field on very old fixtures/checkouts).
+    final repackedSha256 = json['repackedSha256'] as String?;
+    if (repackedSha256 != null) {
+      pinSources.add((
+        label: 'barekit-pin.json (repacked)',
+        path: barekitPinJsonPath,
+        version: version,
+        sha256: repackedSha256,
+        sha256Kind: 'repacked',
+      ));
+    }
   }
 
   final packageSwiftMatches = Directory(bareRoot)
@@ -195,8 +219,18 @@ PinCheckResult checkPins(String pkgRoot) {
             'not published yet, flutter_pear-ovt.2.3)');
         continue;
       }
-      final urlMatch =
-          RegExp(r'''url:\s*"[^"]*v(\d[\d.]*\d)/[^"]*"''').firstMatch(text);
+      // generatePackageSwift's real (published) output never inlines the
+      // url: string literal directly on the .binaryTarget(...) line -- it
+      // goes through a `let bareKitURL = ProcessInfo...environment[...] ??
+      // "<url>"` indirection (so FLUTTER_PEAR_BAREKIT_URL can override the
+      // URL at SPM resolution time) and .binaryTarget(..., url: bareKitURL,
+      // ...) references that constant by name. Try the direct literal
+      // first (covers any hand-written or future simpler shape), then fall
+      // back to extracting the fallback URL from that `let` line.
+      final urlMatch = RegExp(r'''url:\s*"[^"]*v(\d[\d.]*\d)/[^"]*"''')
+              .firstMatch(text) ??
+          RegExp(r'''let\s+bareKitURL\s*=.*\?\?\s*"[^"]*v(\d[\d.]*\d)/[^"]*"''')
+              .firstMatch(text);
       final checksumMatch =
           RegExp(r'''checksum:\s*"([0-9a-fA-F]+)"''').firstMatch(text);
       if (urlMatch == null || checksumMatch == null) {
@@ -208,6 +242,7 @@ PinCheckResult checkPins(String pkgRoot) {
         path: f.path,
         version: urlMatch.group(1),
         sha256: checksumMatch.group(1),
+        sha256Kind: 'repacked',
       ));
     }
   }
@@ -249,14 +284,20 @@ PinCheckResult checkPins(String pkgRoot) {
         path: f.path,
         version: versionMatch.group(1),
         sha256: shaMatch.group(1),
+        // This literal-pin fallback path names "prebuilds.zip" (see the
+        // regex above) -- that's upstream's own filename, the same artifact
+        // Android's Gradle pin verifies, not the iOS-only repacked one.
+        sha256Kind: 'upstream',
       ));
     }
   }
 
+  // version must agree everywhere regardless of sha256Kind -- compared
+  // against a single hub (Android Gradle, always present).
   for (var i = 1; i < pinSources.length; i++) {
     final a = pinSources[0];
     final b = pinSources[i];
-    checkedCount += 2;
+    checkedCount++;
     if (a.version != b.version) {
       mismatches.add(PinMismatch(
         field: 'BareKit version',
@@ -266,14 +307,27 @@ PinCheckResult checkPins(String pkgRoot) {
         sourceB: b.path,
       ));
     }
-    if (a.sha256!.toLowerCase() != b.sha256!.toLowerCase()) {
-      mismatches.add(PinMismatch(
-        field: 'BareKit sha256',
-        valueA: a.sha256!,
-        sourceA: a.path,
-        valueB: b.sha256!,
-        sourceB: b.path,
-      ));
+  }
+
+  // sha256 must only agree WITHIN a kind (see the sha256Kind field's own
+  // doc above) -- 'upstream' and 'repacked' pins are legitimately different
+  // checksums for different artifacts and must never be cross-compared.
+  for (final kind in ['upstream', 'repacked']) {
+    final sameKind =
+        pinSources.where((s) => s.sha256Kind == kind).toList(growable: false);
+    for (var i = 1; i < sameKind.length; i++) {
+      final a = sameKind[0];
+      final b = sameKind[i];
+      checkedCount++;
+      if (a.sha256!.toLowerCase() != b.sha256!.toLowerCase()) {
+        mismatches.add(PinMismatch(
+          field: 'BareKit sha256 ($kind)',
+          valueA: a.sha256!,
+          sourceA: a.path,
+          valueB: b.sha256!,
+          sourceB: b.path,
+        ));
+      }
     }
   }
 
