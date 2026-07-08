@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_pear/flutter_pear.dart';
 
-import 'file_drop_screen.dart';
 import 'pairing_screens.dart';
 
 void main() => runApp(const ChatApp());
@@ -34,64 +33,68 @@ class ChatApp extends StatelessWidget {
       );
 }
 
+/// The home screen: exactly two demo cards (TD-D1, design review's final
+/// gate) -- Chat and File drop, each with its own Start room / Join room
+/// actions, both riding the same QR/invite pairing flow
+/// ([StartRoomScreen]/[JoinRoomScreen]) with a different [PairingDestination].
+/// Replaces the six flat buttons and the plain room-name demo shortcuts
+/// that used to sit directly on this screen.
 class _DemoHomeScreen extends StatelessWidget {
   const _DemoHomeScreen();
 
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('flutter_pear demos')),
-        body: Center(
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: const [
+              _DemoCard(title: 'Chat', destination: PairingDestination.chat),
+              SizedBox(height: 16),
+              _DemoCard(
+                title: 'File drop',
+                destination: PairingDestination.fileDrop,
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+/// One home-screen demo card: a title and its Start room / Join room
+/// actions for [destination] -- shared by both demos so they can never
+/// drift on layout or copy.
+class _DemoCard extends StatelessWidget {
+  const _DemoCard({required this.title, required this.destination});
+
+  final String title;
+  final PairingDestination destination;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              ElevatedButton(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const ChatScreen()),
-                ),
-                child: const Text('Chat demo'),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const FileDropScreen()),
-                ),
-                child: const Text('File drop demo'),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const StartRoomScreen()),
-                ),
-                child: const Text('Start Room (QR) — Chat'),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const JoinRoomScreen()),
-                ),
-                child: const Text('Join Room (QR) — Chat'),
-              ),
-              const SizedBox(height: 16),
+              Text(title, style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
               ElevatedButton(
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => const StartRoomScreen(
-                      destination: PairingDestination.fileDrop,
-                    ),
+                    builder: (_) => StartRoomScreen(destination: destination),
                   ),
                 ),
-                child: const Text('Start Room (QR) — File drop'),
+                child: const Text('Start room'),
               ),
-              const SizedBox(height: 16),
-              ElevatedButton(
+              const SizedBox(height: 8),
+              OutlinedButton(
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => const JoinRoomScreen(
-                      destination: PairingDestination.fileDrop,
-                    ),
+                    builder: (_) => JoinRoomScreen(destination: destination),
                   ),
                 ),
-                child: const Text('Join Room (QR) — File drop'),
+                child: const Text('Join room'),
               ),
             ],
           ),
@@ -510,18 +513,31 @@ String describeSwarmState(PearSwarmStatus status) => switch (status.state) {
 /// honestly visible instead of silently hidden behind a spinner. Public (not
 /// example-internal) so it's directly widget-testable.
 class SwarmStatusBanner extends StatelessWidget {
-  /// Creates the banner for the swarm's current [status].
-  const SwarmStatusBanner({super.key, required this.status});
+  /// Creates the banner for the swarm's current [status]. [peerCount], when
+  /// given, is appended to the connected label (e.g. "Connected · 2 peers")
+  /// -- omit it (the default) to show the plain "Connected" text unchanged,
+  /// which is what every OTHER [PearSwarmState] label already does and what
+  /// callers that don't track live peer counts should keep doing.
+  const SwarmStatusBanner({super.key, required this.status, this.peerCount});
 
   /// The swarm state this banner reflects.
   final PearSwarmStatus status;
+
+  /// The number of currently-connected peers to show alongside a
+  /// [PearSwarmState.connected] label, or null to omit it.
+  final int? peerCount;
 
   @override
   Widget build(BuildContext context) {
     final (color, text) = switch (status.state) {
       PearSwarmState.discovering => (Colors.grey, 'Discovering…'),
       PearSwarmState.connecting => (Colors.grey, 'Connecting…'),
-      PearSwarmState.connected => (Colors.green, 'Connected'),
+      PearSwarmState.connected => (
+          Colors.green,
+          peerCount == null
+              ? 'Connected'
+              : 'Connected · $peerCount ${peerCount == 1 ? 'peer' : 'peers'}',
+        ),
       PearSwarmState.reconnecting => (Colors.amber, 'Reconnecting…'),
       PearSwarmState.suspended => (Colors.amber, 'Suspended'),
       PearSwarmState.failed => (Colors.red, _failedLabel(status)),

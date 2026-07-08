@@ -1,0 +1,53 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter_pear/flutter_pear.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+  test('Android: bestEffort + device', () {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    expect(Pear.platformInfo.backgroundExecution,
+        PearBackgroundExecution.bestEffort);
+    expect(Pear.platformInfo.validationTier, PearValidationTier.device);
+  });
+
+  test('iOS: foregroundOnly + simulator (D11)', () {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    expect(Pear.platformInfo.backgroundExecution,
+        PearBackgroundExecution.foregroundOnly);
+    expect(Pear.platformInfo.validationTier, PearValidationTier.simulator);
+  });
+
+  test('an unsupported platform throws, naming android and iOS', () {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    expect(
+      () => Pear.platformInfo,
+      throwsA(isA<UnsupportedError>().having(
+        (e) => e.message,
+        'message',
+        allOf(contains('android'), contains('iOS')),
+      )),
+    );
+  });
+
+  test('PearPlatformInfo equality/hashCode/toString', () {
+    const a = PearPlatformInfo(
+      backgroundExecution: PearBackgroundExecution.bestEffort,
+      validationTier: PearValidationTier.device,
+    );
+    const b = PearPlatformInfo(
+      backgroundExecution: PearBackgroundExecution.bestEffort,
+      validationTier: PearValidationTier.device,
+    );
+    const c = PearPlatformInfo(
+      backgroundExecution: PearBackgroundExecution.foregroundOnly,
+      validationTier: PearValidationTier.simulator,
+    );
+    expect(a, equals(b));
+    expect(a.hashCode, equals(b.hashCode));
+    expect(a, isNot(equals(c)));
+    expect(a.toString(), contains('bestEffort'));
+    expect(a.toString(), contains('device'));
+  });
+}

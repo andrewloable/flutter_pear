@@ -11,6 +11,7 @@ import 'drive.dart';
 import 'exceptions.dart';
 import 'lifecycle.dart';
 import 'pairing.dart';
+import 'platform_info.dart';
 import 'rpc.dart';
 import 'schema.dart';
 import 'store.dart';
@@ -60,6 +61,42 @@ class Pear {
   // so it never tears down [_rpc] out from under an in-flight suspend/
   // resume's later notifyWorkletSuspended call.
   Future<void> _lifecycleQueue = Future<void>.value();
+
+  /// This platform's pinned [PearBackgroundExecution] and
+  /// [PearValidationTier] (DX2-55, D17) — a release-time constant, not a
+  /// worklet round trip, so this is safe to read before [start] and needs
+  /// no worklet at all: a dedicated Dart-only call (`defaultTargetPlatform`)
+  /// was chosen over asking the worklet's `attach.info` specifically so
+  /// this stays device-free for the fake/unit-test path (and honors
+  /// `debugDefaultTargetPlatformOverride`, letting a single test process
+  /// exercise both platforms' values).
+  ///
+  /// iOS's [PearBackgroundExecution.foregroundOnly] is D11's finding, not a
+  /// guess: the current pure-Dart linger timer never fires while genuinely
+  /// backgrounded on iOS (the whole isolate freezes), so nothing here
+  /// actually extends connectivity into the background today — claiming
+  /// [PearBackgroundExecution.bestEffort] would overclaim what the library
+  /// currently does. Revisit once the native-side `suspendWithLinger` fix
+  /// D11 recommends actually ships.
+  static PearPlatformInfo get platformInfo {
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return const PearPlatformInfo(
+          backgroundExecution: PearBackgroundExecution.bestEffort,
+          validationTier: PearValidationTier.device,
+        );
+      case TargetPlatform.iOS:
+        return const PearPlatformInfo(
+          backgroundExecution: PearBackgroundExecution.foregroundOnly,
+          validationTier: PearValidationTier.simulator,
+        );
+      default:
+        throw UnsupportedError(
+          'Pear.platformInfo is only defined for TargetPlatform.android and '
+          'TargetPlatform.iOS, got $defaultTargetPlatform.',
+        );
+    }
+  }
 
   /// Starts the worklet (from the bundled pear-end, or [bundlePath] if given).
   ///

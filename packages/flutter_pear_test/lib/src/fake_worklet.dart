@@ -646,8 +646,25 @@ class FakeBareWorklet implements WorkletIpc {
         }
         final theirs = other._drives[driveKeyHex];
         if (theirs != null && !identical(theirs, mine)) {
-          final canonical =
-              mine.files.length >= theirs.files.length ? mine : theirs;
+          // Prefer whichever side actually holds the writer (a real
+          // single-writer Hyperdrive's identity is structural, never a
+          // function of how many files happen to be in it yet) -- falling
+          // back to file count only when neither/both sides have a writer
+          // set, which a valid single-writer usage should never produce.
+          // Without this, two peers that call replicate() before either
+          // has ever put() (both sides legitimately at 0 files -- e.g. a
+          // connect-time replicate issued before the user has picked
+          // anything to send) hit a tie that could silently pick the
+          // NON-writer's drive object as canonical, permanently losing the
+          // real writer's `put`/`delete` access on this drive (flutter_pear-
+          // ovt.4.5's own controller does exactly this: it replicates its
+          // own drive as soon as a peer connects, well before any file
+          // exists).
+          final canonical = switch ((mine.writer, theirs.writer)) {
+            (null, _?) => theirs,
+            (_?, null) => mine,
+            _ => mine.files.length >= theirs.files.length ? mine : theirs,
+          };
           final loser = identical(canonical, mine) ? theirs : mine;
           if (!_isSubsetWithMatchingValues(loser.files, canonical.files)) {
             throw StateError(

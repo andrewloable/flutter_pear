@@ -26,6 +26,10 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  # In-memory fake swarm/worklet -- lets file_transfer_controller_test.dart
+  # exercise two peers over PearDrive/PearSwarm without a real worklet.
+  flutter_pear_test:
+    path: ../flutter_pear_test
 
 flutter:
   uses-material-design: true
