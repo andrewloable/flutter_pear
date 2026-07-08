@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_pear_example/pairing_screens.dart';
@@ -156,5 +157,250 @@ void main() {
 
       expect(find.textContaining('check it and try again'), findsNothing);
     });
+
+    testWidgets(
+      'the invalid-code error also tells the user to ask sender for a new '
+      'code, alongside the existing check-it-and-try-again phrase',
+      (tester) async {
+        await pumpJoinScreen(tester, 'granted');
+
+        await tester.enterText(find.byType(TextField), '!!!not-base64!!!');
+        await tester.tap(find.widgetWithText(ElevatedButton, 'Join'));
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('check it and try again'), findsOneWidget);
+        expect(
+          find.textContaining('ask sender for a new code'),
+          findsOneWidget,
+        );
+      },
+    );
+  });
+
+  group('JoinRoomScreen platform-conditional ordering (paste-first on iOS)',
+      () {
+    // Reset debugDefaultTargetPlatformOverride inline, as the last thing the
+    // test body does -- TestWidgetsFlutterBinding checks it (and every
+    // other foundation debug var) is back to null right as each testWidgets
+    // body finishes, before either a package:test tearDown() or an
+    // addTearDown() callback would fire; this is the same pattern the
+    // Flutter framework's own test suite uses (e.g. text_field_test.dart).
+    testWidgets(
+      'iOS renders the paste field before the QR/camera section, with the '
+      'affirmative "Paste the invite code..." copy',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+        try {
+          await pumpJoinScreen(tester, 'granted');
+
+          expect(
+            find.text('Paste the invite code from the other device'),
+            findsOneWidget,
+          );
+          final pasteY = tester.getTopLeft(find.byType(TextField)).dy;
+          final scanY = tester
+              .getTopLeft(
+                  find.widgetWithText(ElevatedButton, 'Scan QR code'))
+              .dy;
+          expect(pasteY, lessThan(scanY));
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+
+    testWidgets(
+      'mutation spot-check target: Android keeps the QR/camera section '
+      'first, paste field second',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        try {
+          await pumpJoinScreen(tester, 'granted');
+
+          final pasteY = tester.getTopLeft(find.byType(TextField)).dy;
+          final scanY = tester
+              .getTopLeft(
+                  find.widgetWithText(ElevatedButton, 'Scan QR code'))
+              .dy;
+          expect(scanY, lessThan(pasteY));
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+  });
+
+  group('InviteCard (StartRoomScreen extraction -- Pear.start has no test '
+      'seam, so this is pumped directly instead)', () {
+    const code = 'dGVzdC1pbnZpdGUtY29kZQ==';
+
+    testWidgets('shows the QR code, copy, and share affordances',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: InviteCard(code: code, pairing: false)),
+      ));
+
+      expect(find.byIcon(Icons.copy), findsOneWidget);
+      expect(find.text('Share'), findsOneWidget);
+      expect(
+          find.text('Waiting for a peer to scan or enter this code…'),
+          findsOneWidget);
+    });
+
+    testWidgets('the copy button puts the code on the clipboard',
+        (tester) async {
+      // flutter_test ships no built-in clipboard mock (unlike the mocked
+      // qr_scanner/file_picker/share_open channels this file and others
+      // already set up) -- Clipboard.setData/getData ride
+      // SystemChannels.platform, so it must be mocked the same way.
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied = (call.arguments as Map)['text'] as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: InviteCard(code: code, pairing: false)),
+      ));
+
+      await tester.tap(find.byIcon(Icons.copy));
+      await tester.pump();
+
+      expect(copied, code);
+      expect(find.text('Copied'), findsOneWidget);
+    });
+
+    testWidgets('pairing:true swaps the waiting line for the pairing spinner',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: InviteCard(code: code, pairing: true)),
+      ));
+
+      expect(find.text('Peer found -- pairing…'), findsOneWidget);
+      expect(
+          find.text('Waiting for a peer to scan or enter this code…'),
+          findsNothing);
+    });
+
+    testWidgets('the full code stays reachable but starts collapsed',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: InviteCard(code: code, pairing: false)),
+      ));
+
+      expect(find.text(code), findsNothing);
+      await tester.tap(find.text('Show full code'));
+      await tester.pumpAndSettle();
+      expect(find.text(code), findsOneWidget);
+    });
+  });
+
+  group('ExpiringInviteCard (StartRoomScreen extraction -- drives the TTL '
+      'timer directly, no real Pear/invite needed)', () {
+    const code = 'dGVzdC1pbnZpdGUtY29kZQ==';
+    const ttl = Duration(seconds: 5);
+
+    testWidgets('shows the invite card, not the expired state, before ttl',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: ExpiringInviteCard(
+            code: code,
+            pairing: false,
+            ttl: ttl,
+            onGenerateNewCode: _noopGenerateNewCode,
+          ),
+        ),
+      ));
+
+      expect(find.byType(InviteCard), findsOneWidget);
+      expect(find.text('This invite expired'), findsNothing);
+    });
+
+    testWidgets(
+        'flips to the expired state with a Generate new code button once '
+        'the ttl elapses', (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: ExpiringInviteCard(
+            code: code,
+            pairing: false,
+            ttl: ttl,
+            onGenerateNewCode: _noopGenerateNewCode,
+          ),
+        ),
+      ));
+
+      await tester.pump(ttl);
+
+      expect(find.text('This invite expired'), findsOneWidget);
+      expect(find.text('Generate new code'), findsOneWidget);
+      expect(find.byType(InviteCard), findsNothing);
+    });
+
+    testWidgets('tapping Generate new code calls onGenerateNewCode',
+        (tester) async {
+      var calls = 0;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ExpiringInviteCard(
+            code: code,
+            pairing: false,
+            ttl: ttl,
+            onGenerateNewCode: () async => calls++,
+          ),
+        ),
+      ));
+      await tester.pump(ttl);
+
+      await tester.tap(find.text('Generate new code'));
+      await tester.pump();
+
+      expect(calls, 1);
+    });
+
+    testWidgets('a fresh code (post-regeneration) restarts the countdown',
+        (tester) async {
+      final key = GlobalKey();
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ExpiringInviteCard(
+            key: key,
+            code: code,
+            pairing: false,
+            ttl: ttl,
+            onGenerateNewCode: _noopGenerateNewCode,
+          ),
+        ),
+      ));
+      await tester.pump(ttl);
+      expect(find.text('This invite expired'), findsOneWidget);
+
+      // Same key, new code -- didUpdateWidget must notice the change and
+      // restart the timer instead of staying stuck expired.
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ExpiringInviteCard(
+            key: key,
+            code: 'bmV3LWNvZGU=',
+            pairing: false,
+            ttl: ttl,
+            onGenerateNewCode: _noopGenerateNewCode,
+          ),
+        ),
+      ));
+
+      expect(find.text('This invite expired'), findsNothing);
+      expect(find.byType(InviteCard), findsOneWidget);
+    });
   });
 }
+
+Future<void> _noopGenerateNewCode() async {}

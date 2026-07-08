@@ -7,6 +7,7 @@ import 'package:flutter_pear/src/rpc.dart';
 import 'package:flutter_pear/src/schema.dart';
 import 'package:flutter_pear_example/file_picker_channel.dart';
 import 'package:flutter_pear_example/file_transfer_controller.dart';
+import 'package:flutter_pear_example/transfer_protocol.dart';
 import 'package:flutter_pear_test/flutter_pear_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -74,6 +75,12 @@ Iterable<FileTransferCard> _allCards(FileTransferController c) =>
     c.cardsByPeer.values.expand((cards) => cards);
 
 void main() {
+  // FileTransferController.notifyListeners announces terminal status
+  // changes over SystemChannels.accessibility (state-matrix task) --
+  // sending on that channel needs ServicesBinding.instance to exist, which
+  // plain test() bodies (no widget ever pumped here) don't get for free.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late Directory tempDir;
   late FakeSwarmHub hub;
   late PearKey topic;
@@ -218,5 +225,34 @@ void main() {
     await alice.controller.send(PickedFile(path: path, name: 'ephemeral.txt'));
 
     expect(await File(path).exists(), isFalse);
+  });
+
+  test(
+      'a receive that fails both attempts (the auto-retry) ends as exactly '
+      'ONE receiveFailed card, never a stuck-forever duplicate at '
+      '"receiving" (regression: the retry used to recurse into a second '
+      '_receiveOne call instead of updating the first card in place)',
+      () async {
+    // A hostile/malformed drive entry -- mirrorToDisk rejects it every
+    // attempt, so both the original try and its one auto-retry fail the
+    // same way, deterministically, without needing a real timeout.
+    bob.worklet.injectDriveSymlink(
+        alice.drive.key.hex, '/evil.txt', '../../etc/passwd');
+
+    // Announce directly rather than through send(): send() would put() a
+    // real file first, and a real file at this path would just mirror
+    // successfully alongside (or over) the injected symlink -- the point
+    // here is a name that resolves to ONLY the rejected symlink entry.
+    final aliceConn = alice.swarm.establishedConnections.single;
+    await aliceConn.write(FileAnnounce('evil.txt', 999).toBytes());
+
+    await _waitUntil(() => _allCards(bob.controller).any(
+        (c) => c.name == 'evil.txt' && c.status == TransferStatus.receiveFailed));
+
+    final matching =
+        _allCards(bob.controller).where((c) => c.name == 'evil.txt').toList();
+    expect(matching, hasLength(1));
+    expect(matching.single.status, TransferStatus.receiveFailed);
+    expect(matching.single.peers.values.single, TransferPeerState.failed);
   });
 }

@@ -49,3 +49,55 @@ class FilePickerChannel {
     return PickedFile(path: raw['path']!, name: raw['name']!);
   }
 }
+
+/// The outcome of [pickFileSafely] -- unlike [FilePickerChannel.pickFile],
+/// which throws, this never throws: every failure (a native-side
+/// [PlatformException], or a [MissingPluginException] on a platform where
+/// this channel has no handler yet, e.g. iOS before its runner registers
+/// one) becomes a [PickedFileFailed] with a user-visible message instead.
+sealed class PickedFileResult {
+  const PickedFileResult();
+}
+
+/// The user picked [file].
+final class PickedFileSuccess extends PickedFileResult {
+  /// Creates a success result wrapping [file].
+  const PickedFileSuccess(this.file);
+
+  /// The picked file.
+  final PickedFile file;
+}
+
+/// The user backed out of the picker without picking anything.
+final class PickedFileCancelled extends PickedFileResult {
+  /// Creates a cancelled result.
+  const PickedFileCancelled();
+}
+
+/// The pick failed -- [message] is safe to show directly to the user.
+final class PickedFileFailed extends PickedFileResult {
+  /// Creates a failed result carrying a user-visible [message].
+  const PickedFileFailed(this.message);
+
+  /// A user-visible description of what went wrong.
+  final String message;
+}
+
+/// Calls [FilePickerChannel.pickFile] and maps every possible outcome --
+/// picked, cancelled, or failed (including a [MissingPluginException] on a
+/// platform with no registered handler) -- to a [PickedFileResult], so
+/// callers never need their own try/catch around this channel.
+Future<PickedFileResult> pickFileSafely() async {
+  try {
+    final picked = await FilePickerChannel.pickFile();
+    return picked == null
+        ? const PickedFileCancelled()
+        : PickedFileSuccess(picked);
+  } on MissingPluginException {
+    return const PickedFileFailed(
+        "Couldn't open the file picker -- this platform has no picker "
+        'wired up yet.');
+  } on PlatformException catch (e) {
+    return PickedFileFailed('Pick failed: ${e.message ?? e.code}');
+  }
+}

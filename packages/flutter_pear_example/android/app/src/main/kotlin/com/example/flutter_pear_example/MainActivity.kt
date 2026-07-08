@@ -1,6 +1,7 @@
 package com.example.flutter_pear_example
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
@@ -8,10 +9,12 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.provider.Settings
+import android.webkit.MimeTypeMap
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -36,6 +39,12 @@ import java.util.UUID
  * [FilePickerChannel] on the Dart side is the typed wrapper around this
  * contract.
  *
+ * Also exposes open/share for received files over the
+ * "flutter_pear_example/share_open" method channel (DES-T1): `ACTION_VIEW`/
+ * `ACTION_SEND` via a `FileProvider` content URI, never a bare `file://`
+ * path (not accessible to other apps on API 24+). `ShareOpenChannel` on the
+ * Dart side is the typed wrapper.
+ *
  * Extends [FlutterFragmentActivity] rather than the plain `FlutterActivity`
  * specifically because `registerForActivityResult` (the modern Activity
  * Result API used by [scanQrCode] and [pickFile]) is only available on
@@ -47,6 +56,7 @@ class MainActivity : FlutterFragmentActivity() {
     private companion object {
         const val CHANNEL = "flutter_pear_example/qr_scanner"
         const val FILE_PICKER_CHANNEL = "flutter_pear_example/file_picker"
+        const val SHARE_OPEN_CHANNEL = "flutter_pear_example/share_open"
         const val CAMERA_PERMISSION_REQUEST_CODE = 4242
         const val PREFS_NAME = "flutter_pear_example_prefs"
         const val PREF_CAMERA_PERMISSION_REQUESTED_BEFORE = "camera_permission_requested_before"
@@ -115,6 +125,15 @@ class MainActivity : FlutterFragmentActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "pickFile" -> pickFile(result)
+                    else -> result.notImplemented()
+                }
+            }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SHARE_OPEN_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "openFile" -> openFile(call.argument("path"), result)
+                    "shareFile" -> shareFile(call.argument("path"), result)
+                    "shareText" -> shareText(call.argument("text"), result)
                     else -> result.notImplemented()
                 }
             }
@@ -259,6 +278,83 @@ class MainActivity : FlutterFragmentActivity() {
         // "*/*" matches file_picker's default FileType.any behavior -- any
         // file type is selectable.
         pickFileLauncher.launch(arrayOf("*/*"))
+    }
+
+    /**
+     * Opens [path] via `ACTION_VIEW` against a `FileProvider` content URI
+     * (DES-T1) -- never a bare `file://` path, which no other app can read
+     * on API 24+. Resolves `false` (never throws to Dart) if no installed
+     * app can handle it, so the caller can show a snackbar instead of
+     * crashing on an unhandled [ActivityNotFoundException].
+     */
+    private fun openFile(path: String?, result: MethodChannel.Result) {
+        if (path == null) {
+            result.error("INVALID_ARGS", "path is required", null)
+            return
+        }
+        val uri = contentUriFor(path)
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, mimeTypeFor(uri, path))
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        try {
+            startActivity(Intent.createChooser(intent, null))
+            result.success(true)
+        } catch (_: ActivityNotFoundException) {
+            result.success(false)
+        }
+    }
+
+    /** Shares the file at [path] via `ACTION_SEND` with a content URI. */
+    private fun shareFile(path: String?, result: MethodChannel.Result) {
+        if (path == null) {
+            result.error("INVALID_ARGS", "path is required", null)
+            return
+        }
+        val uri = contentUriFor(path)
+        val intent = Intent(Intent.ACTION_SEND)
+            .setType(mimeTypeFor(uri, path))
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        try {
+            startActivity(Intent.createChooser(intent, null))
+            result.success(true)
+        } catch (_: ActivityNotFoundException) {
+            result.success(false)
+        }
+    }
+
+    /** Shares plain [text] (an invite link, for example) via `ACTION_SEND`. */
+    private fun shareText(text: String?, result: MethodChannel.Result) {
+        if (text == null) {
+            result.error("INVALID_ARGS", "text is required", null)
+            return
+        }
+        val intent = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_TEXT, text)
+        try {
+            startActivity(Intent.createChooser(intent, null))
+            result.success(true)
+        } catch (_: ActivityNotFoundException) {
+            result.success(false)
+        }
+    }
+
+    /** The `FileProvider` content URI for a path under this app's storage. */
+    private fun contentUriFor(path: String): Uri =
+        FileProvider.getUriForFile(this, "$packageName.fileprovider", File(path))
+
+    /**
+     * Resolves a MIME type for [uri]/[path], preferring whatever the
+     * content resolver already knows, falling back to a lookup by file
+     * extension, and finally to a generic type -- `ACTION_VIEW`/
+     * `ACTION_SEND` both need a type to route to the right handler app.
+     */
+    private fun mimeTypeFor(uri: Uri, path: String): String {
+        contentResolver.getType(uri)?.let { return it }
+        val extension = path.substringAfterLast('.', "").lowercase()
+        if (extension.isEmpty()) return "*/*"
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "*/*"
     }
 
     /**

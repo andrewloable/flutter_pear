@@ -2,14 +2,18 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_pear/flutter_pear.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'file_drop_screen.dart' show FileDropScreen;
+import 'local_network_banner.dart';
 import 'main.dart' show ChatScreen, PrejoinedSwarmWiring;
 import 'qr_scanner_channel.dart';
+import 'share_open_channel.dart';
 
 /// Which demo screen the QR/invite pairing flow
 /// ([StartRoomScreen]/[JoinRoomScreen]) hands off to once pairing succeeds.
@@ -61,6 +65,39 @@ PearKey _randomTopicKey() {
   return PearKey(bytes);
 }
 
+/// How long a demo invite lives before [StartRoomScreen] flips its card to
+/// the expired state. [PearInvite] itself exposes no expiry event -- this
+/// is a local timer matching the same [Duration] passed to
+/// `Pear.createInvite`'s `ttl`.
+const _inviteTtl = Duration(minutes: 10);
+
+/// How long the "Paired" confirmation beat stays on screen before handing
+/// off to the destination room -- design fix 5's success-state pause,
+/// shared by [StartRoomScreen] and [JoinRoomScreen].
+const _pairedBeatDuration = Duration(milliseconds: 700);
+
+/// The brief "Paired" confirmation shown on both [StartRoomScreen] and
+/// [JoinRoomScreen] right before handing off to the destination room --
+/// interaction state table's SUCCESS row for both screens. Public
+/// (not screen-private) specifically so the state-matrix test suite can
+/// pump it directly.
+class PairedBeat extends StatelessWidget {
+  /// Creates the beat.
+  const PairedBeat({super.key});
+
+  @override
+  Widget build(BuildContext context) => const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.check_circle, color: Colors.green, size: 48),
+            SizedBox(height: 8),
+            Text('Paired'),
+          ],
+        ),
+      );
+}
+
 /// E7.2, device A's half of the QR pairing flow: creates a
 /// [PearPairing] invite and renders it both as a QR code and as a
 /// selectable base64 string (the "manual code" -- the exact bytes of
@@ -92,6 +129,7 @@ class _StartRoomScreenState extends State<StartRoomScreen> {
   PearInvite? _invite;
   StreamSubscription<PearPairingCandidate>? _candidatesSub;
   bool _pairing = false;
+  bool _paired = false;
   String? _error;
 
   // Set right before navigating away with [_pear] handed off to
@@ -105,6 +143,32 @@ class _StartRoomScreenState extends State<StartRoomScreen> {
     unawaited(_start());
   }
 
+  /// Design fix 5's TTL-expiry recovery: revokes the expired invite (best
+  /// effort) and creates a fresh one on the same [Pear] -- never requires
+  /// the whole screen (and its [Pear]/worklet) to be torn down and
+  /// recreated. [ExpiringInviteCard] notices the new invite's different
+  /// [PearInvite.invite]-derived code and restarts its own countdown.
+  Future<void> _generateNewCode() async {
+    final pear = _pear;
+    if (pear == null) return;
+    await _candidatesSub?.cancel();
+    final oldInvite = _invite;
+    if (oldInvite != null) unawaited(oldInvite.revoke().catchError((_) {}));
+    setState(() => _invite = null);
+    try {
+      final invite = await pear.createInvite(ttl: _inviteTtl);
+      _candidatesSub = invite.candidates.listen(_onCandidate);
+      if (!mounted) {
+        await _candidatesSub?.cancel();
+        return;
+      }
+      setState(() => _invite = invite);
+    } on PearException catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+    }
+  }
+
   Future<void> _start() async {
     // Tracked outside the try so a failure after Pear.start() succeeded
     // (e.g. createInvite() throwing) can still dispose it in the catch --
@@ -112,7 +176,7 @@ class _StartRoomScreenState extends State<StartRoomScreen> {
     Pear? pear;
     try {
       pear = await Pear.start();
-      final invite = await pear.createInvite();
+      final invite = await pear.createInvite(ttl: _inviteTtl);
       // Subscribe immediately, nothing else awaited in between -- a
       // candidate that arrives before this listener attaches is missed
       // (broadcast stream, same discipline as everywhere else in this
@@ -173,10 +237,26 @@ class _StartRoomScreenState extends State<StartRoomScreen> {
       // [PrejoinedSwarmWiring].
       wiring = PrejoinedSwarmWiring(swarm);
       await candidate.confirm(topicKey);
-      if (!mounted) {
-        unawaited(swarm.leave().catchError((_) {}));
-        unawaited(wiring.stateSub.cancel());
+      // Local so both mounted checks below (the beat can still be interrupted
+      // by the screen going away mid-pause) share the exact same cleanup --
+      // at this point nothing has been handed off yet, so it's this
+      // function's job, same as every other unmounted-mid-flow branch here.
+      void cleanupUnmounted() {
+        unawaited(swarm!.leave().catchError((_) {}));
+        unawaited(wiring!.stateSub.cancel());
         unawaited(wiring.connectionsSub.cancel());
+      }
+
+      if (!mounted) {
+        cleanupUnmounted();
+        return;
+      }
+      // Design fix 5's success beat -- a brief, visible "Paired" confirmation
+      // before handing off to the destination room.
+      setState(() => _paired = true);
+      await Future<void>.delayed(_pairedBeatDuration);
+      if (!mounted) {
+        cleanupUnmounted();
         return;
       }
       _handedOff = true;
@@ -237,10 +317,12 @@ class _StartRoomScreenState extends State<StartRoomScreen> {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Start room')),
         body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: _buildBody(),
-          ),
+          child: _paired
+              ? const PairedBeat()
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: _buildBody(),
+                ),
         ),
       );
 
@@ -267,39 +349,211 @@ class _StartRoomScreenState extends State<StartRoomScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     final code = base64Encode(invite.invite);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text('Scan this on the other device to join:'),
-        const SizedBox(height: 16),
-        Center(
-          child: ColoredBox(
-            color: Colors.white,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: QrImageView(data: code, size: 240),
+    return ExpiringInviteCard(
+      code: code,
+      pairing: _pairing,
+      ttl: _inviteTtl,
+      onGenerateNewCode: _generateNewCode,
+    );
+  }
+}
+
+/// The invite card once an invite exists: QR code, copy/share row, an
+/// expandable full-code fallback (design fix 4 -- replaces the old
+/// read-aloud copy + always-visible base64 wall), and the waiting/pairing
+/// status line. Pulled out of [StartRoomScreen] as its own widget
+/// specifically so a widget test can pump it directly with a fixed [code],
+/// without needing a real [Pear] -- `Pear.start` has no test seam (see
+/// pairing_screens_test.dart's own comment on why [StartRoomScreen] itself
+/// can't be widget-tested end to end).
+class InviteCard extends StatelessWidget {
+  /// Creates the invite card for [code], showing the pairing spinner
+  /// instead of the idle "waiting" line while [pairing] is true.
+  const InviteCard({super.key, required this.code, required this.pairing});
+
+  /// The base64-encoded invite bytes to render as a QR code and offer for
+  /// copy/share.
+  final String code;
+
+  /// Whether a candidate has been found and pairing is in progress.
+  final bool pairing;
+
+  Future<void> _copyCode(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: code));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Copied')));
+  }
+
+  Future<void> _shareCode() async {
+    try {
+      await ShareOpenChannel.shareText(code);
+    } catch (_) {
+      // Best-effort -- the code is already copyable and visible on screen,
+      // so a failed share isn't worth surfacing as an error.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('Scan this on the other device to join:'),
+          const SizedBox(height: 16),
+          Center(
+            child: ColoredBox(
+              color: Colors.white,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                // Constrained to the narrower of 240 or the available width
+                // (minus this Padding's own 32) -- a fixed 240 would
+                // overflow horizontally on a narrow phone.
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final qrSize = constraints.maxWidth.isFinite
+                        ? constraints.maxWidth.clamp(0, 240).toDouble()
+                        : 240.0;
+                    return QrImageView(data: code, size: qrSize);
+                  },
+                ),
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 24),
-        const Text('Or read this code aloud / let them type it in:'),
-        const SizedBox(height: 8),
-        SelectableText(
-          code,
-          style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-        ),
-        const SizedBox(height: 24),
-        Center(
-          child: _pairing
-              ? const Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 8),
-                    Text('Peer found -- pairing…'),
-                  ],
-                )
-              : const Text('Waiting for a peer to scan or enter this code…'),
+          const SizedBox(height: 16),
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              IconButton(
+                onPressed: () => unawaited(_copyCode(context)),
+                icon: const Icon(Icons.copy),
+                tooltip: 'Copy code',
+              ),
+              TextButton.icon(
+                onPressed: () => unawaited(_shareCode()),
+                icon: const Icon(Icons.share),
+                label: const Text('Share'),
+              ),
+            ],
+          ),
+          ExpansionTile(
+            title: const Text('Show full code'),
+            children: [
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                child: SelectableText(
+                  code,
+                  style:
+                      const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Center(
+            child: pairing
+                ? const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 8),
+                      Text('Peer found -- pairing…'),
+                    ],
+                  )
+                : const Text(
+                    'Waiting for a peer to scan or enter this code…'),
+          ),
+        ],
+      );
+}
+
+/// Wraps [InviteCard] with the TTL-expiry countdown (design fix 5) -- owns
+/// its own [Timer], entirely independent of [Pear]/network state, so a
+/// widget test can drive the expiry transition directly via
+/// `tester.pump(ttl)` without a real invite (`Pear.start` has no test seam
+/// -- see [InviteCard]'s own doc and pairing_screens_test.dart). Once
+/// expired, the card flips over entirely to an expired state with a
+/// "Generate new code" button rather than showing a now-useless QR code
+/// alongside it; a new [code] (from [onGenerateNewCode] succeeding)
+/// restarts the countdown.
+class ExpiringInviteCard extends StatefulWidget {
+  /// Creates the countdown-wrapped invite card for [code], expiring after
+  /// [ttl] and calling [onGenerateNewCode] when the user asks for a fresh
+  /// one post-expiry.
+  const ExpiringInviteCard({
+    super.key,
+    required this.code,
+    required this.pairing,
+    required this.ttl,
+    required this.onGenerateNewCode,
+  });
+
+  /// The base64-encoded invite bytes -- see [InviteCard.code].
+  final String code;
+
+  /// Whether a candidate has been found and pairing is in progress -- see
+  /// [InviteCard.pairing].
+  final bool pairing;
+
+  /// How long [code] is valid for before this card flips to the expired
+  /// state.
+  final Duration ttl;
+
+  /// Called when the user taps "Generate new code" post-expiry.
+  final Future<void> Function() onGenerateNewCode;
+
+  @override
+  State<ExpiringInviteCard> createState() => _ExpiringInviteCardState();
+}
+
+class _ExpiringInviteCardState extends State<ExpiringInviteCard> {
+  bool _expired = false;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant ExpiringInviteCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A fresh code (generated post-expiry) restarts the countdown.
+    if (oldWidget.code != widget.code) {
+      setState(() => _expired = false);
+      _startTimer();
+    }
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    _timer = Timer(widget.ttl, () {
+      if (mounted) setState(() => _expired = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_expired) {
+      return InviteCard(code: widget.code, pairing: widget.pairing);
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('This invite expired'),
+        const SizedBox(height: 16),
+        ElevatedButton(
+          onPressed: () => unawaited(widget.onGenerateNewCode()),
+          child: const Text('Generate new code'),
         ),
       ],
     );
@@ -340,7 +594,15 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
   // _buildPermissionSection() indefinitely with no error ever surfaced.
   String? _permissionError;
   bool _joining = false;
+  bool _paired = false;
   String? _joinError;
+
+  // The joining swarm's live status, purely for the local-network trouble
+  // banner (design fix "in-flow recovery") -- set once pear.join(key)
+  // resolves and this screen's own subscription (independent of
+  // PrejoinedSwarmWiring's own buffering one) starts observing it.
+  PearSwarmStatus? _joiningStatus;
+  StreamSubscription<PearSwarmStatus>? _joiningStatusSub;
 
   @override
   void initState() {
@@ -351,6 +613,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
   @override
   void dispose() {
     _manualCodeController.dispose();
+    _joiningStatusSub?.cancel();
     super.dispose();
   }
 
@@ -425,7 +688,8 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
       // trip -- a typed error, never a hang.
       setState(() {
         _joining = false;
-        _joinError = 'That code is not valid -- check it and try again.';
+        _joinError = 'That code is not valid -- check it and try again, or '
+            'ask sender for a new code.';
       });
       return;
     }
@@ -445,11 +709,30 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
       // [PrejoinedSwarmWiring] for why this can't wait for
       // ChatScreen.joined's own initState.
       final wiring = PrejoinedSwarmWiring(swarm);
+      // A second, independent subscription on the same broadcast stream --
+      // purely for the local-network trouble banner below, no ownership
+      // implications (read-only, never touches leave()/dispose()).
+      _joiningStatusSub = swarm.state.listen((status) {
+        if (mounted) setState(() => _joiningStatus = status);
+      });
       handedOff = true;
-      if (!mounted) {
+      void cleanupUnmounted() {
         unawaited(wiring.stateSub.cancel());
         unawaited(wiring.connectionsSub.cancel());
-        unawaited(swarm.leave().catchError((_) {}).whenComplete(pear.dispose));
+        unawaited(swarm.leave().catchError((_) {}).whenComplete(pear!.dispose));
+        _joiningStatusSub?.cancel();
+      }
+
+      if (!mounted) {
+        cleanupUnmounted();
+        return;
+      }
+      // Design fix 5's success beat -- a brief, visible "Paired" confirmation
+      // before handing off to the destination room.
+      setState(() => _paired = true);
+      await Future<void>.delayed(_pairedBeatDuration);
+      if (!mounted) {
+        cleanupUnmounted();
         return;
       }
       Navigator.of(context).pushReplacement(
@@ -463,59 +746,91 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
       setState(() => _joinError = e.toString());
     } finally {
       if (!handedOff) await pear?.dispose();
-      if (mounted) setState(() => _joining = false);
+      await _joiningStatusSub?.cancel();
+      _joiningStatusSub = null;
+      if (mounted) {
+        setState(() {
+          _joining = false;
+          _joiningStatus = null;
+        });
+      }
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    if (_paired) {
+      return Scaffold(
         appBar: AppBar(title: const Text('Join room')),
-        body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildPermissionSection(),
-                const SizedBox(height: 24),
-                const Divider(),
+        body: const PairedBeat(),
+      );
+    }
+    // Design fix "paste-first on iOS" -- the paste field + Join button lead
+    // on iOS (with the affirmative "Paste the invite code..." copy),
+    // followed by the camera section; Android keeps the QR-first ordering
+    // it already had.
+    final isIOS = defaultTargetPlatform == TargetPlatform.iOS;
+    final pasteSection = _buildPasteSection();
+    final scanSection = _buildPermissionSection();
+    return Scaffold(
+      appBar: AppBar(title: const Text('Join room')),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (isIOS) pasteSection else scanSection,
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              if (isIOS) scanSection else pasteSection,
+              if (_joinError != null) ...[
                 const SizedBox(height: 16),
-                const Text('Or type/paste the code from the other device:'),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _manualCodeController,
-                  decoration: const InputDecoration(labelText: 'Invite code'),
-                  onSubmitted: (_) => _joinManualCode(),
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: _joining ? null : _joinManualCode,
-                  child: const Text('Join'),
-                ),
-                if (_joinError != null) ...[
-                  const SizedBox(height: 16),
-                  Text(_joinError!, style: const TextStyle(color: Colors.red)),
-                ],
-                if (_joining) ...[
-                  const SizedBox(height: 16),
-                  const Center(child: CircularProgressIndicator()),
-                  const SizedBox(height: 8),
-                  // A slow/stalled peer can hold this spinner up for the
-                  // full acceptInvite()/join() timeout window with nothing
-                  // else tappable otherwise -- the AppBar back arrow already
-                  // works as an implicit cancel, but this makes it explicit
-                  // and discoverable instead of relying on that.
-                  Center(
-                    child: TextButton(
-                      onPressed: () => Navigator.of(context).maybePop(),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                ],
+                Text(_joinError!, style: const TextStyle(color: Colors.red)),
               ],
-            ),
+              if (_joining) ...[
+                const SizedBox(height: 16),
+                LocalNetworkTroubleBanner(status: _joiningStatus),
+                const Center(child: Text('Connecting...')),
+                const SizedBox(height: 8),
+                const Center(child: CircularProgressIndicator()),
+                const SizedBox(height: 8),
+                // A slow/stalled peer can hold this spinner up for the
+                // full acceptInvite()/join() timeout window with nothing
+                // else tappable otherwise -- the AppBar back arrow already
+                // works as an implicit cancel, but this makes it explicit
+                // and discoverable instead of relying on that.
+                Center(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildPasteSection() => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('Paste the invite code from the other device'),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _manualCodeController,
+            decoration: const InputDecoration(labelText: 'Invite code'),
+            onSubmitted: (_) => _joinManualCode(),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _joining ? null : _joinManualCode,
+            child: const Text('Join'),
+          ),
+        ],
       );
 
   Widget _buildPermissionSection() {

@@ -101,6 +101,8 @@ void main() {
           controller: alice.controller,
           sending: false,
           onPickAndSend: () {},
+          onOpen: (_) async {},
+          onShare: (_) async {},
           debugLog: const [],
         ),
       ),
@@ -137,6 +139,8 @@ void main() {
           controller: alice.controller,
           sending: false,
           onPickAndSend: () {},
+          onOpen: (_) async {},
+          onShare: (_) async {},
           debugLog: const [],
         ),
       ),
@@ -179,6 +183,8 @@ void main() {
           controller: bob.controller,
           sending: false,
           onPickAndSend: () {},
+          onOpen: (_) async {},
+          onShare: (_) async {},
           debugLog: const [],
         ),
       ),
@@ -190,6 +196,59 @@ void main() {
     expect(find.text('Received ✓'), findsOneWidget);
     expect(find.text('Open'), findsOneWidget);
     expect(find.text('Share'), findsOneWidget);
+
+    await tester.runAsync(() async {
+      await alice.dispose();
+      await bob.dispose();
+      await tempDir.delete(recursive: true);
+    });
+  });
+
+  testWidgets(
+      'tapping Open on a received card fires onOpen with that card\'s '
+      'receivedLocalPath', (tester) async {
+    late Directory tempDir;
+    late _Peer alice;
+    late _Peer bob;
+    await tester.runAsync(() async {
+      tempDir =
+          await Directory.systemTemp.createTemp('flutter_pear-body-test-');
+      final hub = FakeSwarmHub();
+      final topic = PearCrypto.unsafeTopicFromString('body-open-test');
+      alice = await _setUpPeer(hub, 'alice', topic, tempDir);
+      bob = await _setUpPeer(hub, 'bob', topic, tempDir);
+      await _waitUntil(() => alice.controller.connectedPeers.isNotEmpty);
+
+      final path = await _writeLocalFile(alice.dir, 'doc.pdf', 'contents');
+      await alice.controller.send(PickedFile(path: path, name: 'doc.pdf'));
+      await _waitUntil(() => _allCards(bob.controller).any((c) =>
+          c.name == 'doc.pdf' && c.status == TransferStatus.received));
+    });
+
+    FileTransferCard? openedCard;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: FileDropBody(
+          controller: bob.controller,
+          sending: false,
+          onPickAndSend: () {},
+          onOpen: (card) async => openedCard = card,
+          onShare: (_) async {},
+          debugLog: const [],
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    await tester.tap(find.text('Open'));
+    await tester.pump();
+
+    final received = _allCards(bob.controller)
+        .firstWhere((c) => c.name == 'doc.pdf' && c.status == TransferStatus.received);
+    expect(openedCard, isNotNull);
+    expect(openedCard!.name, 'doc.pdf');
+    expect(openedCard!.receivedLocalPath, isNotNull);
+    expect(openedCard!.receivedLocalPath, received.receivedLocalPath);
 
     await tester.runAsync(() async {
       await alice.dispose();
@@ -226,6 +285,8 @@ void main() {
           controller: alice.controller,
           sending: false,
           onPickAndSend: () {},
+          onOpen: (_) async {},
+          onShare: (_) async {},
           debugLog: const [],
         ),
       ),

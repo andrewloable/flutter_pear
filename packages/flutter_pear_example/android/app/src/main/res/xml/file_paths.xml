@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DES-T1: exposes only the received-files subtree via FileProvider.
+     path_provider's getApplicationDocumentsDirectory() on Android resolves
+     to the app's files dir (Context.getFilesDir()), which files-path
+     covers. FileTransferController writes received files under
+     "that dir, then /received/peer/name" (see receivedRoot in
+     file_drop_screen.dart). -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <files-path name="received" path="received/" />
+</paths>
