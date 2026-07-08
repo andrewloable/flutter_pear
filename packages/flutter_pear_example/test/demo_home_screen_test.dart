@@ -1,7 +1,19 @@
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_pear_example/main.dart';
 import 'package:flutter_pear_example/pairing_screens.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+/// Finds the button labeled [buttonText] inside the [Card] whose title is
+/// [cardTitle] -- both demo cards share the same "Start room"/"Join room"
+/// button text (TD-D1), so a plain `find.text(...)` would match twice.
+Finder _buttonInCard(String cardTitle, String buttonText) => find.descendant(
+      of: find.ancestor(
+        of: find.text(cardTitle),
+        matching: find.byType(Card),
+      ),
+      matching: find.text(buttonText),
+    );
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -22,50 +34,43 @@ void main() {
   });
   tearDown(() => messenger.setMockMethodCallHandler(qrChannel, null));
 
-  group('ChatApp home screen', () {
-    testWidgets('shows both demo entry points', (tester) async {
-      await tester.pumpWidget(const ChatApp());
-      expect(find.text('Chat demo'), findsOneWidget);
-      expect(find.text('File drop demo'), findsOneWidget);
-    });
-
-    testWidgets('Chat demo navigates to the chat screen', (tester) async {
-      await tester.pumpWidget(const ChatApp());
-      await tester.tap(find.text('Chat demo'));
-      await tester.pumpAndSettle();
-      expect(find.text('flutter_pear chat'), findsOneWidget);
-    });
-
-    testWidgets('File drop demo navigates to the file-drop screen',
+  group('ChatApp home screen (TD-D1: exactly two demo cards)', () {
+    testWidgets('shows exactly two demo cards, Chat and File drop',
         (tester) async {
       await tester.pumpWidget(const ChatApp());
-      await tester.tap(find.text('File drop demo'));
-      await tester.pumpAndSettle();
-      expect(find.text('flutter_pear file drop'), findsOneWidget);
+      expect(find.text('Chat'), findsOneWidget);
+      expect(find.text('File drop'), findsOneWidget);
+      expect(find.byType(Card), findsNWidgets(2));
     });
 
-    testWidgets('shows all four QR pairing entry points', (tester) async {
-      await tester.pumpWidget(const ChatApp());
-      expect(find.text('Start Room (QR) — Chat'), findsOneWidget);
-      expect(find.text('Join Room (QR) — Chat'), findsOneWidget);
-      expect(find.text('Start Room (QR) — File drop'), findsOneWidget);
-      expect(find.text('Join Room (QR) — File drop'), findsOneWidget);
-    });
-
-    // JoinRoomScreen is safe to mount and tap into here -- its initState only
-    // checks camera permission over a mocked/absent channel, which its own
-    // broad catch-all already tolerates. StartRoomScreen is NOT: its
-    // initState unconditionally calls the real Pear.start(), which has no
-    // native platform to answer it in a widget test and isn't caught by its
-    // PearException-only catch clause -- see the plain-object checks below
-    // for how its `destination` wiring is covered instead.
     testWidgets(
-      'Join Room (QR) buttons land on JoinRoomScreen with the matching '
+        'no six-route wall -- none of the old flat demo-shortcut labels '
+        'remain', (tester) async {
+      await tester.pumpWidget(const ChatApp());
+      expect(find.text('Chat demo'), findsNothing);
+      expect(find.text('File drop demo'), findsNothing);
+      expect(find.text('Start Room (QR) — Chat'), findsNothing);
+      expect(find.text('Join Room (QR) — Chat'), findsNothing);
+      expect(find.text('Start Room (QR) — File drop'), findsNothing);
+      expect(find.text('Join Room (QR) — File drop'), findsNothing);
+    });
+
+    testWidgets('each card has a Start room and a Join room action',
+        (tester) async {
+      await tester.pumpWidget(const ChatApp());
+      expect(_buttonInCard('Chat', 'Start room'), findsOneWidget);
+      expect(_buttonInCard('Chat', 'Join room'), findsOneWidget);
+      expect(_buttonInCard('File drop', 'Start room'), findsOneWidget);
+      expect(_buttonInCard('File drop', 'Join room'), findsOneWidget);
+    });
+
+    testWidgets(
+      'Join room buttons land on JoinRoomScreen with the matching '
       'destination -- no separate pairing path for file-drop, only a '
       'different destination',
       (tester) async {
         await tester.pumpWidget(const ChatApp());
-        await tester.tap(find.text('Join Room (QR) — Chat'));
+        await tester.tap(_buttonInCard('Chat', 'Join room'));
         await tester.pumpAndSettle();
         expect(
           tester.widget<JoinRoomScreen>(find.byType(JoinRoomScreen)).destination,
@@ -74,7 +79,7 @@ void main() {
 
         await tester.pageBack();
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Join Room (QR) — File drop'));
+        await tester.tap(_buttonInCard('File drop', 'Join room'));
         await tester.pumpAndSettle();
         expect(
           tester.widget<JoinRoomScreen>(find.byType(JoinRoomScreen)).destination,
@@ -85,9 +90,10 @@ void main() {
   });
 
   group('StartRoomScreen/JoinRoomScreen destination wiring', () {
-    // Plain object construction, deliberately never pumped/mounted -- see
-    // the comment above on why StartRoomScreen can't be built in a widget
-    // test.
+    // Plain object construction, deliberately never pumped/mounted --
+    // StartRoomScreen's initState unconditionally calls the real
+    // Pear.start(), which has no native platform to answer it in a widget
+    // test and isn't caught by its PearException-only catch clause.
     test('StartRoomScreen defaults to the chat destination', () {
       expect(const StartRoomScreen().destination, PairingDestination.chat);
     });

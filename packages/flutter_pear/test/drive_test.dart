@@ -305,4 +305,51 @@ void main() {
     await rpcA.dispose();
     await rpcB.dispose();
   });
+
+  test(
+      'replicating a drive with ZERO files on both sides still leaves the '
+      "writer able to put() afterward (flutter_pear-test's fake fix, "
+      'discovered by flutter_pear-ovt.4.5)', () async {
+    // A real app can legitimately replicate its own drive the instant a
+    // peer connects, well before it has put anything -- both sides'
+    // in-memory drive views then start at 0 files each, a TIE the fake's
+    // replicate-merge previously broke by file count alone
+    // (mine.files.length >= theirs.files.length ? mine : theirs), which
+    // could silently pick the NON-writer's drive object as canonical and
+    // permanently strip the real writer's put access. The fix prefers
+    // whichever side actually holds a non-null writer.
+    final hub = FakeSwarmHub();
+    final workletA = FakeBareWorklet(hub: hub);
+    final workletB = FakeBareWorklet(hub: hub);
+    final rpcA = PearRpc(workletA);
+    final rpcB = PearRpc(workletB);
+    await rpcA.call(PearMethod.attachInfo);
+    await rpcB.call(PearMethod.attachInfo);
+
+    final driveA = await PearDrive.open(rpcA, name: 'zero-file-tie-drive');
+
+    final topic = PearCrypto.unsafeTopicFromString('drive-zero-file-tie');
+    final swarmA = await PearSwarm.join(rpcA, topic);
+    final firstConnA = swarmA.connections.first;
+    final swarmB = await PearSwarm.join(rpcB, topic);
+    final firstConnB = swarmB.connections.first;
+    final connA = await firstConnA;
+    final connB = await firstConnB;
+
+    final driveB = await PearDrive.open(rpcB, key: driveA.key);
+
+    // Both sides replicate before EITHER has put anything -- 0 files each.
+    await driveA.replicate(connA);
+    await driveB.replicate(connB);
+    await Future<void>.delayed(Duration.zero);
+
+    // The rightful writer (A) must still be able to put -- this is exactly
+    // what threw PearStorageException(STORAGE_UNAVAILABLE) before the fix.
+    await driveA.put('/after-tie.txt', await writeLocalFile('d.txt', 'ok'));
+    await Future<void>.delayed(Duration.zero);
+    expect(await driveB.exists('/after-tie.txt'), isTrue);
+
+    await rpcA.dispose();
+    await rpcB.dispose();
+  });
 }

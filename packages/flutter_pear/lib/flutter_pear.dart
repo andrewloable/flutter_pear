@@ -17,6 +17,7 @@ export 'src/exceptions.dart';
 export 'src/lifecycle.dart';
 export 'src/pairing.dart';
 export 'src/pear.dart';
+export 'src/platform_info.dart';
 // Only the pieces of the RPC schema that already appear in other exported
 // signatures (PearSwarm.state's PearSwarmStatus needs PearSwarmState to be
 // nameable; PearBase.open requires a PearRecipe; PearException.code is

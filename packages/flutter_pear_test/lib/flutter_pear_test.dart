@@ -16,6 +16,21 @@
 /// (`package:flutter_pear/src/schema.dart`); it is a conformance consumer,
 /// never a co-author — when the two disagree, the schema wins and the fake
 /// is fixed to match.
+///
+/// `Pear.platformInfo` involves no worklet traffic at all (it's a
+/// release-pinned platform constant, not an RPC round trip), so exercising
+/// both platforms' values needs no fake worklet — just
+/// `debugDefaultTargetPlatformOverride`:
+///
+/// ```dart
+/// debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+/// expect(Pear.platformInfo.backgroundExecution,
+///     PearBackgroundExecution.foregroundOnly);
+/// debugDefaultTargetPlatformOverride = null; // reset in tearDown
+/// ```
 library;
+
+export 'package:flutter_pear/flutter_pear.dart'
+    show PearBackgroundExecution, PearPlatformInfo, PearValidationTier;
 
 export 'src/fake_worklet.dart';
