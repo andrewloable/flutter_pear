@@ -7,7 +7,7 @@
 import Foundation
 import PackageDescription
 
-let bareKitURL = ProcessInfo.processInfo.environment["FLUTTER_PEAR_BAREKIT_URL"] ?? "PENDING-UPLOAD: run `dart run flutter_pear:pack --repack-barekit` (uploading enabled) to publish the repacked BareKit-2.3.0-ios.xcframework.zip and fill this in"
+let bareKitURL = ProcessInfo.processInfo.environment["FLUTTER_PEAR_BAREKIT_URL"] ?? "https://github.com/andrewloable/flutter_pear/releases/download/barekit-v2.3.0/BareKit-2.3.0-ios.xcframework.zip"
 
 let package = Package(
     name: "flutter_pear_bare",
@@ -48,7 +48,7 @@ let package = Package(
                 "AddonUdxNative",
             ]
         ),
-        .binaryTarget(name: "BareKit", url: bareKitURL, checksum: "9432e32855a88204d997223f3ec9aadba8dfb01706fbdbc8d1e2c9cfda612c77"),
+        .binaryTarget(name: "BareKit", url: bareKitURL, checksum: "bb54259f54078cca69f54d868f36b3c2f72c95fcf5bca29db862f695f05a4ba7"),
         .binaryTarget(name: "AddonBareFs", path: "addons/bare-fs.4.7.3.xcframework"),
         .binaryTarget(name: "AddonBareInspect", path: "addons/bare-inspect.3.1.4.xcframework"),
         .binaryTarget(name: "AddonBareOs", path: "addons/bare-os.3.9.3.xcframework"),
