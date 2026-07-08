@@ -1,16 +1,26 @@
-# E6.4 — Background execution reality (Android)
+# E6.4 — Background execution reality
 
-**Foreground is the supported guarantee. Background is best-effort, entirely
-at the OS's discretion.** flutter_pear cannot make Android keep a P2P swarm
-alive indefinitely while your app is backgrounded — no P2P library can. An OS
-that suspends or kills a backgrounded app's networking is not a
-flutter_pear bug; it's normal Android behavior, described below.
+**Foreground is the supported guarantee on every platform. Background
+behavior is platform-specific, and on both platforms it is entirely at the
+OS's discretion.** flutter_pear cannot make Android or iOS keep a P2P swarm
+alive indefinitely while your app is backgrounded — no P2P library can. An
+OS that suspends or kills a backgrounded app's networking is not a
+flutter_pear bug; it's normal OS behavior.
+
+This page covers **Android**, in depth, below. For **iOS**'s background
+story — which differs substantially (no equivalent of Android's Doze/App
+Standby/OEM-battery-manager layers, but a much harder OS-level suspend
+timeline, and a native-vs-Dart suspend distinction that doesn't exist on
+Android) — see [`doc/ios.md`](doc/ios.md). Both platforms funnel through the
+same `Pear.platformInfo.backgroundExecution` signal (see below, and
+`doc/ios.md`'s own coverage of it) so app code can branch on one API instead
+of platform-checking directly.
 
 Every claim in this doc either matches tested behavior (E6.1–E6.3, closed
 this session) or is explicitly marked OS-dependent — nothing here is
 aspirational.
 
-## What this library actually does
+## What this library actually does (Android)
 
 1. **Foregrounded**: the worklet runs normally; `PearSwarm.state` reflects
    real Hyperswarm connectivity (`discovering` → `connecting` → `connected`,

@@ -72,12 +72,20 @@ class Pear {
   /// exercise both platforms' values).
   ///
   /// iOS's [PearBackgroundExecution.foregroundOnly] is D11's finding, not a
-  /// guess: the current pure-Dart linger timer never fires while genuinely
-  /// backgrounded on iOS (the whole isolate freezes), so nothing here
-  /// actually extends connectivity into the background today — claiming
-  /// [PearBackgroundExecution.bestEffort] would overclaim what the library
-  /// currently does. Revisit once the native-side `suspendWithLinger` fix
-  /// D11 recommends actually ships.
+  /// guess: the pure-Dart linger timer never fires while genuinely
+  /// backgrounded on iOS (the whole isolate freezes). D11's recommended
+  /// native-side `suspend(withLinger:)` fix (flutter_pear-ovt.3.4) has since
+  /// shipped and is verified on-simulator, but it only makes backgrounding
+  /// transition *cleanly* (a prompt, well-behaved suspend instead of an
+  /// undefined frozen state) — it does not keep the worklet connected
+  /// *during* backgrounding, since the short `beginBackgroundTask` used to
+  /// make the native call reliable ends immediately after, leaving iOS free
+  /// to suspend the process at any point. Nothing here is a background-
+  /// execution entitlement (no VoIP, no background fetch). So this pin
+  /// stays correct even after that fix: claiming
+  /// [PearBackgroundExecution.bestEffort] would still overclaim what the
+  /// library does. See `doc/ios.md`'s "Background execution on iOS"
+  /// section for the full picture.
   static PearPlatformInfo get platformInfo {
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:

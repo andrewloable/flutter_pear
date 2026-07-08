@@ -336,6 +336,52 @@ from the source drive may not have been written:
 - **Fix:** Check `.details` for the underlying JS error; if it looks like a
   flutter_pear bug, file an issue with the details attached.
 
+## iOS-specific notes
+
+These aren't `PearErrorCode`s (no code, no catalog entry) -- they're
+failure modes worth landing on this page anyway, since a dev debugging an
+iOS-specific problem often starts here first.
+
+### A custom worklet bundle fails to boot on iOS with no useful RPC error
+
+If you built a **custom** pear-end bundle yourself (`BareWorklet
+.start(customBundle)`, the documented advanced escape hatch -- see the root
+README) and it fails to boot specifically on iOS while working fine on
+Android, the most common cause is building it without iOS in `bare-pack`'s
+own `--host` list. The default bundled pear-end is built via (`dart run
+flutter_pear:pack`, `bin/pack.dart`'s `bundleHosts` constant):
+
+```
+bare-pack --linked --host android-arm64 --host android-x64 --host ios-arm64 --host ios-arm64-simulator --out <path> <entry>
+```
+
+Omit `--host ios-arm64`/`--host ios-arm64-simulator` and the resulting
+bundle has no iOS-linked native addons at all -- on iOS this fails at
+worklet boot, often before any RPC call can even complete, so it doesn't
+surface as a clean, specific error: expect either `WORKLET_CRASHED` (via
+`Pear.onCrash`) or an unexplained `RPC_TIMEOUT`/`CONNECT_TIMEOUT` on the
+very first `attach.info` call, neither of which names the real cause on
+its own.
+
+**Fix:** rebuild your custom bundle with `--host ios-arm64 --host
+ios-arm64-simulator` included alongside whatever Android hosts you need --
+match `bin/pack.dart`'s `bundleHosts` constant for the exact, currently-
+pinned host list this plugin's own default bundle uses.
+
+### A file never arrives after `mirrorToDisk`, with no exception thrown
+
+Not a `PearErrorCode` either -- it's a warning **event**,
+`PearDrive.mirrorWarnings` (`PearEventName.driveMirrorWarning`,
+`'drive.mirrorWarning'`), carrying `{path, reason}` where `reason` is
+`'symlink-rejected'` or `'path-escape'` (a hostile entry in an untrusted
+peer's drive, rejected per-entry rather than failing the whole call). See
+[doc/troubleshooting.md's "A file never arrived after
+`mirrorToDisk`"](doc/troubleshooting.md#a-file-never-arrived-after-mirrortodisk-with-no-exception-thrown)
+for the full symptom-first writeup, including the exact code to listen for
+it -- this cross-reference exists because a silently-missing file with no
+exception at all is exactly the shape of problem someone comes to this
+error catalog looking for first.
+
 ## Cross-references
 
 - `packages/flutter_pear/lib/src/error_catalog.dart` — the Dart-side

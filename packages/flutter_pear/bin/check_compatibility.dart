@@ -49,6 +49,18 @@ Future<void> main(List<String> args) async {
 // checkCompatibility needing a separate return channel just for a count.
 int _lastCheckedCount = 0;
 
+/// Swift tools version (from `Package.swift`'s `// swift-tools-version:X.Y`
+/// header) → the first Xcode release that supports it, per Apple/Swift's own
+/// published release notes -- this repo has no other machine-checkable Xcode
+/// pin, so the "Xcode" column is derived transitively through this table
+/// instead of being independently asserted. Deliberately only covers the
+/// version(s) this repo actually declares; a future swift-tools-version bump
+/// to an unmapped value fails loudly (see its use in [checkCompatibility])
+/// rather than silently reporting a wrong or stale minimum.
+const _minXcodeForSwiftToolsVersion = {
+  '5.9': '15.0',
+};
+
 /// One disagreement between a `COMPATIBILITY.md` table cell and the real
 /// pinned value it's supposed to describe.
 class CompatibilityMismatch {
@@ -429,6 +441,28 @@ List<CompatibilityMismatch> checkCompatibility(String pkgRoot) {
       podspecPath,
     ),
     podspecPath,
+  );
+
+  final swiftToolsVersion = _extractOrThrow(
+    packageSwift,
+    RegExp(r'''swift-tools-version:\s*(\d+\.\d+)'''),
+    'a "// swift-tools-version:X.Y" header',
+    packageSwiftPath,
+  );
+  final minXcode = _minXcodeForSwiftToolsVersion[swiftToolsVersion];
+  if (minXcode == null) {
+    throw CompatibilityCheckException(
+        '$packageSwiftPath declares swift-tools-version:$swiftToolsVersion, '
+        'which has no known minimum-Xcode mapping in '
+        '_minXcodeForSwiftToolsVersion (bin/check_compatibility.dart) -- add '
+        'one (the first Xcode release supporting that Swift tools version, '
+        'per Apple/Swift release notes) before this can be checked.');
+  }
+  check(
+    'Xcode',
+    toolchainRow.get('Xcode', toolchainTableName, compatMdPath),
+    '>=$minXcode',
+    '$packageSwiftPath (swift-tools-version:$swiftToolsVersion)',
   );
 
   _lastCheckedCount = checkedCount;

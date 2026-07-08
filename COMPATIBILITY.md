@@ -30,6 +30,9 @@ other column.
 | flutter_pear version | Bare Kit | autobase | bare-fs | bare-path | blind-pairing | blind-pairing-core | compact-encoding | corestore | hyperbee | hypercore-crypto | hyperdrive | hyperswarm | localdrive | mirror-drive | protomux | streamx |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 0.0.1 | 2.3.0 | 7.28.1 | 4.7.3 | 3.0.1 | 2.3.1 | 2.10.1 | 3.3.0 | 7.11.0 | 2.27.3 | 3.7.0 | 13.3.2 | 4.17.0 | 2.2.1 | 1.14.2 | 3.11.0 | 2.28.0 |
+| 0.2.0-dev.1 | 2.3.0 | 7.28.1 | 4.7.3 | 3.0.1 | 2.3.1 | 2.10.1 | 3.3.0 | 7.11.0 | 2.27.3 | 3.7.0 | 13.3.2 | 4.17.0 | 2.2.1 | 1.14.2 | 3.11.0 | 2.28.0 |
+| 0.2.0 | 2.3.0 | 7.28.1 | 4.7.3 | 3.0.1 | 2.3.1 | 2.10.1 | 3.3.0 | 7.11.0 | 2.27.3 | 3.7.0 | 13.3.2 | 4.17.0 | 2.2.1 | 1.14.2 | 3.11.0 | 2.28.0 |
+| 0.2.1 | 2.3.0 | 7.28.1 | 4.7.3 | 3.0.1 | 2.3.1 | 2.10.1 | 3.3.0 | 7.11.0 | 2.27.3 | 3.7.0 | 13.3.2 | 4.17.0 | 2.2.1 | 1.14.2 | 3.11.0 | 2.28.0 |
 
 ## Toolchain
 
@@ -44,9 +47,12 @@ own root `CLAUDE.md` Toolchain table (JDK); the `:pack`-generated
 `packages/flutter_pear_bare/ios/flutter_pear_bare/Package.swift`'s
 `platforms: [.iOS(.vNN)]` (iOS deployment target).
 
-| flutter_pear version | Flutter SDK | Dart SDK | Melos | Android Gradle Plugin (flutter_pear_bare) | Kotlin (flutter_pear_bare) | Gradle (example app dev/CI wrapper) | Android compileSdk | Android minSdk | Android NDK | Supported ABIs | JDK | iOS deployment target |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 0.0.1 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 24 | not pinned | arm64-v8a, x86_64 | 17 | 13 |
+| flutter_pear version | Flutter SDK | Dart SDK | Melos | Android Gradle Plugin (flutter_pear_bare) | Kotlin (flutter_pear_bare) | Gradle (example app dev/CI wrapper) | Android compileSdk | Android minSdk | Android NDK | Supported ABIs | JDK | iOS deployment target | Xcode |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0.0.1 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 24 | not pinned | arm64-v8a, x86_64 | 17 | 13 | >=15.0 |
+| 0.2.0-dev.1 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 24 | not pinned | arm64-v8a, x86_64 | 17 | 13 | >=15.0 |
+| 0.2.0 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 24 | not pinned | arm64-v8a, x86_64 | 17 | 13 | >=15.0 |
+| 0.2.1 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 24 | not pinned | arm64-v8a, x86_64 | 17 | 13 | >=15.0 |
 
 ### Reading this table honestly (judgment calls made here)
 
@@ -115,6 +121,56 @@ own root `CLAUDE.md` Toolchain table (JDK); the `:pack`-generated
   build in this epic ran against Flutter 3.44.4) — if a genuinely higher
   SPM-specific floor is ever discovered, add a dedicated column then rather
   than guessing one now.
+- **Xcode** is not itself pinned anywhere machine-checkable in this repo (no
+  CI, no `xcode-select` version file) — the checker instead derives the
+  floor transitively from `Package.swift`'s own real
+  `// swift-tools-version:5.9` header via a small, explicit
+  tools-version-to-minimum-Xcode table (`5.9` → Xcode 15.0, the first Xcode
+  release supporting that Swift tools version — a public Apple/Swift
+  toolchain fact, not measured on this dev machine specifically; the Xcode
+  actually installed here during the v0.2 spike was 26.6, well above this
+  floor, so that number was deliberately NOT used as the pin). Bumping
+  `swift-tools-version` to one this table doesn't know maps to a loud
+  checker failure naming the gap, not a silent wrong answer.
+
+## Versioning and breaking-change policy
+
+**All three published packages (`flutter_pear`, `flutter_pear_bare`,
+`flutter_pear_test`) version in lockstep** — one version number moves all
+three together, even when a given release only touches one of them, so a
+consumer never has to reason about a compatibility matrix between them.
+Prereleases (e.g. `0.2.0-dev.1`) land first against hosted pub.dev archives
+before the matching stable version ships.
+
+**Pre-1.0 semver stance:** as stated in the README, minor versions may break
+the API without notice before 1.0. This section narrows that generality into
+concrete, checkable rules for what "breaking" actually means for this repo.
+
+**What counts as breaking (requires a minor bump + a CHANGELOG callout):**
+
+- Removing or renaming any `PearMethod`, `PearEventName`, or `PearErrorCode`
+  constant in `packages/flutter_pear/lib/src/schema.dart` — these are the RPC
+  contract's own vocabulary; a consumer's error handling or event listening
+  can reference any of them by name.
+- Any `pear-end` bundle change that breaks the session nonce/bundle-version
+  handshake (`kPearEndBundleVersion` vs. what the bundle actually reports) —
+  this is the mechanism that lets a hot-restarted or reattached worklet
+  detect an incompatible bundle and fail loudly (`BUNDLE_VERSION_MISMATCH`)
+  instead of silently misbehaving; changing its wire shape is inherently
+  breaking for anyone running an old Dart side against a new bundle or vice
+  versa.
+
+**What does NOT count as breaking:**
+
+- Purely additive `PearMethod`/`PearEventName`/`PearErrorCode` constants —
+  new vocabulary a consumer wasn't depending on yet.
+
+**Native packaging surface changes require a prerelease cohort first:** a
+BareKit version bump, or a change to the committed native-addon set, must
+land in at least one `dev.N` prerelease — validated against real hosted
+archives via the upgrade fixtures — before it can ship in a stable release.
+This repo has no CI; the prerelease cohort is what stands in for that
+safety net.
 
 ## How this is enforced
 

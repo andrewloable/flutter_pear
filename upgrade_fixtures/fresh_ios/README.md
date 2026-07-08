@@ -7,19 +7,25 @@ directory), that adds `flutter_pear` from **hosted pub.dev only** -- never a
 would take: create app -> `flutter pub add flutter_pear` -> run on a
 simulator -> `Pear.start()` handshake succeeds.
 
-## KNOWN GAP: the Info.plist block is a placeholder
+## Info.plist provenance and remaining gap
 
-`ios/Runner/Info.plist`'s `NSLocalNetworkUsageDescription` string is a
-**placeholder**, not the doc-prescribed copy-paste block. The authoritative
-recipe is planned to ship with `flutter_pear-ovt.6` (the docs epic), and
-that doc itself depends on `flutter_pear-ovt.1.12`'s TCC spike (which
-Info.plist key(s) iOS 14+ Local Network access actually requires, whether a
-multicast entitlement or `NSBonjourServices` array is also needed) --
-neither has landed as of this fixture's creation (2026-07-07). This fixture
-proves harness integrity and failure detection today; the Info.plist step
-must be swapped for the real recipe once it ships, and this is flagged
-`bd human` on `flutter_pear-ovt.5.11` rather than silently guessed at as
-final.
+`ios/Runner/Info.plist`'s `NSLocalNetworkUsageDescription` string is the
+**real, shipped copy** from `packages/flutter_pear_example/ios/Runner/Info.plist`
+(added by `flutter_pear-ovt.4.1`) -- not an invented placeholder.
+`flutter_pear-ovt.1.12`'s closed FEAS-TCC spike confirmed it's technically
+sufficient: only this one key is needed, with no `NSBonjourServices` array
+and no `com.apple.developer.networking.multicast` entitlement (source-level
+proof: Hyperswarm/hyperdht always gathers and offers this device's
+LAN-local addresses during connection handshake, unconditionally, and
+nothing in the stack ever uses multicast/broadcast/mDNS).
+
+**Remaining gap**: no polished `flutter_pear-ovt.6` consumer-facing doc page
+exists yet to formally *prescribe* this copy -- that epic hasn't started.
+This fixture uses the shipped example app's string as the best available
+real-world source today. Once the docs epic ships its own copy-paste block,
+re-point this file and the comment above at it; if the wording differs,
+update both to match rather than let them drift silently. Tracked on
+`flutter_pear-ovt.5.11`.
 
 ## Purpose
 

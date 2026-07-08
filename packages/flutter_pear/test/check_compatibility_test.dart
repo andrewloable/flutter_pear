@@ -185,6 +185,38 @@ void main() {
     expect(mismatches.single.actualValue, '15');
     expect(mismatches.single.actualSource, contains('.podspec'));
   });
+
+  test(
+      'a mismatched Xcode minimum, derived from Package.swift\'s '
+      'swift-tools-version, is caught and named (flutter_pear-ovt.6.6)', () {
+    final fixture = _buildFixture(xcodeInCompatibilityMd: '>=99.0');
+    addTearDown(() => fixture.root.deleteSync(recursive: true));
+
+    final mismatches = checkCompatibility(fixture.pkgRoot);
+
+    expect(mismatches, hasLength(1));
+    expect(mismatches.single.field, 'Xcode');
+    expect(mismatches.single.tableValue, '>=99.0');
+    expect(mismatches.single.actualValue, '>=15.0');
+    expect(mismatches.single.actualSource, contains('Package.swift'));
+  });
+
+  test(
+      'an unmapped swift-tools-version fails loudly instead of silently '
+      'reporting a wrong or stale Xcode minimum (flutter_pear-ovt.6.6)', () {
+    final fixture =
+        _buildFixture(swiftToolsVersionInPackageSwift: '99.9');
+    addTearDown(() => fixture.root.deleteSync(recursive: true));
+
+    expect(
+      () => checkCompatibility(fixture.pkgRoot),
+      throwsA(isA<CompatibilityCheckException>().having(
+        (e) => e.toString(),
+        'message',
+        allOf(contains('99.9'), contains('_minXcodeForSwiftToolsVersion')),
+      )),
+    );
+  });
 }
 
 class _Fixture {
@@ -210,6 +242,8 @@ _Fixture _buildFixture({
   bool addNdkVersionInsideComment = false,
   String iosDeploymentTargetInPackageSwift = '13',
   String iosDeploymentTargetInPodspec = '13.0',
+  String swiftToolsVersionInPackageSwift = '5.9',
+  String xcodeInCompatibilityMd = '>=15.0',
 }) {
   final root = Directory.systemTemp.createTempSync('fp_check_compat');
   final pkgRoot = '${root.path}/packages/flutter_pear';
@@ -311,6 +345,7 @@ distributionUrl=https\\://services.gradle.org/distributions/gradle-9.1.0-all.zip
       .createSync(recursive: true);
   File('${root.path}/packages/flutter_pear_bare/ios/flutter_pear_bare/Package.swift')
       .writeAsStringSync('''
+// swift-tools-version:$swiftToolsVersionInPackageSwift
 let package = Package(
     name: "flutter_pear_bare",
     platforms: [.iOS(.v$iosDeploymentTargetInPackageSwift)],
@@ -356,9 +391,9 @@ ${melosDecoyLine}dev_dependencies:
 
 ## Toolchain
 
-| flutter_pear version | Flutter SDK | Dart SDK | Melos | Android Gradle Plugin (flutter_pear_bare) | Kotlin (flutter_pear_bare) | Gradle (example app dev/CI wrapper) | Android compileSdk | Android minSdk | Android NDK | Supported ABIs | JDK | iOS deployment target |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 0.0.1 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 24 | not pinned | arm64-v8a, x86_64 | 17 | 13 |
+| flutter_pear version | Flutter SDK | Dart SDK | Melos | Android Gradle Plugin (flutter_pear_bare) | Kotlin (flutter_pear_bare) | Gradle (example app dev/CI wrapper) | Android compileSdk | Android minSdk | Android NDK | Supported ABIs | JDK | iOS deployment target | Xcode |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0.0.1 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 24 | not pinned | arm64-v8a, x86_64 | 17 | 13 | $xcodeInCompatibilityMd |
 ''');
   }
 

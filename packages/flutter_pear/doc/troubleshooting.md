@@ -164,6 +164,18 @@ can run at all (confirmed by testing, flutter_pear-ovt.1.11's
 FEAS-PREFLIGHT-ORDERING finding) -- so for the SPM path, the section below
 maps SwiftPM's own raw errors to their fixes instead.
 
+**Which path am I on?** Run `dart run flutter_pear:doctor` from your app --
+its iOS section prints `SwiftPM path detected (default -- no ios/Podfile)`
+or `CocoaPods compat path detected (ios/Podfile present)` as its first
+line, so you always know which half of this section applies before reading
+further. The errors below are grouped accordingly: preflight failures
+happen only **on CocoaPods** (the branded messages just below); raw SwiftPM
+errors happen only **on SPM** (see ["SwiftPM raw
+errors"](#ios-spm-errors) further down). SwiftPM is the default as of
+Flutter 3.44+ (`flutter_pear-ovt.1`'s own PREREQ-EVIDENCE finding) -- below
+that floor, plugin resolution falls back to a path this plugin hasn't been
+validated against; `flutter_pear:doctor` flags this too.
+
 <a id="ios-addon-missing"></a>
 ### `<addon>.xcframework is missing from .../addons`
 
@@ -245,6 +257,78 @@ not just during the download itself.
 next run re-fetches from scratch and re-verifies, same remedy as the
 fetch step's own [checksum mismatch](#checksum-mismatch) case.
 
+<a id="ios-deployment-target-too-low"></a>
+### Deployment target below BareKit's minimum
+
+```
+error: flutter_pear preflight found 1 problem(s) before compile/link:
+  - This app's iOS Deployment Target (12.0) is below flutter_pear's minimum (13.0) -- raise it in Xcode (Runner target > General > Deployment Info), or in your Podfile's platform :ios line.
+```
+
+`BareKit.xcframework`'s own `Info.plist` only ships slices down to iOS 13 --
+targeting anything lower fails to link, not at preflight-detection time but
+later during the real link step, with a far less obvious linker error. This
+preflight catches it early and names the fix directly. `dart run
+flutter_pear:doctor`'s iOS section runs this exact comparison too (against
+`Package.swift`'s own real minimum, not a hardcoded guess), so it's worth
+running before a full build if you suspect this.
+
+**Fix:** raise your app's iOS Deployment Target to 13.0 or higher --
+Xcode's Runner target > General > Minimum Deployments on the SPM path, or
+your `ios/Podfile`'s `platform :ios, 'X.Y'` line on the CocoaPods path.
+
+<a id="ios-barekit-vendoring"></a>
+### Fetching BareKit behind a proxy, mirror, or air-gapped network
+
+Both packaging paths fetch the SAME repacked `BareKit.xcframework` asset
+(`barekit-pin.json`'s `repackedUrl`, checksum-pinned) but have different
+override mechanisms -- neither skips the checksum check, so a mirror must
+serve byte-identical content:
+
+- **On SPM:** set the `FLUTTER_PEAR_BAREKIT_URL` environment variable to an
+  internal HTTPS mirror URL before building (`Package.swift`'s generated
+  `let bareKitURL = ProcessInfo.processInfo.environment[...] ?? "<pinned
+  URL>"` reads it). `Package.swift`'s baked-in checksum is still enforced
+  against whatever that URL actually serves -- a mirror hosting different
+  content fails the same way a corrupted upload would (see ["checksum of
+  downloaded artifact"](#ios-spm-errors) below). There is no local-file
+  override on this path -- SwiftPM's `url:`-based `binaryTarget` always
+  fetches over the network; a genuinely air-gapped build needs a
+  pre-warmed `~/Library/Caches/org.swift.swiftpm` (populate it once on a
+  networked machine, then copy that cache directory to the air-gapped one)
+  rather than an env var.
+- **On CocoaPods:** there is no env var -- the compat podspec's
+  `script_phase` always reads `repackedUrl` straight from
+  `barekit-pin.json`. To vendor the asset yourself (proxy, mirror, or
+  air-gapped), fetch it by hand and place the extracted
+  `BareKit.xcframework` directly at
+  `ios/Pods/flutter_pear_bare/barekit_cache/<version>/BareKit.xcframework`
+  (matching `barekit-pin.json`'s `bareKitVersion`) *before* running `pod
+  install`/building -- the `script_phase`'s own existence check (`if [ -f
+  "$FRAMEWORK_DIR/Info.plist" ]`) skips its fetch entirely once that path
+  is already populated.
+
+<a id="ios-xcode-cloud"></a>
+### Xcode Cloud
+
+SwiftPM `url:`-based `binaryTarget`s have a known Xcode Cloud cache-
+collision failure ([flutter/flutter#187710](https://github.com/flutter/flutter/issues/187710)):
+Xcode Cloud's build cache can serve a stale resolved package graph across
+builds, which for a `url:` binary target manifests as the SAME
+checksum-mismatch or 404-style errors documented under ["SwiftPM raw
+errors"](#ios-spm-errors) below, even though nothing in this repo's own
+pin actually changed. SwiftPM resolution also requires real network access
+during the build -- an Xcode Cloud workflow with restricted/no network
+egress fails at resolution, not at a later, more obviously
+network-related step.
+
+**Fix:** if you hit unexplained checksum/404 errors specifically on Xcode
+Cloud (not reproducible in a local build), clear the workflow's package
+cache and retry; if that's not available to you, or network egress is the
+real constraint, fall back to the CocoaPods compat path (its
+`script_phase` fetch is a normal build step, not a package-resolution-time
+one, so it isn't subject to this specific SPM/Xcode-Cloud interaction).
+
 <a id="ios-spm-errors"></a>
 ### SwiftPM raw errors (`Package.swift`, no preflight possible)
 
@@ -296,6 +380,19 @@ surfaced as Xcode's own raw xcframework-slice error instead of a
 mechanism wired in for this today -- see this file's note on
 flutter_pear-ovt.3.7's docs-only choice for the SPM leg, in its own issue
 notes, for why).
+
+**A build keeps using an old `BareKit.xcframework` version/checksum after
+`flutter pub upgrade`, with no error at all** -- a known SwiftPM
+binary-artifact cache-resolution footgun
+([flutter/flutter#186054](https://github.com/flutter/flutter/issues/186054)):
+SwiftPM can resolve a `url:`-based `binaryTarget` from its own on-disk
+cache without re-checking whether the URL's pinned checksum changed,
+particularly across a plain `flutter pub upgrade` that doesn't also touch
+`Package.swift`'s own timestamp in a way Xcode notices. **Fix:** run `rm
+-rf ~/Library/Caches/org.swift.swiftpm` and `flutter clean`, then rebuild --
+same remedy as the checksum-mismatch case above, worth trying first
+whenever a BareKit-related build behaves like it's ignoring a real pin
+change.
 
 <a id="emulator-nat"></a>
 ## Two emulators (or an emulator + a real device) won't connect

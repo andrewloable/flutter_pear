@@ -1,8 +1,9 @@
 # flutter_pear_test
 
-In-memory fakes (fake swarm, fake worklet) for unit-testing [flutter_pear](../flutter_pear)
-apps without radios or real peers. See the [repository README](../../README.md) for the
-overview.
+In-memory fakes (fake swarm, fake worklet) for unit-testing
+[flutter_pear](https://pub.dev/packages/flutter_pear) apps without radios or
+real peers. See the [repository README](https://github.com/andrewloable/flutter_pear#readme)
+for the overview.
 
 > Pre-1.0, published on pub.dev. The in-memory fake swarm/worklet is implemented
 > and exhaustively tested against every `flutter_pear` data-structure wrapper

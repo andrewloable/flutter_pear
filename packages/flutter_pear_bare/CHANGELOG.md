@@ -1,3 +1,43 @@
+## 0.2.1
+
+Docs-only patch: this package's own README still said "Android-only, iOS
+not started" after 0.2.0 shipped iOS support — corrected to match reality.
+No code changes.
+
+## 0.2.0
+
+**No Android behavior changes.** Backed by the pack Android regression test
+(`pack_android_regression_test.dart`) and the locked-`0.0.1` Android upgrade
+fixture. Accept-and-disclose ([flutter/flutter#130210](https://github.com/flutter/flutter/issues/130210)):
+this package's pub.dev download grows by its committed iOS addon
+`.xcframework`s (~21 MB, measured via `git ls-files` + `du`) even for
+Android-only consumers, though none of it enters an Android build.
+
+**iOS support, new in 0.2.0 — SIMULATOR-VALIDATED.** `BareWorklet` now
+boots and runs the real, committed `pear-end` bundle on the iOS Simulator
+via a real Swift host — lifecycle (`start`/`terminate`/`suspend`/`resume`,
+hot-restart reattach-or-kill), raw binary IPC, and a native `suspend(withLinger:)`
+fix that honors the Dart-configured `PearLifecycle(linger:)` value on
+backgrounding. Resolution is SwiftPM-first with a CocoaPods compat path,
+both fetching a repacked, checksum-pinned `BareKit.xcframework` at consumer
+build time — see `barekit-pin.json`. See the `flutter_pear` package's own
+CHANGELOG for the full 5-step Enable-iOS recipe (the
+`flutter pub add flutter_pear:^0.2.0` step covers this package
+transitively; bump it directly too if you pinned it yourself).
+
+**Minimums:** iOS deployment target 13.0; Xcode ≥ 15.0 (`Package.swift`'s
+`swift-tools-version: 5.9` requirement). Expected first-build BareKit
+download: ~107 MB via SwiftPM, or the same artifact via the CocoaPods
+compat path (`ios/Pods/flutter_pear_bare/barekit_cache/<version>/`).
+
+**Rollback:** pin back to `flutter_pear_bare: 0.0.1`. Maintainer-side:
+`dart pub retract` the broken version.
+
+## 0.2.0-dev.1
+
+Prerelease of 0.2.0 above, published first so the upgrade fixtures could
+validate against real hosted pub.dev archives before the stable release.
+
 ## 0.0.1
 
 - `BareWorklet` low-level API: lifecycle (`start`/`terminate`/`suspend`/`resume`,

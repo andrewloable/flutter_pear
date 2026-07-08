@@ -4,7 +4,7 @@ The full [Pear](https://pears.com/) peer-to-peer stack as a Dart-idiomatic Flutt
 
 ![Chat demo: an Android emulator joins a room, connects to a desktop peer, and exchanges messages both ways](docs/chat-demo.gif)
 
-> **Android only right now** — iOS is its own v0.2 milestone (not started), not a gate on this release. Requires Flutter SDK ≥ 3.24 (bundles Dart ≥ 3.5).
+> **Platforms:** Android (stable, published) · iOS (new in 0.2.0, **SIMULATOR-VALIDATED** — see [iOS platform notes](packages/flutter_pear/doc/ios.md) before shipping). Requires Flutter SDK ≥ 3.24 (bundles Dart ≥ 3.5).
 >
 > **Status: pre-1.0, published on pub.dev (v0.0.1).** Read [What works today](#what-works-today) below before assuming anything here is vaporware — the worklet is real, not a stand-in, and most of the API is already implemented and tested.
 >
@@ -25,7 +25,7 @@ flutter_pear is under active, incremental development — here's the honest brea
 - **The Bare Kit worklet is real, not a stand-in.** `Pear.start()` boots an actual Bare runtime running the bundled `pear-end` JS — not a native echo. This has been code-reviewed and confirmed with a live Hyperswarm join/relay round trip between two independent processes — an Android emulator and a desktop peer (see the pairing-combo matrix below). **This gate is emulator-based, not physical-hardware** (developer decision: no physical Android devices are available in this dev environment, so acceptance criteria were permanently downgraded to emulator-based validation). Physical **two-device** hardware validation (real phone ↔ real phone) remains valuable and is tracked for a final pass if hardware becomes available, but is no longer a precondition for this release. See [project_plan.md](project_plan.md) for the full milestone breakdown.
 - **Every capability in the table below has a complete Dart wrapper and a complete, real `pear-end` JS implementation** — no stubs. Each is exhaustively unit/e2e-tested against `flutter_pear_test`'s in-memory fake (every happy path and every typed error path), plus emulator-based real-worklet validation where applicable.
 - **What hasn't happened for any of them: a real-hardware (physical phone) run.** Each wrapper's own "does the fake match the real worklet, and does two-device replication actually converge" question was answered on emulators, not physical devices — tracked centrally in `flutter_pear-doi` as a nice-to-have follow-up, not a release blocker.
-- **This covers Android only.** iOS hasn't started (see the banner above) — it's its own v0.2 milestone, not a gate on this release. The two-device gate above is the Android v0.1 release's remaining blocker.
+- **iOS is new in 0.2.0, simulator-validated.** The Bare Kit worklet boots and runs on the iOS Simulator against the real, committed `pear-end` bundle — verified with a live cross-platform round trip (simulator-iOS ↔ physical Android). Physical-iPhone validation is a documented follow-up, not a release gate (standing decision: sim-tier validation ships). See [iOS platform notes](packages/flutter_pear/doc/ios.md) for what's actually different on iOS: background execution, the Local Network permission (the single biggest sim-invisible risk), and storage roots.
 - **Published on pub.dev.** `flutter_pear`, `flutter_pear_bare`, and `flutter_pear_test` are all live at v0.0.1.
 
 ## Install
@@ -34,13 +34,21 @@ flutter_pear is under active, incremental development — here's the honest brea
 flutter pub add flutter_pear
 ```
 
-Native binaries and the P2P runtime resolve automatically via Gradle (no NDK, ABI, or Podfile edits).
+Native binaries and the P2P runtime resolve automatically — Gradle on Android, SwiftPM (with a CocoaPods compat path) on iOS. No manual NDK, ABI, or Podfile edits on either platform.
 
 Pre-1.0: **minor versions may break the API without notice.** Pin an exact version once you depend on this for real.
 
-The first Android build downloads Bare Kit's native binaries (cached under each app's `build/flutter_pear_bare/bare-kit/`; delete that directory, or run `flutter clean`, to force a re-download).
+**Time to hello world (TTHW):** P50 ≤ 5 minutes / P90 ≤ 10 minutes of active work, zero `flutter_pear`-specific build-wiring steps beyond one copy-paste `Info.plist` block on iOS — "hello world" means the first Android-to-iOS message, not just a successful build.
 
-Android only for now; iOS (Xcode + CocoaPods) is its own v0.2 milestone.
+First-build download UX (native binaries fetch once, then cache):
+
+- **Android:** downloads Bare Kit's native binaries, cached under each app's `build/flutter_pear_bare/bare-kit/`; delete that directory, or run `flutter clean`, to force a re-download.
+- **iOS (SwiftPM, the default):** downloads the repacked `BareKit.xcframework` (~107 MB), cached under `~/Library/Caches/org.swift.swiftpm`; delete that directory, or run `flutter clean`, to force a re-download.
+- **iOS (CocoaPods compat path):** downloads the same artifact into `ios/Pods/flutter_pear_bare/barekit_cache/<version>/`; delete `ios/Pods/` and re-run `pod install` to force a re-download.
+
+Both platforms fetch from the same upstream [holepunchto/bare-kit](https://github.com/holepunchto/bare-kit) release; iOS's SwiftPM/CocoaPods binary-target mechanisms need a single ready-made `BareKit.xcframework` zip rather than Android's raw ~354 MB multi-platform `prebuilds.zip`, so `flutter_pear` republishes just that one framework, repacked and checksum-pinned — see [`barekit-pin.json`](packages/flutter_pear_bare/barekit-pin.json) for the exact pin chain.
+
+**Download-size disclosure** (accept-and-disclose, standing decision — pub.dev downloads every dependency's committed files regardless of your target platform, [flutter/flutter#130210](https://github.com/flutter/flutter/issues/130210)): `flutter_pear_bare`'s committed iOS addon `.xcframework`s (bundled for every consumer, Android-only included) add **~21 MB** to that package's own tracked content — measured directly (`git ls-files` + `du`), not a pub.dev-computed archive size (this repo's `dart pub publish --dry-run` doesn't emit that line in this environment; a repo maintainer with pub.dev publish access should re-measure and correct this number at release time if it drifts). The example app's iOS build produces a `Runner.app` of **~59.7 MB** (measured on the simulator archive) — this is an absolute number, not a delta: v0.1 had no iOS build at all to diff against.
 
 ## Quick start — chat over Hyperswarm
 
@@ -80,6 +88,23 @@ peer: hello from Flutter
 
 Everything is `Future`s and `Stream`s; keys are a `PearKey` value type with hex helpers (z-base-32 is planned, not yet implemented).
 
+## Enable iOS on an existing Android app
+
+Already on `flutter_pear` 0.1.x, Android-only? Five steps get you to iOS:
+
+1. `flutter create --platforms=ios .` — plain Flutter, nothing `flutter_pear`-specific.
+2. `flutter pub add flutter_pear:^0.2.0` — explicit, not a bare `flutter pub upgrade`: that command cannot cross the already-published `^0.0.1` caret. If you previously pinned `flutter_pear_bare` directly in your own `pubspec.yaml`, bump it the same way; if `pub add` reports a stale lock conflict, delete `pubspec.lock` and re-resolve.
+3. Paste this into `ios/Runner/Info.plist` (copied from [`doc/ios.md`](packages/flutter_pear/doc/ios.md#local-network-permission--the-top-sim-invisible-risk) — see that page for why, and for the full symptom table if you skip this step):
+   ```xml
+   <key>NSLocalNetworkUsageDescription</key>
+   <string>flutter_pear demos connect directly to your other devices over the local network to exchange chat messages and files.</string>
+   ```
+   Adjust the description to your own app's actual local-network use — Apple requires it be accurate, not necessarily this exact wording.
+4. `flutter run` on an iOS Simulator.
+5. Exchange your first message with an Android peer — same `Pear.start()`/`join()` code as above, no platform branching required for the happy path.
+
+**Received-file locations** (if your app uses `PearDrive`/file transfer) differ by platform, matching what `flutter_pear_example`'s own file-drop demo does: **iOS** saves into a `Documents` subtree (`path_provider`'s `getApplicationDocumentsDirectory()`), visible in the Files app; **Android** saves into the app's private files directory (`Context.getFilesDir()/received/`), not independently visible — open or share it through your app's own affordance (a `FileProvider` content URI + `ACTION_VIEW`, in the example app's case). Neither location is where the worklet's own protocol storage lives — see [Storage roots](packages/flutter_pear/doc/ios.md#storage-roots-deliberately-non-configurable) for that.
+
 ## API coverage
 
 | Capability | Dart class | Status |
@@ -110,7 +135,7 @@ App lifecycle (suspend/resume) is auto-wired to `AppLifecycleState` and overrida
 
 ## Background execution
 
-iOS and Android aggressively suspend background apps, which can drop swarm connections. `flutter_pear` wires suspend/resume to the app lifecycle by default; [`packages/flutter_pear/BACKGROUND_EXECUTION.md`](packages/flutter_pear/BACKGROUND_EXECUTION.md) covers what Android actually permits (foreground service, OS suspend timing) so you can set expectations correctly. iOS's own background limits are undocumented until the v0.2 iOS milestone starts.
+iOS and Android aggressively suspend background apps, which can drop swarm connections. `flutter_pear` wires suspend/resume to the app lifecycle by default; [`packages/flutter_pear/BACKGROUND_EXECUTION.md`](packages/flutter_pear/BACKGROUND_EXECUTION.md) covers what Android actually permits (foreground service, OS suspend timing), and [`packages/flutter_pear/doc/ios.md`](packages/flutter_pear/doc/ios.md#background-execution-on-ios) covers iOS's own story (a native suspend fix that transitions cleanly, but no extended background execution) so you can set expectations correctly on either platform. Branch app behavior on `Pear.platformInfo.backgroundExecution`, not a platform check.
 
 ## Development setup
 
@@ -118,9 +143,9 @@ This is a [melos](https://melos.invertase.dev/) monorepo. To work on it you need
 
 - **Flutter SDK ≥ 3.24** (bundles Dart ≥ 3.5)
 - **Melos ≥ 6** — `dart pub global activate melos`
-- **JDK 17 + Android SDK/NDK** to build the plugin and example (Android-only for now)
+- **JDK 17 + Android SDK/NDK** to build the plugin and Android example
+- **Xcode + CocoaPods** to build the plugin and iOS example (simulator-tier validation; see [iOS platform notes](packages/flutter_pear/doc/ios.md))
 - **Node.js ≥ 18 + npm**, plus **bare-pack** (`npm i -g bare-pack`) *only* if you change the `pear-end/` worklet JS
-- iOS (Xcode + CocoaPods) isn't needed yet — it's the separate v0.2 milestone
 
 ```bash
 melos bootstrap        # link packages + pub get

@@ -4,12 +4,14 @@
 # and proves create -> add -> run -> worklet-attached end to end on an
 # iOS simulator.
 #
-# KNOWN GAP (see the fixture's README and flutter_pear-ovt.5.11's bd notes):
-# ios/Runner/Info.plist's NSLocalNetworkUsageDescription string is a
-# PLACEHOLDER, not the doc-prescribed copy-paste block -- flutter_pear-ovt.6
-# (the docs epic) and its prerequisite flutter_pear-ovt.1.12 (the TCC spike
-# that determines the real required Info.plist key(s)/wording) have not
-# landed yet as of this writing. Swap in the real block once shipped.
+# REMAINING GAP (see the fixture's README and flutter_pear-ovt.5.11's bd
+# notes): ios/Runner/Info.plist's NSLocalNetworkUsageDescription string is
+# sourced from the real, shipped packages/flutter_pear_example Info.plist
+# and confirmed technically sufficient by flutter_pear-ovt.1.12's closed
+# FEAS-TCC spike (only this one key is needed -- no NSBonjourServices, no
+# multicast entitlement) -- but no polished flutter_pear-ovt.6 consumer doc
+# page exists yet to formally prescribe this exact copy. Re-point at that
+# doc once it ships; if its wording differs, update both to match.
 #
 # Run from this directory (upgrade_fixtures/fresh_ios):
 #   FLUTTER_PEAR_VERSION=0.2.0-dev.1 ./run_check.sh
