@@ -8,22 +8,44 @@ import '../bin/check_pins.dart';
 void main() {
   test(
       'checkPins finds zero mismatches against this repo\'s real, current '
-      'state, with exactly the 1 not-yet-landed leg skipped', () {
+      'state, with zero not-yet-landed legs and exactly the 1 '
+      'by-design leg permanently skipped', () {
     // `flutter test` runs with the package root as the working directory --
     // exactly the pkgRoot check_pins.dart itself expects.
     final pkgRoot = Directory.current.path;
     final result = checkPins(pkgRoot);
     expect(result.mismatches, isEmpty,
         reason: result.mismatches.map((m) => m.describe()).join('\n'));
-    expect(result.skipped, hasLength(1),
-        reason: 'only the podspec should still be skipped (it reads '
+    expect(result.skipped, isEmpty,
+        reason: 'every pin/pin-adjacent epic has landed for real in this '
+            'repo -- if this is non-empty, a leg un-landed and this test '
+            'needs updating');
+    expect(result.permanentSkips, hasLength(1),
+        reason: 'only the podspec should be permanently skipped (it reads '
             'barekit-pin.json dynamically at pod-install time, '
             'flutter_pear-ovt.3.6, so it has no independent literal pin to '
-            'cross-check) -- Package.swift now carries a real, published '
-            'BareKit url+checksum (flutter_pear-ovt.6.1\'s own discovery: '
-            'the earlier PENDING-UPLOAD sentinel was resolved). If this '
-            'count changed, a leg landed or un-landed and this test (and '
-            'the fixture below) needs updating');
+            'cross-check, and never will -- flutter_pear-beq). If this '
+            'count changed, a leg\'s design changed and this test (and the '
+            'fixture below) needs updating');
+  });
+
+  test(
+      'a landed podspec that reads barekit-pin.json dynamically is '
+      'permanently skipped, not counted as a not-yet-landed leg -- so '
+      '--strict never flags it (flutter_pear-beq)', () {
+    final fixture = _buildFixture(podspecContent: _podspecDynamicPinRead());
+    addTearDown(() => fixture.root.deleteSync(recursive: true));
+
+    final result = checkPins(fixture.pkgRoot);
+    expect(result.mismatches, isEmpty,
+        reason: result.mismatches.map((m) => m.describe()).join('\n'));
+    expect(
+      result.permanentSkips.any((s) => s.contains('barekit-pin.json dynamically')),
+      isTrue,
+      reason: 'expected a by-design podspec skip, got: ${result.permanentSkips}',
+    );
+    expect(result.skipped,
+        hasLength(3)); // barekit-pin.json, Package.swift, swift host
   });
 
   test(
@@ -53,6 +75,7 @@ void main() {
     expect(result.mismatches, isEmpty,
         reason: result.mismatches.map((m) => m.describe()).join('\n'));
     expect(result.skipped, isEmpty);
+    expect(result.permanentSkips, isEmpty);
   });
 
   test(
@@ -354,6 +377,22 @@ Pod::Spec.new do |s|
   s.script_phase = {
     :name => "FetchBareKit",
     :script => "curl -L https://github.com/holepunchto/bare-kit/releases/download/v$version/prebuilds.zip -o prebuilds.zip; echo expected sha256:$sha256"
+  }
+end
+''';
+
+/// Mirrors the real CocoaPods compat podspec's actual shape
+/// (flutter_pear-ovt.3.6): reads barekit-pin.json dynamically at
+/// `pod install` eval time instead of embedding a literal version/sha256 --
+/// no independent pin for [checkPins] to ever cross-check.
+String _podspecDynamicPinRead() => '''
+Pod::Spec.new do |s|
+  s.name = "flutter_pear_bare"
+  pin_path = File.join(__dir__, '..', 'barekit-pin.json')
+  pin = JSON.parse(File.read(pin_path))
+  s.script_phase = {
+    :name => "FetchBareKit",
+    :script => "echo fetching barekit-pin.json's pinned repacked artifact"
   }
 end
 ''';

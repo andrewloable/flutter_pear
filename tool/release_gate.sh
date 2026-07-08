@@ -318,7 +318,14 @@ gate_ios-smoke() {
   log_file="$(mktemp -t ios_smoke_run.XXXXXX.log)"
   pid_file="$(mktemp -t ios_smoke_run.XXXXXX.pid)"
 
-  (cd "$FLUTTER_PEAR_EXAMPLE" && flutter run -d "$udid" --pid-file "$pid_file") >"$log_file" 2>&1 &
+  # flutter_pear_example's home screen (epic 4's Send/Receive redesign)
+  # requires tapping into a demo route before Pear.start() ever runs -- a
+  # plain launch never reaches the handshake. Reuses the same debug-only
+  # auto-join dart-define flutter_pear_example's ios_hot_restart_gate.sh
+  # already established (flutter_pear-ovt.3.2) to skip straight to
+  # ChatScreen and auto-join on launch (flutter_pear-beq).
+  (cd "$FLUTTER_PEAR_EXAMPLE" && flutter run -d "$udid" --pid-file "$pid_file" \
+    --dart-define="FLUTTER_PEAR_GATE_AUTO_JOIN_TOPIC=flutter_pear-beq-ios-smoke-gate") >"$log_file" 2>&1 &
   bg_pid=$!
 
   for _ in $(seq 1 30); do

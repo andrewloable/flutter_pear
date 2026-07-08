@@ -11,6 +11,14 @@
 // anyone noticing. `--strict` (what release_gate.sh runs with) turns every
 // SKIPPED-MISSING line into a failure instead.
 //
+// A separate, smaller category -- SKIPPED-BY-DESIGN -- covers legs that will
+// NEVER independently land, on purpose (e.g. the CocoaPods podspec's
+// deliberate single-pin-source read of barekit-pin.json, flutter_pear-ovt.3.6:
+// there is no separate literal pin that could ever exist to cross-check).
+// `--strict` never escalates these -- doing so would demand a hardcoded pin
+// the design deliberately doesn't have, defeating the single-pin-source
+// decision it exists to enforce (flutter_pear-beq).
+//
 // ponytail: plain regex/line extraction, matching bin/check_compatibility.dart's
 // own style — this repo controls every source file's format, so a full
 // Gradle/Podfile/SwiftPM parser would be more code for no real benefit.
@@ -31,6 +39,9 @@ Future<void> main(List<String> args) async {
     for (final skip in result.skipped) {
       stdout.writeln('SKIPPED-MISSING: $skip');
     }
+    for (final skip in result.permanentSkips) {
+      stdout.writeln('SKIPPED-BY-DESIGN: $skip');
+    }
     final effectiveMismatches = [
       ...result.mismatches,
       if (strict)
@@ -45,7 +56,8 @@ Future<void> main(List<String> args) async {
     ];
     if (effectiveMismatches.isEmpty) {
       stdout.writeln('\nAll pins agree (${result.checkedCount} checked, '
-          '${result.skipped.length} leg(s) skipped as not-yet-landed).');
+          '${result.skipped.length} leg(s) skipped as not-yet-landed, '
+          '${result.permanentSkips.length} leg(s) skipped by design).');
       return;
     }
     stderr.writeln('\n${effectiveMismatches.length} pin(s) out of sync:\n');
@@ -96,15 +108,19 @@ class PinCheckException implements Exception {
 }
 
 /// Result of [checkPins]: real disagreements, not-yet-landed legs skipped
-/// (each a human-readable reason string), and how many fields were actually
-/// compared.
+/// (each a human-readable reason string, escalated to a mismatch by
+/// `--strict`), permanently-by-design legs skipped ([permanentSkips] --
+/// never escalated by `--strict`, since there is no independent pin for them
+/// to ever gain), and how many fields were actually compared.
 class PinCheckResult {
   PinCheckResult(
       {required this.mismatches,
       required this.skipped,
+      required this.permanentSkips,
       required this.checkedCount});
   final List<PinMismatch> mismatches;
   final List<String> skipped;
+  final List<String> permanentSkips;
   final int checkedCount;
 }
 
@@ -116,6 +132,7 @@ PinCheckResult checkPins(String pkgRoot) {
   final bareRoot = '$pkgRoot/../flutter_pear_bare';
   final mismatches = <PinMismatch>[];
   final skipped = <String>[];
+  final permanentSkips = <String>[];
   var checkedCount = 0;
 
   // --- BareKit version + sha256 pin, across every location that pins it ---
@@ -266,7 +283,7 @@ PinCheckResult checkPins(String pkgRoot) {
       // doesn't have (which would just reintroduce the drift-prone
       // duplication the single-pin-source decision exists to avoid).
       if (text.contains('barekit-pin.json')) {
-        skipped.add('${f.path} reads barekit-pin.json dynamically (no '
+        permanentSkips.add('${f.path} reads barekit-pin.json dynamically (no '
             'independent pin to cross-check, flutter_pear-ovt.3.6)');
         continue;
       }
@@ -439,7 +456,10 @@ PinCheckResult checkPins(String pkgRoot) {
   }
 
   return PinCheckResult(
-      mismatches: mismatches, skipped: skipped, checkedCount: checkedCount);
+      mismatches: mismatches,
+      skipped: skipped,
+      permanentSkips: permanentSkips,
+      checkedCount: checkedCount);
 }
 
 bool _containsBytes(List<int> haystack, List<int> needle) {
