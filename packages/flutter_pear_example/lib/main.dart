@@ -293,13 +293,24 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     try {
       final pear = await Pear.start();
-      // Greppable for tool/ios_hot_restart_gate.sh (flutter_pear-ovt.3.2) --
-      // the only way to observe reattach-vs-fresh-boot from outside the app.
-      debugPrint('flutter_pear example: reattached=${pear.worklet.reattached}');
+      // Greppable for tool/ios_hot_restart_gate.sh (flutter_pear-ovt.3.2,
+      // exact substring "flutter_pear example: reattached=") and
+      // tool/release_gate.sh's ios-smoke gate (flutter_pear-beq, substring
+      // "worklet attached") -- the only way to observe worklet-attach
+      // success from outside the app. Keep the "reattached=" prefix exact:
+      // ios_hot_restart_gate.sh matches it verbatim.
+      debugPrint(
+        'flutter_pear example: reattached=${pear.worklet.reattached} '
+        '(worklet attached)',
+      );
       final topic = PearCrypto.unsafeTopicFromString(topicText);
       final swarm = await pear.join(topic);
       setState(() => _wireSwarm(pear, swarm));
     } on PearException catch (e) {
+      // Greppable for tool/release_gate.sh's ios-smoke gate (flutter_pear-beq):
+      // surfaces a genuine join failure immediately instead of the gate
+      // waiting out its full timeout before declaring failure.
+      debugPrint('flutter_pear example: FLUTTER_PEAR_FIXTURE_FAILED: $e');
       setState(() => _joinError = e.toString());
     } finally {
       setState(() => _joining = false);
