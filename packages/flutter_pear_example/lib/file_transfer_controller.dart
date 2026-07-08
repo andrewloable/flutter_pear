@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show PlatformDispatcher, TextDirection;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/semantics.dart' show SemanticsService;
 import 'package:flutter_pear/flutter_pear.dart';
 
 import 'file_picker_channel.dart';
@@ -92,6 +94,7 @@ class FileTransferCard {
     required this.status,
     required this.peers,
     this.sourceLocalPath,
+    this.receivedLocalPath,
   });
 
   /// The file's name.
@@ -118,9 +121,15 @@ class FileTransferCard {
   /// if the file is no longer in this device's own drive.
   final String? sourceLocalPath;
 
+  /// The local absolute path this file was copied to under [receivedRoot]
+  /// (receiving only, null for sending, and null until [status] reaches
+  /// [TransferStatus.received]) — what the Open/Share affordances act on.
+  final String? receivedLocalPath;
+
   FileTransferCard _copyWith({
     TransferStatus? status,
     Map<String, TransferPeerState>? peers,
+    String? receivedLocalPath,
   }) =>
       FileTransferCard(
         name: name,
@@ -130,6 +139,7 @@ class FileTransferCard {
         status: status ?? this.status,
         peers: peers ?? this.peers,
         sourceLocalPath: sourceLocalPath,
+        receivedLocalPath: receivedLocalPath ?? this.receivedLocalPath,
       );
 
   @override
@@ -155,6 +165,23 @@ TransferStatus _deriveSendStatus(Map<String, TransferPeerState> peers) {
   if (pending == peers.length) return TransferStatus.waitingForRecipients;
   return TransferStatus.partiallySent;
 }
+
+/// The accessibility announcement for [card]'s CURRENT status, or null if
+/// it isn't a terminal one yet (sending/waitingForRecipients/receiving are
+/// still in flight, nothing to announce) -- exposed top-level so it's
+/// unit-testable without a controller or widget tree, same reasoning as
+/// `describeSwarmState` (main.dart).
+String? terminalAnnouncementFor(FileTransferCard card) => switch (card.status) {
+      TransferStatus.sent => 'Sent ${card.name}',
+      TransferStatus.partiallySent => 'Sent ${card.name} to some peers',
+      TransferStatus.failed => 'Failed to send ${card.name}',
+      TransferStatus.received => 'Received ${card.name}',
+      TransferStatus.receiveFailed => 'Failed to receive ${card.name}',
+      TransferStatus.sending ||
+      TransferStatus.waitingForRecipients ||
+      TransferStatus.receiving =>
+        null,
+    };
 
 /// Drives the hardened file-drop demo's transfer state machine (Eng review
 /// round 2, replacing the rejected single-status/manual-poll/mirrors-
@@ -249,6 +276,12 @@ class FileTransferController extends ChangeNotifier {
   final _mirrorQueues = <String, Future<void>>{};
 
   final _cards = <FileTransferCard>[];
+
+  // Identity-keyed (a card is replaced, never mutated, on every status
+  // change) -- tracks which cards have already had their terminal-status
+  // accessibility announcement sent, so [notifyListeners]'s scan below
+  // doesn't re-announce the same outcome on every unrelated notification.
+  final _announcedCards = <FileTransferCard>{};
 
   /// This swarm's current connection status, or null before the first
   /// event arrives.
@@ -394,9 +427,8 @@ class FileTransferController extends ChangeNotifier {
     String peerShort,
     String name,
     int size,
-    PearConnection conn, {
-    bool isRetry = false,
-  }) async {
+    PearConnection conn,
+  ) async {
     final now = DateTime.now();
     final receivingCard = FileTransferCard(
       name: name,
@@ -410,7 +442,12 @@ class FileTransferController extends ChangeNotifier {
     _cards.add(receivingCard);
     notifyListeners();
 
-    try {
+    // One mirror+copy attempt -- factored out so a failure can be retried
+    // without spawning a second card (a duplicate, permanently-stuck-at
+    // "receiving" ghost card was a real bug here: the previous version
+    // recursed into a fresh _receiveOne call on retry instead of reusing
+    // cardIndex, leaving the FIRST card's status never updated).
+    Future<String> attempt() async {
       await resumeInsurance?.call();
       final peerDrive = _peerDrives[peerHex];
       if (peerDrive == null) {
@@ -434,15 +471,19 @@ class FileTransferController extends ChangeNotifier {
       final receivedFile = File(_drivePath(receivedDir, name));
       await receivedFile.parent.create(recursive: true);
       await stagedFile.copy(receivedFile.path); // overwrites same names.
+      return receivedFile.path;
+    }
 
-      _cards[cardIndex] = receivingCard._copyWith(
-        status: TransferStatus.received,
-        peers: {peerShort: TransferPeerState.acked},
-      );
-      notifyListeners();
-      await conn.write(FileReceived(name).toBytes());
+    String receivedPath;
+    try {
+      receivedPath = await attempt();
     } catch (_) {
-      if (isRetry) {
+      // receiveFailed is auto-retried exactly once (DO step 2's "auto-
+      // retry") -- the SAME card (cardIndex) updates in place across both
+      // attempts, never a second one.
+      try {
+        receivedPath = await attempt();
+      } catch (_) {
         _cards[cardIndex] = receivingCard._copyWith(
           status: TransferStatus.receiveFailed,
           peers: {peerShort: TransferPeerState.failed},
@@ -450,12 +491,14 @@ class FileTransferController extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      // receiveFailed is auto-retried exactly once (DO step 2's "auto-
-      // retry") -- if the retry also fails, it's left at receiveFailed
-      // above, a terminal state until the peer re-announces.
-      await _receiveOne(peerHex, peerShort, name, size, conn,
-          isRetry: true);
     }
+    _cards[cardIndex] = receivingCard._copyWith(
+      status: TransferStatus.received,
+      peers: {peerShort: TransferPeerState.acked},
+      receivedLocalPath: receivedPath,
+    );
+    notifyListeners();
+    await conn.write(FileReceived(name).toBytes());
   }
 
   /// Sends [picked] to every currently-connected peer: puts it into
@@ -539,6 +582,28 @@ class FileTransferController extends ChangeNotifier {
     for (final entry in _liveConnections.entries) {
       if (!retryable.contains(entry.key.substring(0, 8))) continue;
       unawaited(entry.value.write(announcement).catchError((_) {}));
+    }
+  }
+
+  /// Announces every card's FIRST transition into a terminal status (sent,
+  /// partially sent, failed, received, or receive-failed) over the
+  /// platform's accessibility channel -- state-matrix task's DO step 3:
+  /// "state changes must be perceivable, not color-only," covering both
+  /// the send and receive directions. Runs on EVERY [notifyListeners] call
+  /// (there's no per-card-change hook to intercept instead) rather than at
+  /// each individual call site -- demo-app card counts are small, so the
+  /// full re-scan costs nothing, and it can't be missed at a call site that
+  /// forgets to wire it in.
+  @override
+  void notifyListeners() {
+    super.notifyListeners();
+    final view = PlatformDispatcher.instance.implicitView;
+    if (view == null) return;
+    for (final card in _cards) {
+      final text = terminalAnnouncementFor(card);
+      if (text == null) continue;
+      if (!_announcedCards.add(card)) continue;
+      unawaited(SemanticsService.sendAnnouncement(view, text, TextDirection.ltr));
     }
   }
 

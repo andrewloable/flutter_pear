@@ -1,14 +1,17 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show SemanticsService;
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_pear/flutter_pear.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'file_picker_channel.dart';
 import 'file_transfer_controller.dart';
+import 'local_network_banner.dart';
 import 'main.dart'
     show PrejoinedSwarmWiring, SwarmStatusBanner, describeSwarmState;
+import 'share_open_channel.dart';
 
 /// Joins a shared topic and exchanges files with whoever else joins it --
 /// the hardened E7.7 demo (Eng review round 2, design review's TD-D1/fix
@@ -52,7 +55,7 @@ class _FileDropScreenState extends State<FileDropScreen> {
   String? _initError;
   bool _sending = false;
   final _debugLog = <String>[];
-  final _knownReceivedCards = <FileTransferCard>{};
+  final _knownTerminalReceives = <FileTransferCard>{};
 
   @override
   void initState() {
@@ -108,7 +111,22 @@ class _FileDropScreenState extends State<FileDropScreen> {
     widget.prejoinedWiring.drainInto(
       (status) {
         statusController.add(status);
-        _debugLog.add(describeSwarmState(status));
+        final description = describeSwarmState(status);
+        _debugLog.add(description);
+        // Connection state is otherwise color-only on the status banner --
+        // an accessibility announcement makes "Reconnecting…"/"Connected."/
+        // etc. perceivable without watching the screen (state-matrix task's
+        // DO step 3). describeSwarmState's text is already covered by
+        // chat_screen_test.dart's own unit tests; SemanticsService's
+        // send-path is covered by local_network_banner_test.dart's pattern
+        // and FileTransferController's own terminal-card announcements
+        // below (this call site itself can't be widget-tested directly --
+        // it only ever runs after a real Pear.start(), same limitation
+        // documented throughout pairing_screens_test.dart).
+        if (mounted) {
+          unawaited(SemanticsService.sendAnnouncement(
+              View.of(context), description, TextDirection.ltr));
+        }
       },
       connectionsController.add,
     );
@@ -117,51 +135,98 @@ class _FileDropScreenState extends State<FileDropScreen> {
 
   // Only the snackbar side effect -- FileDropBody rebuilds itself on every
   // controller change via its own ListenableBuilder, so this doesn't also
-  // need a setState() to keep the UI current.
+  // need a setState() to keep the UI current. Per-card accessibility
+  // announcements for terminal send/receive status changes live on
+  // [FileTransferController] itself (state-matrix task's DO step 3) --
+  // that's the fully fake-worklet-testable seam, unlike this screen.
   void _onControllerChanged() {
     if (!mounted) return;
-    _showSnackbarsForNewlyReceivedCards();
+    _showSnackbarsForTerminalReceives();
   }
 
   /// "receive SUCCESS -> completed card, tap = Open / Share, plus a
-  /// snackbar" -- [ChangeNotifier] only says "something changed", not
-  /// what, so this diffs against [_knownReceivedCards] (identity-keyed by
-  /// the card objects themselves, which [FileTransferController] replaces
-  /// rather than mutates) to find cards that just became `received` and
-  /// weren't already announced.
-  void _showSnackbarsForNewlyReceivedCards() {
+  /// snackbar" and "receive error -> banner" -- [ChangeNotifier] only says
+  /// "something changed", not what, so this diffs against
+  /// [_knownTerminalReceives] (identity-keyed by the card objects
+  /// themselves, which [FileTransferController] replaces rather than
+  /// mutates) to find receiving cards that just reached a terminal status
+  /// and weren't already announced. The auto-retry itself already happened
+  /// silently inside [FileTransferController] by the time a card is ever
+  /// visible as `receiveFailed`, so there's no separate manual-retry
+  /// affordance to offer here -- just the same snackbar treatment either
+  /// terminal outcome gets.
+  void _showSnackbarsForTerminalReceives() {
     final controller = _controller;
     if (controller == null) return;
     for (final card in controller.cardsByPeer.values.expand((c) => c)) {
       if (card.direction != TransferDirection.receiving) continue;
-      if (card.status != TransferStatus.received) continue;
-      if (!_knownReceivedCards.add(card)) continue;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Received ${card.name}')),
-      );
+      final String message;
+      switch (card.status) {
+        case TransferStatus.received:
+          message = 'Received ${card.name}';
+        case TransferStatus.receiveFailed:
+          message = 'Failed to receive ${card.name}';
+        default:
+          continue;
+      }
+      if (!_knownTerminalReceives.add(card)) continue;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
   Future<void> _pickAndSend() async {
     final controller = _controller;
     if (controller == null || _sending) return;
-    final PickedFile? picked;
-    try {
-      picked = await FilePickerChannel.pickFile();
-    } on PlatformException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Pick failed: ${e.message ?? e.code}')),
-      );
-      return;
+    final result = await pickFileSafely();
+    final PickedFile picked;
+    switch (result) {
+      case PickedFileCancelled():
+        return;
+      case PickedFileFailed(:final message):
+        if (!mounted) return;
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
+        return;
+      case PickedFileSuccess(:final file):
+        picked = file;
     }
-    if (picked == null) return;
     setState(() => _sending = true);
     try {
       await controller.send(picked);
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  Future<void> _openReceived(FileTransferCard card) async {
+    final path = card.receivedLocalPath;
+    if (path == null) return;
+    bool opened;
+    try {
+      opened = await ShareOpenChannel.openFile(path);
+    } on PlatformException {
+      opened = false;
+    }
+    if (!mounted || opened) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('No app can open this file')),
+    );
+  }
+
+  Future<void> _shareReceived(FileTransferCard card) async {
+    final path = card.receivedLocalPath;
+    if (path == null) return;
+    bool shared;
+    try {
+      shared = await ShareOpenChannel.shareFile(path);
+    } on PlatformException {
+      shared = false;
+    }
+    if (!mounted || shared) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('No app can share this file')),
+    );
   }
 
   @override
@@ -183,6 +248,8 @@ class _FileDropScreenState extends State<FileDropScreen> {
         controller: controller,
         sending: _sending,
         onPickAndSend: _pickAndSend,
+        onOpen: _openReceived,
+        onShare: _shareReceived,
         debugLog: _debugLog,
       ),
     );
@@ -207,6 +274,8 @@ class FileDropBody extends StatelessWidget {
     required this.controller,
     required this.sending,
     required this.onPickAndSend,
+    required this.onOpen,
+    required this.onShare,
     required this.debugLog,
   });
 
@@ -218,6 +287,12 @@ class FileDropBody extends StatelessWidget {
 
   /// Called to pick and send a new file.
   final VoidCallback onPickAndSend;
+
+  /// Called when the user taps Open on a received card.
+  final Future<void> Function(FileTransferCard card) onOpen;
+
+  /// Called when the user taps Share on a received card.
+  final Future<void> Function(FileTransferCard card) onShare;
 
   /// Verbose connection-state transitions, newest last -- shown only
   /// inside the collapsible "Debug log" section.
@@ -233,6 +308,7 @@ class FileDropBody extends StatelessWidget {
             children: [
               if (status != null)
                 SwarmStatusBanner(status: status, peerCount: peerCount),
+              LocalNetworkTroubleBanner(status: status),
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: ElevatedButton.icon(
@@ -267,7 +343,9 @@ class FileDropBody extends StatelessWidget {
           _PeerGroup(
               peerShort: peerShort,
               cards: cardsByPeer[peerShort] ?? const [],
-              onRetry: controller.retry),
+              onRetry: controller.retry,
+              onOpen: onOpen,
+              onShare: onShare),
       ],
     );
   }
@@ -297,11 +375,15 @@ class _PeerGroup extends StatelessWidget {
     required this.peerShort,
     required this.cards,
     required this.onRetry,
+    required this.onOpen,
+    required this.onShare,
   });
 
   final String peerShort;
   final List<FileTransferCard> cards;
   final Future<void> Function(FileTransferCard) onRetry;
+  final Future<void> Function(FileTransferCard) onOpen;
+  final Future<void> Function(FileTransferCard) onShare;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -309,7 +391,9 @@ class _PeerGroup extends StatelessWidget {
         children: [
           const SizedBox(height: 16),
           Text('Peer $peerShort',
-              style: Theme.of(context).textTheme.titleMedium),
+              style: Theme.of(context).textTheme.titleMedium,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
           const SizedBox(height: 8),
           if (cards.isEmpty)
             const Padding(
@@ -320,7 +404,12 @@ class _PeerGroup extends StatelessWidget {
             )
           else
             for (final card in cards)
-              _FileCard(card: card, peerShort: peerShort, onRetry: onRetry),
+              _FileCard(
+                  card: card,
+                  peerShort: peerShort,
+                  onRetry: onRetry,
+                  onOpen: onOpen,
+                  onShare: onShare),
         ],
       );
 }
@@ -330,11 +419,15 @@ class _FileCard extends StatelessWidget {
     required this.card,
     required this.peerShort,
     required this.onRetry,
+    required this.onOpen,
+    required this.onShare,
   });
 
   final FileTransferCard card;
   final String peerShort;
   final Future<void> Function(FileTransferCard) onRetry;
+  final Future<void> Function(FileTransferCard) onOpen;
+  final Future<void> Function(FileTransferCard) onShare;
 
   bool get _inFlight =>
       card.status == TransferStatus.sending ||
@@ -363,9 +456,14 @@ class _FileCard extends StatelessWidget {
                       : Icons.download),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(card.name,
-                        style: Theme.of(context).textTheme.bodyLarge),
+                    child: Text(
+                      card.name,
+                      style: Theme.of(context).textTheme.bodyLarge,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
+                  const SizedBox(width: 4),
                   Text(_humanSize(card.size),
                       style: Theme.of(context).textTheme.bodySmall),
                 ],
@@ -377,9 +475,11 @@ class _FileCard extends StatelessWidget {
                   card.peers.length > 1)
                 for (final entry in card.peers.entries)
                   Text('  ${entry.key}: ${_peerStateText(entry.value)}',
-                      style: Theme.of(context).textTheme.bodySmall),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+                      style: Theme.of(context).textTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+              Wrap(
+                alignment: WrapAlignment.end,
                 children: [
                   if (_failed &&
                       card.direction == TransferDirection.sending)
@@ -388,8 +488,14 @@ class _FileCard extends StatelessWidget {
                       child: const Text('Retry'),
                     ),
                   if (_done && card.direction == TransferDirection.receiving) ...[
-                    TextButton(onPressed: () {}, child: const Text('Open')),
-                    TextButton(onPressed: () {}, child: const Text('Share')),
+                    TextButton(
+                      onPressed: () => onOpen(card),
+                      child: const Text('Open'),
+                    ),
+                    TextButton(
+                      onPressed: () => onShare(card),
+                      child: const Text('Share'),
+                    ),
                   ],
                 ],
               ),

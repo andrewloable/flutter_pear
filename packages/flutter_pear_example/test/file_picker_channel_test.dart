@@ -47,4 +47,47 @@ void main() {
       );
     });
   });
+
+  group('pickFileSafely', () {
+    test('a successful pick returns PickedFileSuccess', () async {
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        return {'path': '/cache/picked_files/photo.png', 'name': 'photo.png'};
+      });
+      final result = await pickFileSafely();
+      expect(result, isA<PickedFileSuccess>());
+      expect((result as PickedFileSuccess).file.name, 'photo.png');
+    });
+
+    test('backing out of the picker returns PickedFileCancelled, no error',
+        () async {
+      messenger.setMockMethodCallHandler(channel, (call) async => null);
+      expect(await pickFileSafely(), isA<PickedFileCancelled>());
+    });
+
+    test('a PlatformException returns a PickedFileFailed, no throw',
+        () async {
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        throw PlatformException(code: 'FILE_PICK_FAILED', message: 'boom');
+      });
+      final result = await pickFileSafely();
+      expect(result, isA<PickedFileFailed>());
+      expect((result as PickedFileFailed).message, contains('boom'));
+    });
+
+    test(
+        'no handler installed (e.g. iOS before its runner registers one) '
+        'throws MissingPluginException from invokeMethod, mapped to a '
+        'PickedFileFailed instead of propagating, with the exact pinned '
+        'user-visible copy (5A degradation contract)', () async {
+      // Deliberately no messenger.setMockMethodCallHandler call -- this is
+      // exactly what makes invokeMethod throw MissingPluginException.
+      final result = await pickFileSafely();
+      expect(result, isA<PickedFileFailed>());
+      expect(
+        (result as PickedFileFailed).message,
+        "Couldn't open the file picker -- this platform has no picker "
+        'wired up yet.',
+      );
+    });
+  });
 }
