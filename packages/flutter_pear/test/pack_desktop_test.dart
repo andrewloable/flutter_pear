@@ -1,0 +1,196 @@
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+
+import '../bin/pack.dart';
+
+void main() {
+  group('desktopBundleHosts', () {
+    test('is exactly the macOS hosts (flutter_pear-6yz E-D3 macOS leg -- '
+        'Windows/Linux hosts land once their own host code does, '
+        'flutter_pear-pfp/flutter_pear-65g)', () {
+      expect(desktopBundleHosts, ['darwin-arm64', 'darwin-x64']);
+    });
+  });
+
+  group('committed desktop bundle + addon layout (reads the committed tree '
+      '-- no bare-pack invocation, no toolchain)', () {
+    late Directory pkgRoot;
+
+    setUpAll(() {
+      pkgRoot = Directory(Directory.current.path);
+    });
+
+    test('every desktopBundleHosts entry has a committed pear-end.bundle',
+        () {
+      for (final host in desktopBundleHosts) {
+        final bundle =
+            File('${pkgRoot.path}/${desktopBundleAssetDir(host)}/pear-end.bundle');
+        expect(bundle.existsSync(), isTrue,
+            reason: '${bundle.path} should exist once :pack has run');
+        expect(bundle.lengthSync(), greaterThan(0),
+            reason: '${bundle.path} should not be empty');
+      }
+    });
+
+    test(
+        'every offloaded addon under each host has an ACTUAL .bare prebuild '
+        'file, not just an empty directory', () {
+      for (final host in desktopBundleHosts) {
+        final nodeModulesDir = Directory(
+            '${pkgRoot.path}/${desktopBundleAssetDir(host)}/node_modules');
+        expect(nodeModulesDir.existsSync(), isTrue,
+            reason: '${nodeModulesDir.path} should exist once :pack has run');
+        final addonDirs =
+            nodeModulesDir.listSync().whereType<Directory>().toList();
+        expect(addonDirs, isNotEmpty,
+            reason: 'expected at least one offloaded addon under '
+                '${nodeModulesDir.path}');
+        for (final addonDir in addonDirs) {
+          final name =
+              addonDir.uri.pathSegments.where((s) => s.isNotEmpty).last;
+          final prebuild =
+              File('${addonDir.path}/prebuilds/$host/$name.bare');
+          expect(prebuild.existsSync(), isTrue,
+              reason: 'expected ${prebuild.path} (offloaded by '
+                  'buildDesktopBundle) to exist');
+        }
+      }
+    });
+
+    test(
+        'pubspec.yaml\'s auto-generated desktop asset list names EXACTLY '
+        'the addon directories actually committed on disk -- catches the '
+        'flutter_pear-6yz regression this test group guards (Flutter\'s '
+        'directory-form assets are NOT recursive; an addon present on disk '
+        'but missing from this list would be silently dropped from a real '
+        'built app, exactly as observed and fixed during this task)', () {
+      final pubspecText =
+          File('${pkgRoot.path}/pubspec.yaml').readAsStringSync();
+      final beginIdx = pubspecText.indexOf(desktopAssetsBeginMarker);
+      final endIdx = pubspecText.indexOf(desktopAssetsEndMarker);
+      expect(beginIdx, isNot(-1),
+          reason: 'pubspec.yaml is missing $desktopAssetsBeginMarker');
+      expect(endIdx, greaterThan(beginIdx));
+      final block = pubspecText.substring(beginIdx, endIdx);
+
+      final expectedDirs = <String>{};
+      for (final host in desktopBundleHosts) {
+        final nodeModulesDir = Directory(
+            '${pkgRoot.path}/${desktopBundleAssetDir(host)}/node_modules');
+        for (final addonDir
+            in nodeModulesDir.listSync().whereType<Directory>()) {
+          final name =
+              addonDir.uri.pathSegments.where((s) => s.isNotEmpty).last;
+          expectedDirs.add(
+              '${desktopBundleAssetDir(host)}/node_modules/$name/prebuilds/$host/');
+        }
+      }
+
+      for (final dir in expectedDirs) {
+        expect(block, contains(dir),
+            reason: 'pubspec.yaml\'s desktop asset list is missing $dir -- '
+                'run `dart run flutter_pear:pack` to regenerate');
+      }
+    });
+  });
+
+  group('updateDesktopAssetList (pure function, a fixture pubspec.yaml -- '
+      'no bare-pack invocation)', () {
+    late Directory tmp;
+    late String pkgRoot;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('fp_pack_desktop_assets');
+      pkgRoot = tmp.path;
+    });
+
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    void writeFixturePubspec({String extraBody = ''}) {
+      File('$pkgRoot/pubspec.yaml').writeAsStringSync('''
+name: flutter_pear
+flutter:
+  assets:
+    - assets/pear-end.bundle
+    $desktopAssetsBeginMarker
+$extraBody    $desktopAssetsEndMarker
+''');
+    }
+
+    void writeFixtureAddon(String host, String addonName) {
+      Directory(
+              '$pkgRoot/${desktopBundleAssetDir(host)}/node_modules/$addonName/prebuilds/$host')
+          .createSync(recursive: true);
+    }
+
+    test('rewrites the marked block with one entry per addon per host, '
+        'sorted, leaving everything outside the markers untouched', () {
+      writeFixturePubspec();
+      writeFixtureAddon('darwin-arm64', 'zzz-addon');
+      writeFixtureAddon('darwin-arm64', 'aaa-addon');
+      writeFixtureAddon('darwin-x64', 'aaa-addon');
+
+      updateDesktopAssetList(pkgRoot);
+
+      final text = File('$pkgRoot/pubspec.yaml').readAsStringSync();
+      expect(text, contains('- assets/pear-end.bundle'),
+          reason: 'content before the markers must survive untouched');
+      expect(
+        text,
+        contains('    - assets/desktop/darwin-arm64/node_modules/'
+            'aaa-addon/prebuilds/darwin-arm64/\n'
+            '    - assets/desktop/darwin-arm64/node_modules/'
+            'zzz-addon/prebuilds/darwin-arm64/\n'),
+        reason: 'darwin-arm64 entries should be sorted (aaa before zzz)',
+      );
+      expect(
+        text,
+        contains('    - assets/desktop/darwin-x64/node_modules/'
+            'aaa-addon/prebuilds/darwin-x64/\n'),
+      );
+    });
+
+    test('re-running on an already-populated block replaces it rather than '
+        'duplicating entries (idempotent)', () {
+      writeFixturePubspec();
+      writeFixtureAddon('darwin-arm64', 'only-addon');
+
+      updateDesktopAssetList(pkgRoot);
+      updateDesktopAssetList(pkgRoot);
+
+      final text = File('$pkgRoot/pubspec.yaml').readAsStringSync();
+      final occurrences =
+          'only-addon'.allMatches(text).length;
+      expect(occurrences, 1,
+          reason: 'a second run must replace, not duplicate, the block');
+    });
+
+    test('a host with no offloaded addons yet (node_modules missing) '
+        'contributes zero entries, not a crash', () {
+      writeFixturePubspec();
+      // Neither host directory exists at all.
+      updateDesktopAssetList(pkgRoot);
+
+      final text = File('$pkgRoot/pubspec.yaml').readAsStringSync();
+      final beginIdx = text.indexOf(desktopAssetsBeginMarker);
+      final endIdx = text.indexOf(desktopAssetsEndMarker);
+      final block = text.substring(
+          beginIdx + desktopAssetsBeginMarker.length, endIdx);
+      expect(block.trim(), isEmpty);
+    });
+
+    test('throws a clear error when the markers are missing, instead of '
+        'silently corrupting pubspec.yaml', () {
+      File('$pkgRoot/pubspec.yaml').writeAsStringSync('''
+name: flutter_pear
+flutter:
+  assets:
+    - assets/pear-end.bundle
+''');
+      writeFixtureAddon('darwin-arm64', 'some-addon');
+
+      expect(() => updateDesktopAssetList(pkgRoot), throwsStateError);
+    });
+  });
+}

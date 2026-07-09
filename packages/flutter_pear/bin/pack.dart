@@ -10,6 +10,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart' show sha256;
 
 /// Asset path (relative to the `flutter_pear` package root) that
@@ -44,6 +45,8 @@ Future<void> main(List<String> args) async {
   if (linkCode != 0) exit(linkCode);
   final linkIosCode = await linkNativeAddonsIos(pkgRoot);
   if (linkIosCode != 0) exit(linkIosCode);
+  final desktopCode = await buildDesktopBundle(pkgRoot);
+  if (desktopCode != 0) exit(desktopCode);
   final repackCode = await repackBareKit(
     pkgRoot,
     force: args.contains('--repack-barekit'),
@@ -323,22 +326,91 @@ void _copyDirectorySync(Directory src, Directory dst) {
   }
 }
 
-/// Sets every file/directory under [root] (inclusive) to the same fixed,
-/// arbitrary mtime -- `touch -t`, not `dart:io`'s [File.setLastModifiedSync]
-/// (which [Directory] doesn't implement at all) -- so [repackBareKit]'s zip
-/// step (flutter_pear-2nd) produces bytes that depend only on file CONTENT,
-/// never on when this particular run happened to extract/copy them.
-void _normalizeMtimesForZip(Directory root) {
-  final paths = [
-    root.path,
-    for (final entity in root.listSync(recursive: true, followLinks: false))
-      if (entity is! Link) entity.path, // -h avoids following; simpler to skip
-  ];
-  final result = Process.runSync('touch', ['-t', '202001010000', ...paths]);
-  if (result.exitCode != 0) {
-    throw StateError('touch failed while normalizing mtimes under '
-        '${root.path}: ${result.stderr}');
+/// The fixed, arbitrary timestamp every entry in [_repackZipSubtree]'s
+/// output zip is stamped with (flutter_pear-7dc, replacing the old
+/// `touch -t '202001010000'` shell-out) -- makes the zip's bytes depend
+/// only on file CONTENT, never on when this particular run happened to
+/// read the upstream archive.
+final _fixedZipEntryTime = DateTime.utc(2020, 1, 1);
+
+/// Reads every entry under [sourcePrefix] (e.g.
+/// `'apple/BareKit.xcframework/'`) out of [upstreamZip] and re-zips them,
+/// relocated under [destRootName] (e.g. `'BareKit.xcframework'`), into
+/// [outputZip] -- pure Dart via `package:archive`, replacing the old
+/// `unzip`/`zip` shell-outs. [upstreamZip] (~354MB) is read via
+/// [InputFileStream] rather than loaded whole into memory --
+/// [ZipDecoder.decodeStream] only decompresses the entries this function
+/// actually reads (everything outside [sourcePrefix] stays untouched).
+///
+/// Every entry (including a synthesized root directory entry, since the
+/// old `zip -r` run against a real `BareKit.xcframework/` directory always
+/// produced one even when the source zip's own central directory has no
+/// explicit marker for it) shares the same fixed [_fixedZipEntryTime], and
+/// entries are written in a fixed, alphabetically-sorted order -- both
+/// make [outputZip]'s bytes a pure function of the SOURCE CONTENT under
+/// [sourcePrefix], never of extraction-time mtimes/ordering/extended
+/// attributes the way the old `touch`+`unzip`+`zip` shell-out pipeline was
+/// (flutter_pear-2nd's own regression, still guarded by this file's own
+/// determinism test in test/pack_ios_test.dart). Never touches a real
+/// filesystem directory tree at all, unlike the old extract-to-disk,
+/// touch-mtimes, re-zip-from-disk pipeline -- structurally immune to the
+/// OS-directory-listing-order non-determinism that test's own comment
+/// specifically worries about.
+///
+/// Returns `false` (and writes nothing) if no entry under [sourcePrefix]
+/// was found -- the caller reports "not found" itself, matching the old
+/// `xcfwSrc.existsSync()` check's behavior.
+Future<bool> _repackZipSubtree({
+  required File upstreamZip,
+  required String sourcePrefix,
+  required String destRootName,
+  required File outputZip,
+}) async {
+  final input = InputFileStream(upstreamZip.path);
+  final Archive sourceArchive;
+  try {
+    sourceArchive = ZipDecoder().decodeStream(input);
+  } finally {
+    input.closeSync();
   }
+
+  final matches =
+      sourceArchive.files.where((f) => f.name.startsWith(sourcePrefix));
+  if (matches.isEmpty) return false;
+
+  final relocated = <ArchiveFile>[ArchiveFile.directory(destRootName)];
+  for (final entry in matches) {
+    final relative = entry.name.substring(sourcePrefix.length);
+    if (relative.isEmpty) continue; // the bare prefix itself, already synthesized above
+    final newName = '$destRootName/$relative';
+    final ArchiveFile newEntry;
+    if (entry.isSymbolicLink) {
+      // The link TARGET is left unchanged -- it's a relative path, resolved
+      // against the link's own parent directory at extraction time, not
+      // against this archive's root, so it must never be prefix-stripped
+      // (matches the old _copyDirectorySync's identical Link handling).
+      newEntry = ArchiveFile.symlink(newName, entry.symbolicLink!);
+    } else if (entry.isDirectory) {
+      newEntry = ArchiveFile.directory(newName);
+    } else {
+      newEntry = ArchiveFile.bytes(newName, entry.readBytes() ?? const []);
+    }
+    newEntry.mode = entry.mode; // preserve real permission bits (e.g. executable Mach-O slices)
+    relocated.add(newEntry);
+  }
+
+  // Stable, explicit order -- never depends on the upstream zip's own
+  // central-directory order (not ours to control) or a filesystem listing.
+  relocated.sort((a, b) => a.name.compareTo(b.name));
+  final outArchive = Archive();
+  for (final f in relocated) {
+    outArchive.add(f);
+  }
+
+  final bytes =
+      ZipEncoder().encodeBytes(outArchive, modified: _fixedZipEntryTime);
+  await outputZip.writeAsBytes(bytes);
+  return true;
 }
 
 /// Thrown when `flutter_pear_bare/android/build.gradle`'s BareKit pin
@@ -573,48 +645,22 @@ Future<int> repackBareKit(
 
     // Upstream ships BareKit.xcframework under apple/ alongside other
     // platforms' prebuilds (flutter_pear-ovt.1.2's spike finding) -- only
-    // that one subtree is needed, not the full ~354MB archive.
-    final extractDir = Directory('${tmp.path}/extracted')
-      ..createSync(recursive: true);
-    final unzipResult = await Process.run('unzip', [
-      '-q', zipFile.path, 'apple/BareKit.xcframework/*',
-      '-d', extractDir.path,
-    ]);
-    if (unzipResult.exitCode != 0) {
-      stderr.writeln('repackBareKit: unzip failed: ${unzipResult.stderr}');
-      return unzipResult.exitCode;
-    }
-    final xcfwSrc = Directory('${extractDir.path}/apple/BareKit.xcframework');
-    if (!xcfwSrc.existsSync()) {
+    // that one subtree is needed, not the full ~354MB archive. Pure Dart
+    // (flutter_pear-7dc, replacing the old unzip/touch/zip shell-out
+    // pipeline) -- see _repackZipSubtree's own doc comment for the
+    // determinism argument.
+    final repackedZip =
+        File('${tmp.path}/BareKit-${pin.version}-ios.xcframework.zip');
+    final found = await _repackZipSubtree(
+      upstreamZip: zipFile,
+      sourcePrefix: 'apple/BareKit.xcframework/',
+      destRootName: 'BareKit.xcframework',
+      outputZip: repackedZip,
+    );
+    if (!found) {
       stderr.writeln('repackBareKit: apple/BareKit.xcframework/ not found '
           'in $upstreamUrl -- upstream\'s archive layout may have changed.');
       return 1;
-    }
-
-    final repackDir = Directory('${tmp.path}/repack')..createSync();
-    final repackedXcfw = Directory('${repackDir.path}/BareKit.xcframework');
-    _copyDirectorySync(xcfwSrc, repackedXcfw);
-    // flutter_pear-2nd: a fresh unzip's mtimes (and any extended attributes
-    // real Apple framework binaries tend to carry -- code-signing/quarantine
-    // metadata) vary run to run even for byte-identical content, and `zip`
-    // bakes both into the archive -- two repacks of the SAME upstream
-    // release produced two different checksums, confirmed by testing.
-    // Pinning every mtime to a fixed epoch plus `-X` (strip extra fields,
-    // which is where those extended attributes would otherwise land) makes
-    // the archive a pure function of its file CONTENT, verified by testing
-    // this exact combination against a controlled fixture.
-    _normalizeMtimesForZip(repackedXcfw);
-
-    final repackedZip =
-        File('${tmp.path}/BareKit-${pin.version}-ios.xcframework.zip');
-    final zipResult = await Process.run(
-      'zip',
-      ['-qrX', repackedZip.path, 'BareKit.xcframework'],
-      workingDirectory: repackDir.path,
-    );
-    if (zipResult.exitCode != 0) {
-      stderr.writeln('repackBareKit: zip failed: ${zipResult.stderr}');
-      return zipResult.exitCode;
     }
 
     final repackedSha256 =
@@ -1138,6 +1184,118 @@ Future<int> buildBundle(String pkgRoot) async {
   }
   stdout.writeln('wrote $out');
   return 0;
+}
+
+/// Desktop hosts [buildDesktopBundle] targets -- macOS only today
+/// (flutter_pear-6yz, E-D3's macOS leg): Windows/Linux hosts are added once
+/// flutter_pear_bare has a real host for them to serve (E-D2b/E-D2c,
+/// hardware-gated follow-ups -- no Windows/Linux dev machine in this
+/// environment), rather than committing addon artifacts with no consuming
+/// host yet.
+const desktopBundleHosts = ['darwin-arm64', 'darwin-x64'];
+
+/// Asset path (relative to the `flutter_pear` package root) [host]'s own
+/// bundle + offloaded-addon tree is written under.
+String desktopBundleAssetDir(String host) => 'assets/desktop/$host';
+
+/// Bundles `pear-end/index.js` once PER [desktopBundleHosts] entry, WITHOUT
+/// `--linked` (flutter_pear-6yz, E-D3): unlike mobile, desktop `bare` loads
+/// native addons from real `file:` prebuilds at runtime rather than needing
+/// them pre-linked-ahead-of-time into a native host binary -- see
+/// bare-pack's own "Linking" docs ("mostly always... necessary when
+/// targeting mobile"). `--offload-addons` writes each addon's `.bare`
+/// prebuild as a REAL, committed sibling file
+/// (`node_modules/<addon>/prebuilds/<host>/*.bare`, the SAME relative shape
+/// bare's normal, un-bundled resolution already expects) instead of
+/// embedding/linking it -- verified end-to-end by hand (a real `bare`
+/// process booted a real Corestore from a bundle produced exactly this way,
+/// zero addon-resolution errors) before this function was written.
+Future<int> buildDesktopBundle(String pkgRoot) async {
+  final base = '$pkgRoot/pear-end/';
+  final entry = '${base}index.js';
+  for (final host in desktopBundleHosts) {
+    final outDir = Directory('$pkgRoot/${desktopBundleAssetDir(host)}');
+    // Wipe first -- an addon dropped from package.json since the last pack
+    // must not leave a stale, orphaned .bare file behind (mirrors
+    // linkNativeAddonsIos's own "prune what's no longer produced" rule).
+    if (outDir.existsSync()) outDir.deleteSync(recursive: true);
+    await outDir.create(recursive: true);
+    final out = '${outDir.path}/pear-end.bundle';
+
+    final result = await Process.run(
+      'bare-pack',
+      // --base pear-end/ (NOT the CLI's own default '.', which would be
+      // pkgRoot here) -- confirmed by testing: without it, offloaded addon
+      // paths come out prefixed with an extra 'pear-end/' segment (relative
+      // to pkgRoot instead of pear-end/ itself), a mismatch with the plain
+      // node_modules/... layout this function actually commits, causing a
+      // real ADDON_NOT_FOUND at runtime.
+      ['--base', base, '--host', host, '--offload-addons', '--out', out, entry],
+    );
+    stdout.write(result.stdout);
+    stderr.write(result.stderr);
+    if (result.exitCode != 0) {
+      stderr.writeln(
+          'bare-pack (desktop, $host) failed. Install it: npm i -g bare-pack');
+      return result.exitCode;
+    }
+    stdout.writeln('wrote $out (+ offloaded addons)');
+  }
+  updateDesktopAssetList(pkgRoot);
+  return 0;
+}
+
+/// Markers delimiting the auto-generated block in `pubspec.yaml`'s
+/// `flutter: assets:` list that [updateDesktopAssetList] rewrites.
+const desktopAssetsBeginMarker =
+    '# BEGIN desktop addon asset dirs (auto-generated, do not edit)';
+const desktopAssetsEndMarker = '# END desktop addon asset dirs';
+
+/// Regenerates `pubspec.yaml`'s desktop-addon asset list (flutter_pear-6yz,
+/// E-D3), one `assets:` entry per addon per [desktopBundleHosts] host,
+/// between [desktopAssetsBeginMarker] and [desktopAssetsEndMarker] --
+/// required because Flutter's directory-form assets (a trailing slash) are
+/// NOT recursive (confirmed by testing: a nested
+/// `node_modules/*/prebuilds/<host>/*.bare` tree was silently dropped from
+/// a real built macOS app until each leaf directory was listed
+/// explicitly). Scans [buildDesktopBundle]'s own output rather than
+/// hardcoding the addon set, so this self-corrects whenever pear-end's
+/// dependencies change instead of silently drifting stale.
+void updateDesktopAssetList(String pkgRoot) {
+  final entries = <String>[];
+  for (final host in desktopBundleHosts) {
+    final nodeModulesDir =
+        Directory('$pkgRoot/${desktopBundleAssetDir(host)}/node_modules');
+    if (!nodeModulesDir.existsSync()) continue;
+    final addonNames = nodeModulesDir
+        .listSync()
+        .whereType<Directory>()
+        .map((d) => d.uri.pathSegments.where((s) => s.isNotEmpty).last)
+        .toList()
+      ..sort();
+    for (final name in addonNames) {
+      entries.add('    - ${desktopBundleAssetDir(host)}/node_modules/'
+          '$name/prebuilds/$host/');
+    }
+  }
+
+  final pubspecFile = File('$pkgRoot/pubspec.yaml');
+  final text = pubspecFile.readAsStringSync();
+  final beginMarkerIdx = text.indexOf(desktopAssetsBeginMarker);
+  final endMarkerIdx = text.indexOf(desktopAssetsEndMarker);
+  if (beginMarkerIdx == -1 || endMarkerIdx == -1 || endMarkerIdx < beginMarkerIdx) {
+    throw StateError('pubspec.yaml is missing the desktop-addon-asset '
+        'markers ($desktopAssetsBeginMarker / $desktopAssetsEndMarker)');
+  }
+  // Everything up to and including the BEGIN marker's own line.
+  final afterBeginLineStart = text.indexOf('\n', beginMarkerIdx) + 1;
+  // Everything from the start of the END marker's own line onward.
+  final endLineStart = text.lastIndexOf('\n', endMarkerIdx) + 1;
+
+  final before = text.substring(0, afterBeginLineStart);
+  final after = text.substring(endLineStart);
+  final body = entries.map((e) => '$e\n').join();
+  pubspecFile.writeAsStringSync('$before$body$after');
 }
 
 /// A short, deterministic version tag for the pear-end bundle, derived from

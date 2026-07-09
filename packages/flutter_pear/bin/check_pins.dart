@@ -213,9 +213,16 @@ PinCheckResult checkPins(String pkgRoot) {
     }
   }
 
+  // Only the iOS Package.swift pins a BareKit url/checksum (flutter_pear-71g,
+  // E-D2a: the macOS Package.swift spawns the real `bare` runtime as a
+  // subprocess at RUNTIME instead -- no linked xcframework, so nothing to
+  // pin here -- and would otherwise wrongly throw a PinCheckException for
+  // simply not having a url:/checksum: it was never meant to have).
   final packageSwiftMatches = Directory(bareRoot)
       .existsSync()
       ? _findFiles(Directory(bareRoot), 'Package.swift')
+          .where((f) => f.uri.pathSegments.contains('ios'))
+          .toList()
       : const <File>[];
   if (packageSwiftMatches.isEmpty) {
     skipped.add('flutter_pear_bare/ios/**/Package.swift not landed yet '
@@ -264,8 +271,13 @@ PinCheckResult checkPins(String pkgRoot) {
     }
   }
 
+  // Same iOS-only scope as packageSwiftMatches above (flutter_pear-71g):
+  // the macOS podspec spawns `bare` at runtime, no prebuilds.zip URL/sha256
+  // to pin.
   final podspecMatches = Directory(bareRoot).existsSync()
       ? _findFiles(Directory(bareRoot), '.podspec')
+          .where((f) => f.uri.pathSegments.contains('ios'))
+          .toList()
       : const <File>[];
   if (podspecMatches.isEmpty) {
     skipped.add('flutter_pear_bare*.podspec not landed yet (podspec epic)');
@@ -401,9 +413,16 @@ PinCheckResult checkPins(String pkgRoot) {
   // the Kotlin host's own BUNDLE_ASSET_SUBPATH constant (checked the same
   // way just above), not the inline-literal style the since-removed T0
   // spike host used.
+  // ios-only, same reasoning as packageSwiftMatches/podspecMatches above
+  // (flutter_pear-71g/6yz): the macOS host deliberately uses a DIFFERENT,
+  // desktop-specific bundleAssetSubpath (assets/desktop/<host>/pear-end.bundle,
+  // via a compile-time #if arch, not bundleAssetPath's mobile-linked
+  // assets/pear-end.bundle) -- comparing it against bundleAssetPath would
+  // flag a by-design difference as a false mismatch.
   final swiftHostMatches = Directory(bareRoot).existsSync()
       ? _findFiles(Directory(bareRoot), '.swift')
           .where((f) => f.uri.pathSegments.last != 'Package.swift')
+          .where((f) => f.uri.pathSegments.contains('ios'))
       : const <File>[];
   final swiftHostsWithAsset = swiftHostMatches.where((f) => RegExp(
           r'''bundleAssetSubpath\s*=\s*"([^"]+)"''')

@@ -18,6 +18,16 @@ void main() => runApp(const ChatApp());
 const _gateAutoJoinTopic =
     String.fromEnvironment('FLUTTER_PEAR_GATE_AUTO_JOIN_TOPIC');
 
+/// Set via `--dart-define` (flutter_pear-b6g, E-D5a) to send this exact text
+/// to the first peer that connects, once -- lets a scripted gate (e.g. a
+/// future desktop leg of `tool/release_gate.sh`, mirroring the existing
+/// ios-smoke leg's `_gateAutoJoinTopic` use) observe a REAL round trip (a
+/// counterpart peer, such as `tool/peer.js`, receiving this exact text)
+/// instead of only a worklet-attach marker. Empty (the default) for every
+/// real run, which sends nothing extra.
+const _gateAutoSendMessage =
+    String.fromEnvironment('FLUTTER_PEAR_GATE_AUTO_SEND_MESSAGE');
+
 /// The two promised demos (see `project_plan.md`): chat (E7.1/E7.2) and
 /// file-drop (E7.7, proving the E5.5 bulk-file path).
 class ChatApp extends StatelessWidget {
@@ -341,6 +351,15 @@ class _ChatScreenState extends State<ChatScreen> {
         if (!mounted) return;
         setState(() => _log.add(ChatLogLine.received(utf8.decode(bytes))));
       });
+      if (_gateAutoSendMessage.isNotEmpty) {
+        // Greppable for a future desktop leg of tool/release_gate.sh, same
+        // "FLUTTER_PEAR_FIXTURE_FAILED" convention _join() uses above --
+        // surfaces a genuine send failure immediately instead of a gate
+        // waiting out its full timeout before declaring failure.
+        conn.write(Uint8List.fromList(utf8.encode(_gateAutoSendMessage)))
+            .catchError((Object e) => debugPrint(
+                'flutter_pear example: FLUTTER_PEAR_FIXTURE_FAILED: $e'));
+      }
     }
 
     if (wiring != null) {

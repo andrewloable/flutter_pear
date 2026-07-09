@@ -15,6 +15,13 @@ enum PearBackgroundExecution {
   /// — the OS can still reclaim the process at any time; nothing here is a
   /// guarantee.
   bestEffort,
+
+  /// The worklet keeps running exactly as if foregrounded, with no
+  /// OS-imposed background execution limit at all (flutter_pear-iqp, E-D4)
+  /// — desktop platforms, unlike mobile, do not suspend or throttle a
+  /// backgrounded/minimized app's process. Still not an absolute guarantee:
+  /// the user or OS can always quit the app outright.
+  unrestricted,
 }
 
 /// The validation basis of THIS release on this platform — pinned per

@@ -35,6 +35,22 @@ class Pear {
       onResume: () => unawaited(_guardedAutoCall(resume)),
       linger: linger,
     );
+    if (platformInfo.backgroundExecution == PearBackgroundExecution.unrestricted) {
+      // flutter_pear-iqp (E-D4): on a platform with no OS-imposed
+      // background execution limit (desktop), auto-suspending on
+      // AppLifecycleState.hidden/paused would be actively WRONG, not just
+      // unnecessary -- a minimized window or an alt-tab away is a routine,
+      // frequent event that never threatens the connection the way
+      // mobile backgrounding does, so treating it as a suspend trigger
+      // would flip PearSwarm.state to `suspended` (and, on the default
+      // 20s linger, actually call the native no-op suspend) for a swarm
+      // that is, in reality, still fully connected -- directly
+      // contradicting this platform's own `unrestricted` pin above.
+      // `lifecycle.policy` stays public and mutable either way, so a
+      // desktop app that specifically wants mobile-style
+      // suspend-on-hide can still opt back in.
+      lifecycle.policy = PearLifecyclePolicy.manual;
+    }
   }
 
   /// The underlying Bare worklet. Use directly only for the low-level echo/IPC
@@ -86,6 +102,14 @@ class Pear {
   /// [PearBackgroundExecution.bestEffort] would still overclaim what the
   /// library does. See `doc/ios.md`'s "Background execution on iOS"
   /// section for the full picture.
+  ///
+  /// macOS's [PearBackgroundExecution.unrestricted] (flutter_pear-iqp,
+  /// E-D4) reflects a real capability upgrade over mobile, not just a
+  /// looser pin: desktop imposes no OS-level suspension on a backgrounded
+  /// app at all. See `doc/macos.md`'s "Background execution on macOS"
+  /// section for the full picture, including why [Pear]'s own
+  /// [PearLifecycle] auto-suspend policy defaults to
+  /// [PearLifecyclePolicy.manual] on this platform.
   static PearPlatformInfo get platformInfo {
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
@@ -98,10 +122,25 @@ class Pear {
           backgroundExecution: PearBackgroundExecution.foregroundOnly,
           validationTier: PearValidationTier.simulator,
         );
+      case TargetPlatform.macOS:
+        return const PearPlatformInfo(
+          // flutter_pear-iqp (E-D4): macOS spawns `bare` as a plain
+          // subprocess (flutter_pear-71g, E-D2a) with no OS-level app-
+          // lifecycle suspension the way iOS/Android impose — minimizing or
+          // backgrounding the app does not pause or throttle it, verified
+          // by holding a real swarm connection open across a window
+          // minimize. `validationTier: device` is accurate here, not an
+          // overclaim: unlike iOS Simulator/Android Emulator, a macOS build
+          // runs directly on real hardware — desktop has no separate
+          // simulator layer to distinguish from.
+          backgroundExecution: PearBackgroundExecution.unrestricted,
+          validationTier: PearValidationTier.device,
+        );
       default:
         throw UnsupportedError(
-          'Pear.platformInfo is only defined for TargetPlatform.android and '
-          'TargetPlatform.iOS, got $defaultTargetPlatform.',
+          'Pear.platformInfo is only defined for TargetPlatform.android, '
+          'TargetPlatform.iOS, and TargetPlatform.macOS, got '
+          '$defaultTargetPlatform.',
         );
     }
   }

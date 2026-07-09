@@ -36,7 +36,7 @@ FLUTTER_PEAR_EXAMPLE="$REPO_ROOT/packages/flutter_pear_example"
 
 GATE_ORDER=(
   bootstrap analyze dart-tests pear-end compatibility pins pana licenses
-  fresh-machine pack-regression ios-smoke apk ipa-inspect
+  fresh-machine pack-regression ios-smoke apk ipa-inspect macos-build macos-smoke
 )
 
 # macOS ships bash 3.2 (no associative arrays) -- results are recorded as
@@ -437,6 +437,73 @@ gate_ipa-inspect() {
   else
     record ipa-inspect FAIL "${causes# }"
   fi
+}
+
+gate_macos-build() {
+  if (cd "$FLUTTER_PEAR_EXAMPLE" && flutter build macos --debug); then
+    record macos-build PASS
+  else
+    record macos-build FAIL "flutter build macos --debug failed in packages/flutter_pear_example"
+  fi
+}
+
+gate_macos-smoke() {
+  local log_file pid_file run_pid bg_pid
+  log_file="$(mktemp -t macos_smoke_run.XXXXXX.log)"
+  pid_file="$(mktemp -t macos_smoke_run.XXXXXX.pid)"
+
+  # Same auto-join dart-define mechanism ios-smoke uses (flutter_pear-beq) --
+  # flutter_pear_example's home screen requires tapping into a demo route
+  # before Pear.start() ever runs. Unlike ios-smoke, no simulator to
+  # locate/boot -- a macOS build runs directly on this machine.
+  (cd "$FLUTTER_PEAR_EXAMPLE" && flutter run -d macos --pid-file "$pid_file" \
+    --dart-define="FLUTTER_PEAR_GATE_AUTO_JOIN_TOPIC=flutter_pear-b6g-macos-smoke-gate") >"$log_file" 2>&1 &
+  bg_pid=$!
+
+  for _ in $(seq 1 30); do
+    [ -s "$pid_file" ] && break
+    sleep 1
+  done
+  run_pid="$([ -s "$pid_file" ] && cat "$pid_file" || echo "$bg_pid")"
+
+  # Only the worklet-attach marker (matches ios-smoke's own scope: a boot
+  # smoke test, not a full peer round trip -- see doc/macos.md's "What's not
+  # yet covered" for why a real round trip isn't gated here yet).
+  local found=0 crashed=0
+  for _ in $(seq 1 60); do
+    if grep -qE "worklet attached" "$log_file" 2>/dev/null; then
+      found=1
+      break
+    fi
+    if grep -qE "FLUTTER_PEAR_FIXTURE_FAILED|MissingPluginException" "$log_file" 2>/dev/null; then
+      crashed=1
+      break
+    fi
+    sleep 2
+  done
+
+  if kill -0 "$run_pid" >/dev/null 2>&1; then
+    kill "$run_pid" >/dev/null 2>&1 || true
+    for _ in $(seq 1 10); do
+      kill -0 "$run_pid" >/dev/null 2>&1 || break
+      sleep 1
+    done
+    kill -9 "$run_pid" >/dev/null 2>&1 || true
+  fi
+  # A SIGKILL of `flutter run` never reaches the bare subprocess -- it
+  # bypasses NSApplication's own normal-termination cleanup (see
+  # doc/macos.md's "Orphaned subprocess on quit"), so clean it up
+  # explicitly rather than leaking a process every gate run.
+  pkill -9 -f "bare .*/pear-end.bundle" >/dev/null 2>&1 || true
+
+  if [ "$crashed" = "1" ]; then
+    record macos-smoke FAIL "worklet reported a failure -- see $log_file"
+  elif [ "$found" = "1" ]; then
+    record macos-smoke PASS
+  else
+    record macos-smoke FAIL "no worklet-handshake marker appeared within the timeout. Log: $log_file"
+  fi
+  rm -f "$pid_file"
 }
 
 # ---------------------------------------------------------------------------

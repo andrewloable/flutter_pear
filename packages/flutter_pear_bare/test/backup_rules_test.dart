@@ -63,21 +63,23 @@ void main() {
         File('${Directory.current.path}/../flutter_pear/pear-end/index.js')
             .readAsStringSync();
 
-    // The two directory names index.js actually derives from Bare.argv[0]
-    // (the app's private files dir) -- see its own BULK_STORAGE_DIR/
-    // Corestore comments. Extracted from source, not hardcoded twice, so a
-    // rename there is exactly what this test is meant to catch.
+    // The two directory names index.js actually derives from STORAGE_DIR
+    // (flutter_pear-71g, E-D2a -- the app's private files dir, resolved per
+    // host from either BareKit's Bare.argv[0] or a desktop bare
+    // subprocess's Bare.argv[2]) -- see its own BULK_STORAGE_DIR/Corestore
+    // comments. Extracted from source, not hardcoded twice, so a rename
+    // there is exactly what this test is meant to catch.
     final corestoreMatch =
-        RegExp(r"new Corestore\(path\.join\(Bare\.argv\[0\], '([^']+)'\)\)")
+        RegExp(r"new Corestore\(path\.join\(STORAGE_DIR, '([^']+)'\)\)")
             .firstMatch(indexJs);
     expect(corestoreMatch, isNotNull,
-        reason: "couldn't find `new Corestore(path.join(Bare.argv[0], '...'))` "
+        reason: "couldn't find `new Corestore(path.join(STORAGE_DIR, '...'))` "
             'in pear-end/index.js -- this test needs updating to match '
             'wherever that moved to');
     final corestoreDir = corestoreMatch!.group(1)!;
 
     final bulkMatch =
-        RegExp(r"BULK_STORAGE_DIR = path\.join\(Bare\.argv\[0\], '([^']+)'\)")
+        RegExp(r"BULK_STORAGE_DIR = path\.join\(STORAGE_DIR, '([^']+)'\)")
             .firstMatch(indexJs);
     expect(bulkMatch, isNotNull,
         reason: "couldn't find BULK_STORAGE_DIR's definition in "

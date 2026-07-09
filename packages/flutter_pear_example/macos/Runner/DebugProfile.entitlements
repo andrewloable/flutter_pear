@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- flutter_pear-b6g (E-D5a): the macOS host spawns the real `bare`
+	     runtime as an external, non-bundled subprocess (flutter_pear-71g,
+	     E-D2a) -- the App Sandbox blocks that unconditionally, so it stays
+	     off for this example app. A sandboxed distribution story (bundling
+	     `bare` as a same-bundle helper tool) is a real, deliberately
+	     deferred follow-up, not an oversight -- this demo app is run
+	     locally via `flutter run -d macos`, never distributed through the
+	     Mac App Store. -->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+</dict>
+</plist>
