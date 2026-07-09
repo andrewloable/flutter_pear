@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_pear/flutter_pear.dart';
 // ignore: implementation_imports
@@ -168,6 +168,35 @@ void main() {
     final pear = await Pear.start();
 
     expect(startArgs?['lingerMs'], 20000);
+    await pear.dispose();
+  });
+
+  test(
+      'on a platform with unrestricted background execution (macOS), '
+      'lifecycle.policy defaults to manual, not auto (flutter_pear-iqp, '
+      'E-D4) -- auto-suspending on a routine AppLifecycleState.hidden/'
+      'paused (e.g. minimizing a window) would flip PearSwarm.state to '
+      'suspended for a swarm that desktop keeps fully connected regardless',
+      () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    final pear = await Pear.start();
+
+    expect(pear.lifecycle.policy, PearLifecyclePolicy.manual);
+    await pear.dispose();
+  });
+
+  test(
+      'on a platform without unrestricted background execution (Android), '
+      'lifecycle.policy still defaults to auto -- the E-D4 fix is additive, '
+      'not a change to existing mobile behavior', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    final pear = await Pear.start();
+
+    expect(pear.lifecycle.policy, PearLifecyclePolicy.auto);
     await pear.dispose();
   });
 

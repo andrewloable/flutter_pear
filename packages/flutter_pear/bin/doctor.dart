@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:flutter_pear/src/doctor_host_checks.dart';
 import 'package:flutter_pear/src/doctor_ios_checks.dart';
+import 'package:flutter_pear/src/doctor_macos_checks.dart';
 import 'package:flutter_pear/src/doctor_report.dart';
 
 /// Runtime connectivity doctor (E7.4, X5) -- `dart run flutter_pear:doctor`.
@@ -22,15 +24,20 @@ import 'package:flutter_pear/src/doctor_report.dart';
 /// (LOCKED: no runtime telemetry in a privacy-first P2P library) -- the
 /// bundle is meant to be pasted into a GitHub issue by hand.
 ///
-/// Runs a pure-Dart iOS section FIRST (`doctor_ios_checks.dart`) -- Xcode/
-/// simulator presence, packaging-path detection, the consumer `Info.plist`,
-/// and this plugin's own installed-package pin integrity -- which needs no
-/// Node at all and so runs even when Node is absent. Everything else lives
-/// in `tool/doctor-checks.js`, run as a plain Node process afterward -- see
-/// that file's own doc comment. Exits nonzero if either side found a real
-/// failure (0 only if both the iOS section and the JS side found none)
-/// whether or not `--report` was passed, so this is usable as a CI gate
-/// either way.
+/// Runs a pure-Dart host-capability line FIRST (`doctor_host_checks.dart`,
+/// flutter_pear-l0w) -- a one-line verdict naming which build targets THIS
+/// host can build for (Android: any host; iOS/macOS: macOS + Xcode only, an
+/// Apple constraint) -- then the pure-Dart iOS section
+/// (`doctor_ios_checks.dart`) and macOS section (`doctor_macos_checks.dart`,
+/// flutter_pear-b6g): Xcode/simulator presence, packaging-path detection,
+/// the consumer `Info.plist`/entitlements, the committed desktop bundle
+/// assets, and this plugin's own installed-package pin integrity -- none of
+/// which needs Node at all, so both run even when Node is absent.
+/// Everything else lives in `tool/doctor-checks.js`, run as a plain Node
+/// process afterward -- see that file's own doc comment. Exits nonzero if
+/// either side found a real failure (0 only if both the Dart-side checks
+/// and the JS side found none) whether or not `--report` was passed, so
+/// this is usable as a CI gate either way.
 Future<void> main(List<String> args) async {
   final report = args.contains('--report');
   final logIndex = args.indexOf('--log');
@@ -70,18 +77,29 @@ Future<void> main(List<String> args) async {
   final bareLibUri = await Isolate.resolvePackageUri(
     Uri.parse('package:flutter_pear_bare/'),
   );
+  final hostResult = checkHostCapability(
+    DoctorHostContext(operatingSystem: Platform.operatingSystem),
+  );
+  final resolvedBareRoot = bareLibUri == null
+      ? '${packageRoot.path}/../flutter_pear_bare'
+      : Directory.fromUri(bareLibUri).parent.path;
   final iosResults = await runDoctorIosChecks(DoctorIosContext(
     consumerRoot: Directory.current.path,
-    flutterPearBareRoot: bareLibUri == null
-        ? '${packageRoot.path}/../flutter_pear_bare'
-        : Directory.fromUri(bareLibUri).parent.path,
+    flutterPearBareRoot: resolvedBareRoot,
     isMacOs: Platform.isMacOS,
   ));
-  final iosOutput = renderDoctorIosChecks(iosResults);
-  final iosOk =
-      !iosResults.any((r) => r.status == DoctorCheckStatus.fail);
+  final macosResults = await runDoctorMacosChecks(DoctorMacosContext(
+    consumerRoot: Directory.current.path,
+    flutterPearRoot: packageRoot.path,
+    flutterPearBareRoot: resolvedBareRoot,
+    isMacOs: Platform.isMacOS,
+  ));
+  final allResults = [hostResult, ...iosResults, ...macosResults];
+  final dartCheckOutput = renderDoctorIosChecks(allResults);
+  final dartChecksOk =
+      !allResults.any((r) => r.status == DoctorCheckStatus.fail);
   if (!report) {
-    stdout.writeln(iosOutput);
+    stdout.writeln(dartCheckOutput);
   }
 
   try {
@@ -101,7 +119,7 @@ Future<void> main(List<String> args) async {
       checkOutput = '';
     }
     final jsExitCode = await process.exitCode;
-    exitCode = (jsExitCode != 0 || !iosOk) ? 1 : 0;
+    exitCode = (jsExitCode != 0 || !dartChecksOk) ? 1 : 0;
 
     if (report) {
       stdout.write(buildDoctorReport(
@@ -110,7 +128,7 @@ Future<void> main(List<String> args) async {
             _packageVersion(packageRoot, 'flutter_pear_bare'),
         hostOs:
             '${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
-        doctorCheckOutput: '$iosOutput\n\n$checkOutput',
+        doctorCheckOutput: '$dartCheckOutput\n\n$checkOutput',
         rawLog: logPath == null ? null : File(logPath).readAsStringSync(),
       ));
     }

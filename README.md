@@ -126,6 +126,7 @@ App lifecycle (suspend/resume) is auto-wired to `AppLifecycleState` and overrida
 
 - [Concepts](packages/flutter_pear/doc/concepts.md) — topics vs. invites (read this before you ship `unsafeTopicFromString` anywhere real), the worklet model, replication, lifecycle.
 - How-tos: [chat](packages/flutter_pear/doc/howto-chat.md), [file sync](packages/flutter_pear/doc/howto-filesync.md), [pairing](packages/flutter_pear/doc/howto-pairing.md) — complete, copy-pasteable walkthroughs with expected output.
+- [Desktop dev setup](packages/flutter_pear/doc/desktop-dev.md) — building a `flutter_pear` app *from* Windows or Linux (Android build already works there today; iOS needs a Mac — Apple's own constraint).
 - [Error catalog](packages/flutter_pear/ERRORS.md) — every error code's problem, cause, and fix.
 - [Troubleshooting](packages/flutter_pear/doc/troubleshooting.md) — install-time failures (Gradle fetch, checksum, ABI, manifest merge) that runtime error codes can't catch.
 

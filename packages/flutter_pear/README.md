@@ -93,6 +93,7 @@ Both platforms fetch from the same upstream [holepunchto/bare-kit](https://githu
 - [Concepts](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/concepts.md) — topics vs. invites, the worklet model, replication, lifecycle.
 - How-tos: [chat](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/howto-chat.md), [file sync](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/howto-filesync.md), [pairing](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/howto-pairing.md).
 - [iOS platform notes](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/ios.md) — background execution, the Local Network permission, storage roots.
+- [Desktop dev setup](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/desktop-dev.md) — building a `flutter_pear` app *from* Windows or Linux.
 - [Background execution (Android)](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/BACKGROUND_EXECUTION.md) — what Android actually permits.
 - [Error catalog](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/ERRORS.md) — every error code's problem, cause, and fix.
 - [Troubleshooting](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/troubleshooting.md) — install-time failures that runtime error codes can't catch.

@@ -16,7 +16,13 @@
 /* global BareKit, Bare */
 'use strict'
 
-const { IPC } = BareKit
+// BareKit only exists on mobile (flutter_pear-71g, E-D2a). A desktop host
+// spawns the real `bare` runtime as a subprocess instead (E-D1's proven
+// embedding shape, flutter_pear-bxp) -- desktop-ipc.js's bare-pipe-wrapped
+// stdin/stdout stands in, exposing the identical .write()/.on('data', ...)
+// shape. See desktop-ipc.js's own doc comment for why this file is never
+// require()d by pear-end's Node-based test suite.
+const { IPC } = typeof BareKit !== 'undefined' ? BareKit : require('./desktop-ipc')
 const Hyperswarm = require('hyperswarm')
 const Corestore = require('corestore')
 const Hyperbee = require('hyperbee')
@@ -244,27 +250,37 @@ swarm.on('error', (err) => {
 
 // File-path bulk seam (E4.4, codex #4 LOCKED) -- see Method.BULK_WRITE_FILE
 // below. A worklet-private directory, not shared/external storage.
-// Bare.argv[0] is this app's own private files directory, set by
-// FlutterPearBarePlugin.kt's Worklet.start() -- bare-os's cwd() resolves to
-// "/" in this sandbox (confirmed on-device), and neither BareKit nor Bare
-// expose a storage-path helper, so argv is the only channel available.
+// Storage-dir ARGV POSITION differs by host (flutter_pear-71g, E-D2a):
+// - BareKit (mobile): a synthetic argv with no binary-path/script-path
+//   prefix (a worklet isn't a real OS subprocess) -- Bare.argv[0] IS the
+//   storage dir directly, set by FlutterPearBarePlugin.kt/.swift's
+//   Worklet.start(bundlePath, arguments:).
+// - Desktop bare subprocess: a REAL OS argv (argv[0]=bare binary path,
+//   argv[1]=this script's path), so the storage dir is the first REAL
+//   script argument, Bare.argv[2] -- passed by the desktop host's
+//   Process/bare-subprocess spawn.
+// bare-os's cwd() resolves to "/" in the mobile sandbox (confirmed
+// on-device), and neither BareKit nor Bare expose a storage-path helper, so
+// argv is the only channel available on either host.
 // Guarded explicitly (flutter_pear-pcg) so a future boot path that forgets
 // to pass it fails loudly right here, at the top of module load, instead of
 // a generic path.join(undefined, ...) TypeError with no indication of what
 // was actually missing.
-if (!Bare.argv[0]) {
+const STORAGE_DIR = typeof BareKit !== 'undefined' ? Bare.argv[0] : Bare.argv[2]
+if (!STORAGE_DIR) {
   throw new Error(
-    'pear-end: Bare.argv[0] (this worklet\'s private storage directory) is ' +
-    'missing -- every Worklet.start() boot path must pass it; refusing to ' +
-    'guess a storage location.'
+    'pear-end: the worklet\'s private storage directory is missing -- ' +
+    'expected Bare.argv[0] under BareKit (mobile) or Bare.argv[2] for a ' +
+    'desktop bare subprocess; every host\'s boot path must pass it. ' +
+    'Refusing to guess a storage directory.'
   )
 }
-const BULK_STORAGE_DIR = path.join(Bare.argv[0], 'pear-bulk')
+const BULK_STORAGE_DIR = path.join(STORAGE_DIR, 'pear-bulk')
 
 // E5.2 -- Corestore/Hypercore wrapper (PearStore/PearCore). Same
-// Bare.argv[0]-rooted storage rationale as BULK_STORAGE_DIR above. Opened
+// STORAGE_DIR-rooted storage rationale as BULK_STORAGE_DIR above. Opened
 // once at boot, like `swarm` -- Method.STORE_GET below never re-opens it.
-const store = new Corestore(path.join(Bare.argv[0], 'pear-corestore'))
+const store = new Corestore(path.join(STORAGE_DIR, 'pear-corestore'))
 
 // Cores this worklet generation has opened via Method.STORE_GET, by public
 // key (hex) -- Method.CORE_APPEND/CORE_GET/CORE_REPLICATE/CORE_CLOSE all
