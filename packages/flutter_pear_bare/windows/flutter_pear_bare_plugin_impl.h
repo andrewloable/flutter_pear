@@ -1,5 +1,5 @@
-#ifndef FLUTTER_PLUGIN_FLUTTER_PEAR_BARE_PLUGIN_H_
-#define FLUTTER_PLUGIN_FLUTTER_PEAR_BARE_PLUGIN_H_
+#ifndef FLUTTER_PLUGIN_FLUTTER_PEAR_BARE_PLUGIN_IMPL_H_
+#define FLUTTER_PLUGIN_FLUTTER_PEAR_BARE_PLUGIN_IMPL_H_
 
 #include <flutter/basic_message_channel.h>
 #include <flutter/method_channel.h>
@@ -59,4 +59,4 @@ class FlutterPearBarePlugin : public flutter::Plugin {
 
 }  // namespace flutter_pear_bare
 
-#endif  // FLUTTER_PLUGIN_FLUTTER_PEAR_BARE_PLUGIN_H_
+#endif  // FLUTTER_PLUGIN_FLUTTER_PEAR_BARE_PLUGIN_IMPL_H_

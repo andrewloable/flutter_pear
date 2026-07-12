@@ -26,7 +26,7 @@ static const char* kBundleAssetSubpath =
 
 // Worklet lifecycle (mirrors WorkletState in bare_worklet.dart). This
 // comment block is duplicated VERBATIM in FlutterPearBarePlugin.kt/.swift,
-// this file, and the Windows host (windows/flutter_pear_bare_plugin.cpp)
+// this file, and the Windows host (windows/flutter_pear_bare_plugin_impl.cpp)
 // (eng-4A) -- edit all together, never just one, or the hosts silently
 // drift apart.
 //

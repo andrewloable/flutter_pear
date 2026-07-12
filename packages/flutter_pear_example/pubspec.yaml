@@ -33,6 +33,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  # THROWAWAY T0 spike asset (flutter_pear-ovt.1.4) -- see integration_test/ios_spike_test.dart.
-  assets:
-    - assets/ios-spike.bundle
