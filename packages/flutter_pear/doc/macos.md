@@ -8,8 +8,10 @@ a subprocess and relays raw binary IPC over its stdin/stdout, instead of
 linking a native worklet in-process. This page is the canonical source for
 what macOS actually does differently — every claim below is tested, measured
 evidence from the E-D2a–E-D4 host epics, not a guess or an aspiration.
-Windows/Linux are tracked separately (`flutter_pear-pfp`/`flutter_pear-65g`)
-and are not yet implemented.
+[Linux platform notes](linux.md) and [Windows platform notes](windows.md)
+cover the sibling desktop hosts (`flutter_pear-65g`/`flutter_pear-pfp`),
+which mirror this same embedding shape but haven't yet had their own
+in-app Hyperswarm round trip confirmed the way macOS's has.
 
 ## Background execution on macOS
 
@@ -184,5 +186,6 @@ two things to check before suspecting flutter_pear's own code:**
 ## See also
 
 - [iOS platform notes](ios.md) — the mobile-side background execution story this page is the desktop counterpart to.
+- [Linux platform notes](linux.md) and [Windows platform notes](windows.md) — the sibling desktop hosts this page's design is mirrored by.
 - [Desktop dev setup](desktop-dev.md) — building an *Android/iOS* app from a Windows/Linux host machine (a different topic: that page is about your dev machine, this page is about macOS as a flutter_pear *runtime target*).
 - [Error catalog](../ERRORS.md) — every runtime error code's problem, cause, and fix.

@@ -1187,16 +1187,21 @@ Future<int> buildBundle(String pkgRoot) async {
 }
 
 /// Desktop hosts [buildDesktopBundle] targets -- macOS (flutter_pear-6yz,
-/// E-D3) and Linux (flutter_pear-65g, E-D2c) now have real
-/// flutter_pear_bare hosts to serve them; Windows is added once
-/// flutter_pear-pfp (E-D2b, hardware-gated -- no Windows dev machine in
-/// this environment) lands its own host, rather than committing addon
-/// artifacts with no consuming host yet. bare-pack itself is
+/// E-D3), Linux (flutter_pear-65g, E-D2c), and Windows (flutter_pear-pfp,
+/// E-D2b) all now have real flutter_pear_bare hosts to serve them. A host
+/// is only added here once its own consuming host code exists, rather than
+/// committing addon artifacts with no consumer yet. bare-pack itself is
 /// cross-platform (this list is not gated on the CURRENT dev host's own
 /// architecture -- pear-end/node_modules already carries prebuilds for
 /// every target listed here via npm's normal optionalDependencies
-/// resolution, confirmed for linux-x64 on this arm64 Mac before adding it).
-const desktopBundleHosts = ['darwin-arm64', 'darwin-x64', 'linux-x64'];
+/// resolution, confirmed for linux-x64 and win32-x64 on this arm64 Mac
+/// before adding them).
+const desktopBundleHosts = [
+  'darwin-arm64',
+  'darwin-x64',
+  'linux-x64',
+  'win32-x64',
+];
 
 /// Asset path (relative to the `flutter_pear` package root) [host]'s own
 /// bundle + offloaded-addon tree is written under.
