@@ -1,0 +1,8 @@
+# pear-end.bundle (and the throwaway ios-spike.bundle) are bare-bundle's
+# fixed-byte-offset binary container format. They contain zero NUL bytes,
+# so git's own binary-detection heuristic misclassifies them as text and
+# silently LF->CRLF-converts them on checkout under Windows' common
+# core.autocrlf=true default -- corrupting every offset in the bundle
+# header without any error, so it fails much later at JS-module-load time
+# with a misleading "is not valid JSON" crash. Force binary explicitly.
+*.bundle binary
