@@ -1,3 +1,11 @@
+## 0.3.0
+
+Version bump only, in lockstep with `flutter_pear`/`flutter_pear_bare`'s
+0.3.0 (macOS/Linux/Windows desktop support — see those packages' own
+CHANGELOGs). No new fake-side API surface was needed: `Pear.platformInfo`'s
+desktop-specific values are pure Dart, `defaultTargetPlatform`-based, same
+as 0.2.0's Android/iOS handling. No code changes here.
+
 ## 0.2.1
 
 Docs-only patch: this package's own README had relative links that break on
