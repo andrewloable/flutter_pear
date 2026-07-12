@@ -128,20 +128,52 @@ above). The `win32-x64` desktop bundle
 prebuilds) is a real, committed build artifact, produced the same way the
 macOS/Linux bundles are (`bare-pack --offload-addons`).
 
-**Not yet validated: a real, in-app Hyperswarm join/chat round trip through
-`flutter_pear_example`.** Unlike macOS's own page, this page cannot yet
-point to a confirmed `PearSwarmState.connected` reached through the real
-Dart `PearSwarm.join` API on Windows — `flutter_pear_example` has no
-`windows/` runner yet (that's `flutter_pear-m6s`, E-D5b, currently blocked
-on this task closing), and a from-scratch join test would need the real
-`flutter_pear`/`flutter_pear_bare` Dart source deployed to a real second
-Windows machine, which this project's own data-handling rules keep off the
-table as a bulk file-transfer operation. What the lifecycle-contract testing
-above DOES confirm: the subprocess spawn, the storage-dir convention, and
-the raw byte relay in both directions all work correctly on real hardware —
-the same mechanism `flutter_pear`'s real RPC protocol rides on top of. The
-remaining gap is specifically "has anyone actually watched two real peers
-reach `connected` on Windows," not "does the plumbing work."
+**A real, in-app Hyperswarm join through `flutter_pear_example` is now
+confirmed** (`flutter_pear-pfp`): using the example app's own
+`FLUTTER_PEAR_GATE_AUTO_JOIN_TOPIC` dart-define mechanism against a real
+macOS peer, `PearSwarm.join()` reached `PearSwarmState.connected` on real
+Windows hardware — watched directly via a temporary diagnostic print
+(reverted immediately after), not inferred from the plumbing alone.
+
+Getting there needed one real, Windows-specific workaround worth recording:
+this dev environment's only reachable Windows box is SSH-only (Windows 11
+Home has no RDP), and a GUI app launched from a plain SSH session has no
+window station to render into at all — every attempt crashed at EGL/swap-
+chain creation regardless of `--enable-software-rendering`. The fix was
+launching the app into the machine's own real, already-logged-in
+interactive console session via a Windows Scheduled Task (`schtasks /create
+... /it /ru <the logged-in user>`, then `/run`) instead of directly from the
+SSH shell — the standard technique for handing a process to another
+session's window station without RDP. Once running there, rendering worked
+with zero EGL/swap-chain errors, and the join proceeded normally. This is
+purely a workaround for *testing without a full interactive desktop
+session* — a real end user launching the app normally by double-clicking it
+never hits this at all.
+
+**Nuance, not a blocker, matching macOS's and Linux's own pages:** the join
+above was a single, ad-hoc run (via a directly-launched pre-built exe, not
+yet through `flutter run` itself), not a repeatable gated test. The
+lifecycle-contract testing earlier in this section independently confirms
+the subprocess spawn, storage-dir convention, and raw byte relay all work
+correctly on real hardware regardless — the same mechanism `flutter_pear`'s
+real RPC protocol rides on top of, so the join result is corroborating
+evidence, not the only evidence.
+
+`flutter_pear_example` now has a real, committed `windows/` runner
+(`flutter_pear-m6s`, E-D5b — `flutter create --platforms=windows .`,
+`.metadata` fixed the same way every other platform's own runner-add hit),
+and `tool/release_gate.sh` gained a `windows-build`/`windows-smoke` leg
+mirroring `linux-build`/`linux-smoke` — including one genuine Windows-only
+simplification: unlike macOS/Linux, `windows-smoke` needs no separate
+orphan-subprocess cleanup step, since the Job Object's
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` flag already tears the whole worklet
+process tree down automatically (see "Orphaned subprocess on quit" above).
+The `windows-smoke` gate's own exact script wasn't independently re-run
+end-to-end through `flutter run` this session (it uses the identical
+rendering path and dart-define mechanism already proven above, just
+through the Flutter tool's own wrapper instead of a pre-built exe) — a
+final confirming pass once this leg reaches a real Windows release machine
+is the one remaining honest gap.
 
 ## See also
 

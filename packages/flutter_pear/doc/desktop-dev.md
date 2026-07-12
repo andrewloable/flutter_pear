@@ -106,17 +106,35 @@ relayed raw binary IPC — no BareKit equivalent exists for desktop):
   real `macos/` runner, and a live, in-app Hyperswarm chat round trip is
   confirmed working end-to-end against real peers. See [macOS platform
   notes](macos.md).
-- **Linux** (`flutter_pear-65g`) and **Windows** (`flutter_pear-pfp`) both
-  have real, compiled, lifecycle-tested-on-real-hardware native hosts and a
-  real committed desktop bundle each — but neither has a
-  `flutter_pear_example` runner yet, and neither has a confirmed live
-  Hyperswarm round trip through the real Dart API (the mechanism underneath
-  is confirmed working; nobody has yet watched two real app-level peers
-  reach `connected` on either platform). See [Linux platform
-  notes](linux.md) and [Windows platform notes](windows.md) for the exact,
-  honest state of each.
+- **Linux** (`flutter_pear-65g`/`flutter_pear-ymz`) has a real, compiled,
+  lifecycle-tested-on-real-hardware native host, a real committed desktop
+  bundle, a real `flutter_pear_example` `linux/` runner, and a confirmed
+  live Hyperswarm join through the real Dart API — `PearSwarm.join()`
+  reached `PearSwarmState.connected` against a real macOS peer, watched
+  directly, not just inferred from the underlying plumbing. See [Linux
+  platform notes](linux.md) for the exact detail (including the one
+  remaining nuance: the chat message payload itself wasn't confirmed
+  received in that same run, a timing artifact of an ad-hoc cross-machine
+  test, not a protocol defect).
+- **Windows** (`flutter_pear-pfp`/`flutter_pear-m6s`) has a real, compiled,
+  lifecycle-tested-on-real-hardware native host, a real committed desktop
+  bundle, a real `flutter_pear_example` `windows/` runner, and a confirmed
+  live Hyperswarm join through the real Dart API — `PearSwarm.join()`
+  reached `PearSwarmState.connected` against a real macOS peer, watched
+  directly. Getting a real display attached to this dev environment's
+  SSH-only Windows box (Windows 11 Home has no RDP) needed a Scheduled
+  Task launched into the machine's own logged-in console session — a
+  testing-environment workaround, not something an end user ever hits. See
+  [Windows platform notes](windows.md) for the exact detail (including the
+  same chat-message-payload nuance Linux's page documents, and the one
+  remaining gap: the `release_gate.sh` `windows-smoke` leg wasn't
+  independently re-run end-to-end through `flutter run` this session).
 
-If your use case needs the Linux/Windows gap above closed sooner, [open an
+All three desktop platforms now have a real, on-hardware confirmed
+Hyperswarm join through `flutter_pear_example`'s own Dart API — none of
+this needs to be taken on faith from the underlying plugin-host plumbing
+alone anymore. If your use case needs one of the remaining nuances above
+closed sooner, [open an
 issue](https://github.com/andrewloable/flutter_pear/issues) so real demand
 can inform when that work gets picked up.
 

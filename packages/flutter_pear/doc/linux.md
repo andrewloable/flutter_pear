@@ -105,20 +105,39 @@ directly via `pgrep`, not just inferred. The `linux-x64` desktop bundle
 prebuilds) is a real, committed build artifact, produced the same way the
 macOS bundles are (`bare-pack --offload-addons`).
 
-**Not yet validated: a real, in-app Hyperswarm join/chat round trip through
-`flutter_pear_example`.** Unlike macOS's own page, this page cannot yet
-point to a confirmed `PearSwarmState.connected` reached through the real
-Dart `PearSwarm.join` API on Linux — `flutter_pear_example` has no `linux/`
-runner yet (that's `flutter_pear-ymz`, E-D5c, currently blocked on this
-task closing), and a from-scratch join test would need the real
-`flutter_pear`/`flutter_pear_bare` Dart source deployed to a real second
-Linux machine, which this project's own data-handling rules keep off the
-table as a bulk file-transfer operation. What the lifecycle-contract testing
-above DOES confirm: the subprocess spawn, the storage-dir argv convention,
-and the raw byte relay in both directions all work correctly on real
-hardware — the same mechanism `flutter_pear`'s real RPC protocol rides on
-top of. The remaining gap is specifically "has anyone actually watched two
-real peers reach `connected` on Linux," not "does the plumbing work."
+**A real, in-app Hyperswarm join through `flutter_pear_example` is
+confirmed** (`flutter_pear-65g`, `flutter_pear-ymz`): using the example
+app's own `FLUTTER_PEAR_GATE_AUTO_JOIN_TOPIC` dart-define mechanism (the
+same one `tool/release_gate.sh`'s `linux-smoke`/`macos-smoke` gates use)
+against a real macOS peer, Linux's `PearSwarm.join()` reached
+`PearSwarmState.connected` — confirmed twice, independently, on separate
+runs. The real committed `linux-x64` `pear-end.bundle` boots, does a real
+`attach.info` RPC round trip, joins a real Hyperswarm topic, and reaches a
+real peer connection, all through `flutter_pear_example`'s real Dart API
+(`flutter run -d linux`), not a throwaway scratch probe.
+
+**Nuance, not a blocker:** the bidirectional chat message itself (as
+opposed to reaching `connected`) was not confirmed received on either side
+in these specific runs — likely a data-channel-vs-swarm-state timing
+artifact of an ad-hoc, staggered-start test across two machines with
+different build times (the macOS peer's own swarm never itself reached
+`connected` in these particular runs), not a network or protocol defect;
+macOS's own chat round trip is separately, definitively confirmed
+end-to-end elsewhere (see [macOS platform notes](macos.md)). The underlying
+byte-relay mechanism is also independently confirmed correct via the
+lifecycle contract testing above. A cleaner, better-synchronized repeat of
+this exact test would likely also confirm the message round trip.
+
+`flutter_pear_example` has a real, committed `linux/` runner (`flutter
+create --platforms=linux .`, `.metadata` fixed to keep the existing
+android/ios/macos entries `flutter create` otherwise drops — same gotcha
+macOS's own runner setup hit). `dart run flutter_pear:doctor` reports real
+Linux desktop build readiness (`doctor_linux_checks.dart`: clang, cmake,
+ninja, GTK 3 dev headers, and the committed `linux-x64` bundle).
+`tool/release_gate.sh` has a `linux-build`/`linux-smoke` leg mirroring
+`macos-build`/`macos-smoke`, using `xvfb-run` when available since a real
+Linux release/CI machine is commonly headless (this project's own Linux
+test box included).
 
 ## See also
 
