@@ -37,6 +37,7 @@ FLUTTER_PEAR_EXAMPLE="$REPO_ROOT/packages/flutter_pear_example"
 GATE_ORDER=(
   bootstrap analyze dart-tests pear-end compatibility pins pana licenses
   fresh-machine pack-regression ios-smoke apk ipa-inspect macos-build macos-smoke
+  linux-build linux-smoke windows-build windows-smoke
 )
 
 # macOS ships bash 3.2 (no associative arrays) -- results are recorded as
@@ -502,6 +503,151 @@ gate_macos-smoke() {
     record macos-smoke PASS
   else
     record macos-smoke FAIL "no worklet-handshake marker appeared within the timeout. Log: $log_file"
+  fi
+  rm -f "$pid_file"
+}
+
+gate_linux-build() {
+  if (cd "$FLUTTER_PEAR_EXAMPLE" && flutter build linux --debug); then
+    record linux-build PASS
+  else
+    record linux-build FAIL "flutter build linux --debug failed in packages/flutter_pear_example"
+  fi
+}
+
+gate_linux-smoke() {
+  local log_file pid_file run_pid bg_pid
+  log_file="$(mktemp -t linux_smoke_run.XXXXXX.log)"
+  pid_file="$(mktemp -t linux_smoke_run.XXXXXX.pid)"
+
+  # Same auto-join dart-define mechanism macos-smoke/ios-smoke use
+  # (flutter_pear-beq) -- flutter_pear_example's home screen requires
+  # tapping into a demo route before Pear.start() ever runs. `xvfb-run -a`
+  # if present (real-world Linux release/CI machines are commonly headless,
+  # confirmed on this project's own Linux test box, flutter_pear-ymz) --
+  # falls back to a direct run if a real display is already attached and
+  # Xvfb isn't installed.
+  local runner=(flutter run -d linux --pid-file "$pid_file" \
+    --dart-define="FLUTTER_PEAR_GATE_AUTO_JOIN_TOPIC=flutter_pear-ymz-linux-smoke-gate")
+  if command -v xvfb-run >/dev/null 2>&1; then
+    runner=(xvfb-run -a "${runner[@]}")
+  fi
+  (cd "$FLUTTER_PEAR_EXAMPLE" && "${runner[@]}") >"$log_file" 2>&1 &
+  bg_pid=$!
+
+  for _ in $(seq 1 30); do
+    [ -s "$pid_file" ] && break
+    sleep 1
+  done
+  run_pid="$([ -s "$pid_file" ] && cat "$pid_file" || echo "$bg_pid")"
+
+  # Only the worklet-attach marker (same scope as macos-smoke: a boot smoke
+  # test, not a full peer round trip -- see doc/linux.md's "What's covered"
+  # section for the separate, already-confirmed real join/connected result).
+  local found=0 crashed=0
+  for _ in $(seq 1 60); do
+    if grep -qE "worklet attached" "$log_file" 2>/dev/null; then
+      found=1
+      break
+    fi
+    if grep -qE "FLUTTER_PEAR_FIXTURE_FAILED|MissingPluginException" "$log_file" 2>/dev/null; then
+      crashed=1
+      break
+    fi
+    sleep 2
+  done
+
+  if kill -0 "$run_pid" >/dev/null 2>&1; then
+    kill "$run_pid" >/dev/null 2>&1 || true
+    for _ in $(seq 1 10); do
+      kill -0 "$run_pid" >/dev/null 2>&1 || break
+      sleep 1
+    done
+    kill -9 "$run_pid" >/dev/null 2>&1 || true
+  fi
+  # A plain kill/SIGKILL of `flutter run` does NOT reach the bare
+  # subprocess -- it bypasses the app's own GApplication "shutdown" signal
+  # (see doc/linux.md's "Orphaned subprocess on quit"), confirmed live on
+  # this project's own Linux test box (flutter_pear-ymz): the same gap
+  # macos-smoke already works around for macOS's NSApplication equivalent.
+  pkill -9 -f "bare .*/pear-end.bundle" >/dev/null 2>&1 || true
+
+  if [ "$crashed" = "1" ]; then
+    record linux-smoke FAIL "worklet reported a failure -- see $log_file"
+  elif [ "$found" = "1" ]; then
+    record linux-smoke PASS
+  else
+    record linux-smoke FAIL "no worklet-handshake marker appeared within the timeout. Log: $log_file"
+  fi
+  rm -f "$pid_file"
+}
+
+gate_windows-build() {
+  if (cd "$FLUTTER_PEAR_EXAMPLE" && flutter build windows --debug); then
+    record windows-build PASS
+  else
+    record windows-build FAIL "flutter build windows --debug failed in packages/flutter_pear_example"
+  fi
+}
+
+gate_windows-smoke() {
+  local log_file pid_file run_pid bg_pid
+  log_file="$(mktemp -t windows_smoke_run.XXXXXX.log)"
+  pid_file="$(mktemp -t windows_smoke_run.XXXXXX.pid)"
+
+  # Same auto-join dart-define mechanism macos-smoke/linux-smoke use
+  # (flutter_pear-beq) -- flutter_pear_example's home screen requires
+  # tapping into a demo route before Pear.start() ever runs. This gate
+  # assumes a bash environment on Windows (Git Bash, matching this
+  # project's own toolchain table) -- `flutter run -d windows` needs a
+  # real, attached display the same way macOS/Linux do; there is no
+  # Windows equivalent of xvfb-run for a fully headless run.
+  (cd "$FLUTTER_PEAR_EXAMPLE" && flutter run -d windows --pid-file "$pid_file" \
+    --dart-define="FLUTTER_PEAR_GATE_AUTO_JOIN_TOPIC=flutter_pear-m6s-windows-smoke-gate") \
+    >"$log_file" 2>&1 &
+  bg_pid=$!
+
+  for _ in $(seq 1 30); do
+    [ -s "$pid_file" ] && break
+    sleep 1
+  done
+  run_pid="$([ -s "$pid_file" ] && cat "$pid_file" || echo "$bg_pid")"
+
+  # Only the worklet-attach marker (same scope as macos-smoke/linux-smoke).
+  local found=0 crashed=0
+  for _ in $(seq 1 60); do
+    if grep -qE "worklet attached" "$log_file" 2>/dev/null; then
+      found=1
+      break
+    fi
+    if grep -qE "FLUTTER_PEAR_FIXTURE_FAILED|MissingPluginException" "$log_file" 2>/dev/null; then
+      crashed=1
+      break
+    fi
+    sleep 2
+  done
+
+  # Unlike macos-smoke/linux-smoke, no separate orphan-cleanup step is
+  # needed here: the Windows host's Job Object has
+  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE set, so killing the top-level app
+  # process tears down the whole `cmd.exe`/`bare`/`node.exe` chain
+  # automatically -- confirmed live, not assumed (see doc/windows.md's
+  # "Orphaned subprocess on quit" section, flutter_pear-pfp).
+  if kill -0 "$run_pid" >/dev/null 2>&1; then
+    kill "$run_pid" >/dev/null 2>&1 || true
+    for _ in $(seq 1 10); do
+      kill -0 "$run_pid" >/dev/null 2>&1 || break
+      sleep 1
+    done
+    kill -9 "$run_pid" >/dev/null 2>&1 || true
+  fi
+
+  if [ "$crashed" = "1" ]; then
+    record windows-smoke FAIL "worklet reported a failure -- see $log_file"
+  elif [ "$found" = "1" ]; then
+    record windows-smoke PASS
+  else
+    record windows-smoke FAIL "no worklet-handshake marker appeared within the timeout. Log: $log_file"
   fi
   rm -f "$pid_file"
 }
