@@ -6,10 +6,11 @@ import '../bin/pack.dart';
 
 void main() {
   group('desktopBundleHosts', () {
-    test('is exactly the macOS + Linux hosts (flutter_pear-6yz E-D3 macOS '
-        'leg, flutter_pear-65g E-D2c Linux leg -- Windows lands once its own '
-        'host code does, flutter_pear-pfp)', () {
-      expect(desktopBundleHosts, ['darwin-arm64', 'darwin-x64', 'linux-x64']);
+    test('is exactly the macOS + Linux + Windows hosts (flutter_pear-6yz '
+        'E-D3 macOS leg, flutter_pear-65g E-D2c Linux leg, flutter_pear-pfp '
+        'E-D2b Windows leg)', () {
+      expect(desktopBundleHosts,
+          ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64']);
     });
   });
 

@@ -3,8 +3,10 @@ import 'dart:isolate';
 
 import 'package:flutter_pear/src/doctor_host_checks.dart';
 import 'package:flutter_pear/src/doctor_ios_checks.dart';
+import 'package:flutter_pear/src/doctor_linux_checks.dart';
 import 'package:flutter_pear/src/doctor_macos_checks.dart';
 import 'package:flutter_pear/src/doctor_report.dart';
+import 'package:flutter_pear/src/doctor_windows_checks.dart';
 
 /// Runtime connectivity doctor (E7.4, X5) -- `dart run flutter_pear:doctor`.
 ///
@@ -28,11 +30,17 @@ import 'package:flutter_pear/src/doctor_report.dart';
 /// flutter_pear-l0w) -- a one-line verdict naming which build targets THIS
 /// host can build for (Android: any host; iOS/macOS: macOS + Xcode only, an
 /// Apple constraint) -- then the pure-Dart iOS section
-/// (`doctor_ios_checks.dart`) and macOS section (`doctor_macos_checks.dart`,
-/// flutter_pear-b6g): Xcode/simulator presence, packaging-path detection,
-/// the consumer `Info.plist`/entitlements, the committed desktop bundle
-/// assets, and this plugin's own installed-package pin integrity -- none of
-/// which needs Node at all, so both run even when Node is absent.
+/// (`doctor_ios_checks.dart`), macOS section (`doctor_macos_checks.dart`,
+/// flutter_pear-b6g), Linux section (`doctor_linux_checks.dart`,
+/// flutter_pear-65g), and Windows section (`doctor_windows_checks.dart`,
+/// flutter_pear-pfp): toolchain/simulator presence, packaging-path
+/// detection, the consumer `Info.plist`/entitlements (Apple only), the
+/// committed desktop bundle assets, and this plugin's own installed-package
+/// pin integrity -- none of which needs Node at all, so all four run even
+/// when Node is absent. Every desktop section (macOS/Linux/Windows) only
+/// runs its real checks on that SAME OS -- there is no cross-compilation
+/// story, so a doctor run on this Mac always skips the Linux/Windows
+/// sections with a one-line "not applicable", by design.
 /// Everything else lives in `tool/doctor-checks.js`, run as a plain Node
 /// process afterward -- see that file's own doc comment. Exits nonzero if
 /// either side found a real failure (0 only if both the Dart-side checks
@@ -94,7 +102,23 @@ Future<void> main(List<String> args) async {
     flutterPearBareRoot: resolvedBareRoot,
     isMacOs: Platform.isMacOS,
   ));
-  final allResults = [hostResult, ...iosResults, ...macosResults];
+  final linuxResults = await runDoctorLinuxChecks(DoctorLinuxContext(
+    consumerRoot: Directory.current.path,
+    flutterPearRoot: packageRoot.path,
+    isLinux: Platform.isLinux,
+  ));
+  final windowsResults = await runDoctorWindowsChecks(DoctorWindowsContext(
+    consumerRoot: Directory.current.path,
+    flutterPearRoot: packageRoot.path,
+    isWindows: Platform.isWindows,
+  ));
+  final allResults = [
+    hostResult,
+    ...iosResults,
+    ...macosResults,
+    ...linuxResults,
+    ...windowsResults,
+  ];
   final dartCheckOutput = renderDoctorIosChecks(allResults);
   final dartChecksOk =
       !allResults.any((r) => r.status == DoctorCheckStatus.fail);

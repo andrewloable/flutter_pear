@@ -136,11 +136,40 @@ class Pear {
           backgroundExecution: PearBackgroundExecution.unrestricted,
           validationTier: PearValidationTier.device,
         );
+      case TargetPlatform.linux:
+        return const PearPlatformInfo(
+          // flutter_pear-65g (E-D2c): same embedding shape as macOS -- a
+          // plain `bare` subprocess with no OS-level app-lifecycle
+          // suspension. Desktop Linux window managers don't throttle or
+          // freeze a minimized/backgrounded GUI app's process the way
+          // iOS/Android do (there is no analogous OS mechanism to opt out
+          // of), so the same unrestricted pin applies for the same reason
+          // it does on macOS -- see `doc/linux.md`'s "Background execution
+          // on Linux" section. `validationTier: device`: like macOS, Linux
+          // has no separate simulator/emulator layer -- `flutter build
+          // linux` runs directly on the real machine.
+          backgroundExecution: PearBackgroundExecution.unrestricted,
+          validationTier: PearValidationTier.device,
+        );
+      case TargetPlatform.windows:
+        return const PearPlatformInfo(
+          // flutter_pear-pfp (E-D2b): same embedding shape as macOS/Linux --
+          // a plain `bare` subprocess (via cmd.exe -> node.exe -> the real
+          // bare-runtime binary on Windows specifically, see the Windows
+          // host's own doc comment for why) with no OS-level app-lifecycle
+          // suspension -- minimizing or backgrounding a normal desktop
+          // Windows app does not pause or throttle its process. See
+          // `doc/windows.md`'s "Background execution on Windows" section.
+          // `validationTier: device`: same rationale as macOS/Linux -- no
+          // separate simulator/emulator layer for Windows desktop builds.
+          backgroundExecution: PearBackgroundExecution.unrestricted,
+          validationTier: PearValidationTier.device,
+        );
       default:
         throw UnsupportedError(
           'Pear.platformInfo is only defined for TargetPlatform.android, '
-          'TargetPlatform.iOS, and TargetPlatform.macOS, got '
-          '$defaultTargetPlatform.',
+          'TargetPlatform.iOS, TargetPlatform.macOS, TargetPlatform.linux, '
+          'and TargetPlatform.windows, got $defaultTargetPlatform.',
         );
     }
   }

@@ -125,4 +125,18 @@ flutter:
     - assets/desktop/linux-x64/node_modules/simdle-native/prebuilds/linux-x64/
     - assets/desktop/linux-x64/node_modules/sodium-native/prebuilds/linux-x64/
     - assets/desktop/linux-x64/node_modules/udx-native/prebuilds/linux-x64/
+    - assets/desktop/win32-x64/
+    - assets/desktop/win32-x64/node_modules/bare-fs/prebuilds/win32-x64/
+    - assets/desktop/win32-x64/node_modules/bare-inspect/prebuilds/win32-x64/
+    - assets/desktop/win32-x64/node_modules/bare-os/prebuilds/win32-x64/
+    - assets/desktop/win32-x64/node_modules/bare-pipe/prebuilds/win32-x64/
+    - assets/desktop/win32-x64/node_modules/bare-type/prebuilds/win32-x64/
+    - assets/desktop/win32-x64/node_modules/bare-url/prebuilds/win32-x64/
+    - assets/desktop/win32-x64/node_modules/fs-native-extensions/prebuilds/win32-x64/
+    - assets/desktop/win32-x64/node_modules/quickbit-native/prebuilds/win32-x64/
+    - assets/desktop/win32-x64/node_modules/rabin-native/prebuilds/win32-x64/
+    - assets/desktop/win32-x64/node_modules/rocksdb-native/prebuilds/win32-x64/
+    - assets/desktop/win32-x64/node_modules/simdle-native/prebuilds/win32-x64/
+    - assets/desktop/win32-x64/node_modules/sodium-native/prebuilds/win32-x64/
+    - assets/desktop/win32-x64/node_modules/udx-native/prebuilds/win32-x64/
     # END desktop addon asset dirs

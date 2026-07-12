@@ -3,11 +3,13 @@
 This page is for developers building `flutter_pear` apps **on** a Windows or
 Linux machine — the *host* you develop on, not a *runtime target* your app
 runs on. That's a different question from whether flutter_pear apps can
-*run* on desktop at all — macOS now can (see [macOS platform
-notes](macos.md)); Windows/Linux runtime targets are not yet available (see
-[What's not yet supported](#whats-not-yet-supported) below). This page is
-scoped narrowly: does the existing Android-target workflow work smoothly
-from a non-macOS machine, and if so, how do you set it up.
+*run* on desktop at all — macOS, Linux, and Windows all now can (see [macOS
+platform notes](macos.md), [Linux platform notes](linux.md), and [Windows
+platform notes](windows.md); a real, in-app Hyperswarm round trip is only
+confirmed on macOS so far — see [What's not yet supported](#whats-not-yet-supported)
+below for the honest gap on the other two). This page is scoped narrowly:
+does the existing Android-target workflow work smoothly from a non-macOS
+machine, and if so, how do you set it up.
 
 **Short answer, evidence-backed:** yes, already. Every claim below was
 verified by reading this repo's own source, not assumed:
@@ -95,18 +97,26 @@ line anywhere else in the output, that's a real, fixable problem — see
 **Flutter apps that *run* on Windows/macOS/Linux desktop** (as opposed to
 developing an Android/iOS app *from* one of those hosts, which the rest of
 this page covers) is a separate, larger effort tracked under the
-`flutter_pear-aar` epic — **macOS is the first desktop runtime target with
-real, working host code** (`flutter_pear-71g`/`flutter_pear-6yz`/
-`flutter_pear-iqp`/`flutter_pear-b6g`): a real Swift host spawns the `bare`
-runtime as a subprocess, `flutter_pear_example` has a `macos/` runner that
-builds and boots, and `dart run flutter_pear:doctor` recognizes macOS as a
-build target. See [macOS platform notes](macos.md) for what's actually
-different on macOS, including a known, documented gap in live round-trip
-validation on at least one dev machine. Windows and Linux hosts do not
-exist yet (`flutter_pear-pfp`/`flutter_pear-65g`) — Bare Kit's mobile hosts
-have no equivalent for either, and each needs its own native host, same
-shape as macOS's. If your use case needs flutter_pear running on Windows or
-Linux desktop specifically, [open an
+`flutter_pear-aar` epic. All three desktop hosts now have real, working
+native code, same embedding shape (a subprocess-spawned `bare` runtime,
+relayed raw binary IPC — no BareKit equivalent exists for desktop):
+
+- **macOS** (`flutter_pear-71g`/`flutter_pear-6yz`/`flutter_pear-iqp`/
+  `flutter_pear-b6g`) is the most complete: `flutter_pear_example` has a
+  real `macos/` runner, and a live, in-app Hyperswarm chat round trip is
+  confirmed working end-to-end against real peers. See [macOS platform
+  notes](macos.md).
+- **Linux** (`flutter_pear-65g`) and **Windows** (`flutter_pear-pfp`) both
+  have real, compiled, lifecycle-tested-on-real-hardware native hosts and a
+  real committed desktop bundle each — but neither has a
+  `flutter_pear_example` runner yet, and neither has a confirmed live
+  Hyperswarm round trip through the real Dart API (the mechanism underneath
+  is confirmed working; nobody has yet watched two real app-level peers
+  reach `connected` on either platform). See [Linux platform
+  notes](linux.md) and [Windows platform notes](windows.md) for the exact,
+  honest state of each.
+
+If your use case needs the Linux/Windows gap above closed sooner, [open an
 issue](https://github.com/andrewloable/flutter_pear/issues) so real demand
 can inform when that work gets picked up.
 
@@ -115,4 +125,6 @@ can inform when that work gets picked up.
 - [Troubleshooting](troubleshooting.md) — install-time failures (slow/silent downloads, blocked fetches, checksum/ABI mismatches).
 - [iOS platform notes](ios.md) — what's different once you *do* have a Mac and are targeting iOS.
 - [macOS platform notes](macos.md) — what's different once you're targeting macOS as a flutter_pear *runtime* (not just a dev host).
+- [Linux platform notes](linux.md) — same, for Linux as a *runtime* target.
+- [Windows platform notes](windows.md) — same, for Windows as a *runtime* target.
 - [Error catalog](../ERRORS.md) — every runtime error code's problem, cause, and fix.

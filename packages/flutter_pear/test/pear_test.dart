@@ -188,6 +188,20 @@ void main() {
   });
 
   test(
+      'on a platform with unrestricted background execution (Linux), '
+      'lifecycle.policy ALSO defaults to manual (flutter_pear-65g) -- the '
+      'E-D4 fix generalizes off platformInfo.backgroundExecution, not a '
+      'macOS-only special case', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    final pear = await Pear.start();
+
+    expect(pear.lifecycle.policy, PearLifecyclePolicy.manual);
+    await pear.dispose();
+  });
+
+  test(
       'on a platform without unrestricted background execution (Android), '
       'lifecycle.policy still defaults to auto -- the E-D4 fix is additive, '
       'not a change to existing mobile behavior', () async {

@@ -41,3 +41,5 @@ flutter:
         pluginClass: FlutterPearBarePlugin
       linux:
         pluginClass: FlutterPearBarePlugin
+      windows:
+        pluginClass: FlutterPearBarePlugin

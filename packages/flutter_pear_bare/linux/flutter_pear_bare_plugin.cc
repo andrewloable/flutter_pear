@@ -25,9 +25,10 @@ static const char* kBundleAssetSubpath =
     "packages/flutter_pear/assets/desktop/linux-x64/pear-end.bundle";
 
 // Worklet lifecycle (mirrors WorkletState in bare_worklet.dart). This
-// comment block is duplicated VERBATIM in FlutterPearBarePlugin.kt/.swift/
-// this file (eng-4A) -- edit all together, never just one, or the hosts
-// silently drift apart.
+// comment block is duplicated VERBATIM in FlutterPearBarePlugin.kt/.swift,
+// this file, and the Windows host (windows/flutter_pear_bare_plugin.cpp)
+// (eng-4A) -- edit all together, never just one, or the hosts silently
+// drift apart.
 //
 //   stopped --start() (fresh boot)--> running --suspend()--> suspended
 //      ^                                 |  ^                    |

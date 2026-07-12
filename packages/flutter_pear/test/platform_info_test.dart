@@ -26,14 +26,39 @@ void main() {
     expect(Pear.platformInfo.validationTier, PearValidationTier.device);
   });
 
-  test('an unsupported platform throws, naming android, iOS, and macOS', () {
+  test('Linux: unrestricted + device (E-D2c, flutter_pear-65g) -- same '
+      'pin as macOS, same subprocess-with-no-OS-suspension rationale', () {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    expect(Pear.platformInfo.backgroundExecution,
+        PearBackgroundExecution.unrestricted);
+    expect(Pear.platformInfo.validationTier, PearValidationTier.device);
+  });
+
+  test('Windows: unrestricted + device (E-D2b, flutter_pear-pfp) -- same '
+      'pin as macOS/Linux, same subprocess-with-no-OS-suspension rationale',
+      () {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    expect(Pear.platformInfo.backgroundExecution,
+        PearBackgroundExecution.unrestricted);
+    expect(Pear.platformInfo.validationTier, PearValidationTier.device);
+  });
+
+  test(
+      'an unsupported platform throws, naming android, iOS, macOS, Linux, '
+      'and Windows', () {
+    debugDefaultTargetPlatformOverride = TargetPlatform.fuchsia;
     expect(
       () => Pear.platformInfo,
       throwsA(isA<UnsupportedError>().having(
         (e) => e.message,
         'message',
-        allOf(contains('android'), contains('iOS'), contains('macOS')),
+        allOf(
+          contains('android'),
+          contains('iOS'),
+          contains('macOS'),
+          contains('linux'),
+          contains('windows'),
+        ),
       )),
     );
   });
