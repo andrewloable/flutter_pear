@@ -1,3 +1,33 @@
+## 0.3.0
+
+**macOS, Linux, and Windows desktop support, new in 0.3.0.** `flutter_pear`
+apps now run on desktop, not just Android/iOS — same `Pear.start()`/`join()`
+API, no platform branching required. There is no BareKit build for desktop,
+so each desktop host spawns the real `bare` CLI runtime as a subprocess and
+relays raw binary IPC over its stdin/stdout instead of linking a worklet
+in-process; this is transparent to app code.
+
+Real, on-hardware validation, not just a compiling build: all three desktop
+hosts booted the real committed per-OS `pear-end.bundle`, completed the
+`attach.info` RPC handshake ("worklet attached"), and — through
+`flutter_pear_example`'s own real Dart `PearSwarm.join()` call — reached
+`PearSwarmState.connected` against a real peer. See each platform's own
+notes for exactly what's covered and what's still a documented gap (a
+repeatable, gated smoke test on Windows/Linux; a fully round-tripped chat
+message, not just `connected`, on Windows/Linux — both already confirmed on
+macOS):
+
+- [macOS platform notes](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/macos.md)
+- [Linux platform notes](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/linux.md)
+- [Windows platform notes](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/windows.md)
+- [Desktop dev setup](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/desktop-dev.md) — the overview page linking all three, plus building an Android/iOS app *from* a Windows/Linux host machine.
+
+`dart run flutter_pear:doctor` gained a desktop build-readiness section per
+OS (toolchain presence, packaging path, the committed desktop bundle) —
+not just the existing host-capability line.
+
+No Android/iOS behavior changes. Requires `flutter_pear_bare: ^0.3.0`.
+
 ## 0.2.1
 
 Version bump only, in lockstep with `flutter_pear_bare`/`flutter_pear_test`'s

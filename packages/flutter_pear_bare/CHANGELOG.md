@@ -1,3 +1,28 @@
+## 0.3.0
+
+**macOS, Linux, and Windows desktop hosts, new in 0.3.0.** No BareKit build
+exists for desktop, so each host (`flutter_pear_bare_plugin.cc`/`.swift` for
+Linux/macOS, a C++ Windows plugin) spawns the real `bare` CLI runtime as a
+subprocess and relays raw binary IPC over its stdin/stdout — the same
+`start`/`terminate`/`suspend`/`resume` lifecycle contract mobile's BareKit
+binding already exposes, just a different transport underneath.
+
+Real, on-hardware validation for all three: the full lifecycle contract
+(fresh boot, reattach with the same generation id, `suspend`/`resume`
+no-ops, a message round-tripping through the relay, `terminate()` actually
+killing the subprocess tree, a post-terminate fresh boot) exercised live
+against the real spawned process, plus a real end-to-end Hyperswarm join
+through `flutter_pear`'s real `PearSwarm.join()` API reaching
+`PearSwarmState.connected` on real hardware. One genuine per-OS difference
+worth knowing: unlike macOS/Linux, a Windows process's Job Object
+(`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) tears down the whole worklet process
+tree automatically even on a forced kill — no orphaned subprocess gap to
+work around there. See each platform's own notes (linked from
+[Desktop dev setup](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/desktop-dev.md))
+for exact detail.
+
+No Android/iOS behavior changes.
+
 ## 0.2.1
 
 Docs-only patch: this package's own README still said "Android-only, iOS

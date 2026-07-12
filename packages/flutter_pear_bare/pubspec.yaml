@@ -1,6 +1,6 @@
 name: flutter_pear_bare
 description: Low-level Bare Kit worklet bindings for flutter_pear — worklet lifecycle and raw binary IPC.
-version: 0.2.1
+version: 0.3.0
 # E9.7: publish_to: none removed -- this package is first in the enforced
 # publish order (flutter_pear_bare -> flutter_pear -> flutter_pear_test; see
 # flutter_pear/pubspec.yaml for why that order, not the "bare -> test -> pear"
