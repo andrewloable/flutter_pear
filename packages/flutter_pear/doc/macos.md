@@ -133,30 +133,53 @@ appending `flutter_pear/`, never `Documents` or anywhere iCloud-synced —
 restoring Hypercore writer keys onto a second device via a document sync
 would fork cores, not just duplicate a file.
 
-## What's not yet covered
+## What's covered, and what to expect while testing
 
 `flutter_pear_example` has a real `macos/` runner (`flutter_pear-b6g`,
 E-D5a) that builds and boots cleanly — worklet attach, swarm join, and the
-full `discovering` → `connecting` state machine all confirmed live. `dart
-run flutter_pear:doctor` recognizes macOS as a build target (Xcode,
-packaging path, `Info.plist`, entitlements, the committed desktop bundle,
-deployment target).
+full `discovering` → `connecting` → `connected` state machine all confirmed
+live. `dart run flutter_pear:doctor` recognizes macOS as a build target
+(Xcode, packaging path, `Info.plist`, entitlements, the committed desktop
+bundle, deployment target).
 
-**A live, in-app chat round trip against a real peer has NOT been confirmed
-end-to-end on this dev machine** — every attempt reached a real Hyperswarm
-connection (raw bytes flow, the Protomux channel opens) but never completed
-DHT topic correlation, so `PearSwarm.state` never reaches `connected`. This
-is very likely this specific machine's own local networking, not a
-flutter_pear defect: `dart run flutter_pear:doctor`'s own pre-existing
-`Local loopback self-test` (`tool/doctor-checks.js`, unrelated to this
-task's own changes) independently fails with the *exact same symptom*
-("two peers on THIS machine never connected... likely a local firewall
-blocking loopback UDP") for two plain Node peers with no flutter_pear code
-involved at all. Confirm this on a real second machine (or a dev box
-without this constraint) before treating it as a flutter_pear bug — this is
-a documented, open item for whoever picks up desktop validation next, not
-silently swept under the rug. Physical two-device (macOS ↔ another real
-machine) validation is a documented follow-up, not a release gate.
+**A live, in-app chat round trip is confirmed working end-to-end**
+(`flutter_pear-xue`), against two genuinely different kinds of real peers:
+
+- A remote Linux server (a separate public IP, reached over SSH from this
+  dev machine): `PearSwarmState.connected` reached on both sides, sustained
+  over several minutes, both sides' messages arriving cleanly.
+- A real physical Android phone (`flutter_pear_example` running on real
+  hardware, not an emulator): `PearSwarmState.connected` reached on both
+  sides, with real chat messages exchanged interactively through the app's
+  own UI.
+
+**If a connection sits at `discovering`/`connecting` and doesn't progress,
+two things to check before suspecting flutter_pear's own code:**
+
+1. **Same-machine or same-NAT testing.** A connection between two peers that
+   can only reach each other through *this dev machine's own local network
+   path* (another process on the same Mac, or an emulator NAT'd through the
+   same host) never completed DHT topic correlation in testing here, even
+   though the raw connection itself succeeded (bytes flow, the Protomux
+   channel opens). `dart run flutter_pear:doctor`'s own pre-existing `Local
+   loopback self-test` (`tool/doctor-checks.js`, unrelated to this task's
+   own changes) independently fails with the exact same symptom for two
+   plain Node peers with no flutter_pear code involved — consistent with
+   NAT hairpinning (many routers don't correctly loop a device's own
+   traffic back to a sibling device behind the same NAT). Check `doctor`'s
+   loopback self-test first if you hit this.
+2. **A mobile peer backgrounding mid-connection.** The real-phone test above
+   initially got stuck the same way — but the actual cause was the phone's
+   own screen-timeout backgrounding the app mid-handshake, which suspends
+   the worklet by design (see [iOS platform notes](ios.md) and
+   `BACKGROUND_EXECUTION.md` for why — this is the same, deliberate,
+   documented mobile lifecycle behavior, not a bug). Each suspend/resume
+   cycle resets that side's swarm back to `discovering`, so a phone whose
+   screen keeps locking during a slow real-DHT lookup can look permanently
+   stuck even though the code is working correctly. Keep the mobile
+   device's screen on and unlocked for the (real, sometimes 30s+, variable)
+   DHT lookup window — the connection genuinely completes once it gets an
+   uninterrupted run.
 
 ## See also
 

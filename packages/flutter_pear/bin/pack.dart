@@ -1186,13 +1186,17 @@ Future<int> buildBundle(String pkgRoot) async {
   return 0;
 }
 
-/// Desktop hosts [buildDesktopBundle] targets -- macOS only today
-/// (flutter_pear-6yz, E-D3's macOS leg): Windows/Linux hosts are added once
-/// flutter_pear_bare has a real host for them to serve (E-D2b/E-D2c,
-/// hardware-gated follow-ups -- no Windows/Linux dev machine in this
-/// environment), rather than committing addon artifacts with no consuming
-/// host yet.
-const desktopBundleHosts = ['darwin-arm64', 'darwin-x64'];
+/// Desktop hosts [buildDesktopBundle] targets -- macOS (flutter_pear-6yz,
+/// E-D3) and Linux (flutter_pear-65g, E-D2c) now have real
+/// flutter_pear_bare hosts to serve them; Windows is added once
+/// flutter_pear-pfp (E-D2b, hardware-gated -- no Windows dev machine in
+/// this environment) lands its own host, rather than committing addon
+/// artifacts with no consuming host yet. bare-pack itself is
+/// cross-platform (this list is not gated on the CURRENT dev host's own
+/// architecture -- pear-end/node_modules already carries prebuilds for
+/// every target listed here via npm's normal optionalDependencies
+/// resolution, confirmed for linux-x64 on this arm64 Mac before adding it).
+const desktopBundleHosts = ['darwin-arm64', 'darwin-x64', 'linux-x64'];
 
 /// Asset path (relative to the `flutter_pear` package root) [host]'s own
 /// bundle + offloaded-addon tree is written under.
@@ -1251,21 +1255,27 @@ const desktopAssetsBeginMarker =
     '# BEGIN desktop addon asset dirs (auto-generated, do not edit)';
 const desktopAssetsEndMarker = '# END desktop addon asset dirs';
 
-/// Regenerates `pubspec.yaml`'s desktop-addon asset list (flutter_pear-6yz,
-/// E-D3), one `assets:` entry per addon per [desktopBundleHosts] host,
-/// between [desktopAssetsBeginMarker] and [desktopAssetsEndMarker] --
-/// required because Flutter's directory-form assets (a trailing slash) are
-/// NOT recursive (confirmed by testing: a nested
-/// `node_modules/*/prebuilds/<host>/*.bare` tree was silently dropped from
-/// a real built macOS app until each leaf directory was listed
-/// explicitly). Scans [buildDesktopBundle]'s own output rather than
-/// hardcoding the addon set, so this self-corrects whenever pear-end's
-/// dependencies change instead of silently drifting stale.
+/// Regenerates `pubspec.yaml`'s desktop asset list (flutter_pear-6yz, E-D3),
+/// between [desktopAssetsBeginMarker] and [desktopAssetsEndMarker]: one
+/// top-level `assets/desktop/<host>/` directory entry per
+/// [desktopBundleHosts] host (covers that host's own `pear-end.bundle` --
+/// a real, previously-hand-maintained gap found and fixed while adding the
+/// linux-x64 host, flutter_pear-65g: a host added here with no matching
+/// top-level entry silently ships without its bundle file at all), plus one
+/// entry per addon per host (required because Flutter's directory-form
+/// assets, a trailing slash, are NOT recursive -- confirmed by testing: a
+/// nested `node_modules/*/prebuilds/<host>/*.bare` tree was silently
+/// dropped from a real built macOS app until each leaf directory was
+/// listed explicitly). Addon names are scanned from [buildDesktopBundle]'s
+/// own output rather than hardcoded, so this self-corrects whenever
+/// pear-end's dependencies change instead of silently drifting stale.
 void updateDesktopAssetList(String pkgRoot) {
   final entries = <String>[];
   for (final host in desktopBundleHosts) {
-    final nodeModulesDir =
-        Directory('$pkgRoot/${desktopBundleAssetDir(host)}/node_modules');
+    final hostDir = Directory('$pkgRoot/${desktopBundleAssetDir(host)}');
+    if (!hostDir.existsSync()) continue;
+    entries.add('    - ${desktopBundleAssetDir(host)}/');
+    final nodeModulesDir = Directory('${hostDir.path}/node_modules');
     if (!nodeModulesDir.existsSync()) continue;
     final addonNames = nodeModulesDir
         .listSync()

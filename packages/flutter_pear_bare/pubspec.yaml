@@ -39,3 +39,5 @@ flutter:
         pluginClass: FlutterPearBarePlugin
       macos:
         pluginClass: FlutterPearBarePlugin
+      linux:
+        pluginClass: FlutterPearBarePlugin
