@@ -1,4 +1,4 @@
-#include "flutter_pear_bare_plugin.h"
+#include "flutter_pear_bare_plugin_impl.h"
 
 // This must be included before any other Windows headers (per Flutter's own
 // plugin template convention -- windows.h has ordering-sensitive macros).

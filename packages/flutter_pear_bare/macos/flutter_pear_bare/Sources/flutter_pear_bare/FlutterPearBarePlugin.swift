@@ -24,8 +24,8 @@ private let bundlePackage = "flutter_pear"
 // Worklet lifecycle (mirrors WorkletState in bare_worklet.dart). This
 // comment block is duplicated VERBATIM in FlutterPearBarePlugin.kt/.swift,
 // the Linux host (linux/flutter_pear_bare_plugin.cc), and the Windows host
-// (windows/flutter_pear_bare_plugin.cpp) (eng-4A) -- edit all together,
-// never just one, or the hosts silently drift apart.
+// (windows/flutter_pear_bare_plugin_impl.cpp) (eng-4A) -- edit all
+// together, never just one, or the hosts silently drift apart.
 //
 //   stopped --start() (fresh boot)--> running --suspend()--> suspended
 //      ^                                 |  ^                    |

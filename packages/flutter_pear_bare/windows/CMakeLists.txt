@@ -18,15 +18,15 @@ set(PLUGIN_NAME "flutter_pear_bare_plugin")
 
 # Any new source files that you add to the plugin should be added here.
 list(APPEND PLUGIN_SOURCES
-  "flutter_pear_bare_plugin.cpp"
-  "flutter_pear_bare_plugin.h"
+  "flutter_pear_bare_plugin_impl.cpp"
+  "flutter_pear_bare_plugin_impl.h"
 )
 
 # Define the plugin library target. Its name must not be changed (see
 # comment on PLUGIN_NAME above).
 add_library(${PLUGIN_NAME} SHARED
-  "include/flutter_pear_bare/flutter_pear_bare_plugin_c_api.h"
-  "flutter_pear_bare_plugin_c_api.cpp"
+  "include/flutter_pear_bare/flutter_pear_bare_plugin.h"
+  "flutter_pear_bare_plugin_registrant.cpp"
   ${PLUGIN_SOURCES}
 )
 
