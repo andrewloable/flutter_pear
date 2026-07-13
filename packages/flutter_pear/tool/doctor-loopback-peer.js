@@ -9,12 +9,12 @@
 // same-process-vs-separate-process discrepancy found while building
 // flutter_pear_example/tool/peer.check.js) -- undiagnosed, but consistently
 // reproducible, so this sidesteps it the same way.
+//
+// `require('hyperswarm')` resolves against the COMMITTED, trimmed
+// tool/node_modules/ sitting right next to this file -- see
+// doctor-checks.js's own doc comment (flutter_pear-ewf).
 
-const path = require('node:path')
-const pearEndRequire = require('node:module').createRequire(
-  path.join(__dirname, '..', 'pear-end', 'package.json')
-)
-const Hyperswarm = pearEndRequire('hyperswarm')
+const Hyperswarm = require('hyperswarm')
 
 const topic = Buffer.from(process.argv[2], 'hex')
 const swarm = new Hyperswarm()

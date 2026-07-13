@@ -474,11 +474,122 @@ PinCheckResult checkPins(String pkgRoot) {
     ));
   }
 
+  // --- bare-runtime pin (flutter_pear-8f6), a SEPARATE artifact from
+  // BareKit above (the `bare` CLI executable itself, not an xcframework) --
+  // deliberately NOT folded into pinSources: it has exactly one consumer
+  // (the macOS Swift host's own hardcoded constants), not BareKit's
+  // multi-location upstream/repacked chain, so it gets its own small,
+  // self-contained check instead of stretching pinSources' BareKit-specific
+  // shape to fit a structurally different pin.
+  final bareRuntimeMismatches = _checkBareRuntimePin(bareRoot, skipped);
+  mismatches.addAll(bareRuntimeMismatches.mismatches);
+  checkedCount += bareRuntimeMismatches.checkedCount;
+
   return PinCheckResult(
       mismatches: mismatches,
       skipped: skipped,
       permanentSkips: permanentSkips,
       checkedCount: checkedCount);
+}
+
+/// Cross-checks `bare-runtime-pin.json` (flutter_pear-8f6's human-readable
+/// source of truth for the fetched `bare` runtime) against the hardcoded
+/// Swift constants in the macOS host that actually consume it -- the two
+/// are hand-maintained copies of the same values (no automated generation
+/// step exists for this pin, unlike BareKit's), so they can silently drift
+/// exactly the way every other pin in this file can.
+({List<PinMismatch> mismatches, int checkedCount}) _checkBareRuntimePin(
+    String bareRoot, List<String> skipped) {
+  final pinPath = '$bareRoot/bare-runtime-pin.json';
+  final pinFile = File(pinPath);
+  if (!pinFile.existsSync()) {
+    skipped.add('bare-runtime-pin.json ($pinPath) not landed yet '
+        '(flutter_pear-8f6)');
+    return (mismatches: const [], checkedCount: 0);
+  }
+  final swiftHostPath = '$bareRoot/macos/flutter_pear_bare/Sources/'
+      'flutter_pear_bare/FlutterPearBarePlugin.swift';
+  final swiftHostFile = File(swiftHostPath);
+  if (!swiftHostFile.existsSync()) {
+    skipped.add('$swiftHostPath not landed yet (flutter_pear-8f6)');
+    return (mismatches: const [], checkedCount: 0);
+  }
+
+  final Map<String, dynamic> json;
+  try {
+    json = jsonDecode(pinFile.readAsStringSync()) as Map<String, dynamic>;
+  } catch (e) {
+    throw PinCheckException('could not parse $pinPath as JSON: $e');
+  }
+  final pinnedVersion = json['bareRuntimeVersion'] as String?;
+  final hosts = json['hosts'] as Map<String, dynamic>?;
+  if (pinnedVersion == null || hosts == null) {
+    throw PinCheckException('$pinPath must have a string "bareRuntimeVersion" '
+        'and a "hosts" object');
+  }
+
+  final swiftText = swiftHostFile.readAsStringSync();
+  final mismatches = <PinMismatch>[];
+  var checkedCount = 0;
+
+  final swiftVersionMatch =
+      RegExp(r'''bareRuntimeVersion\s*=\s*"([^"]+)"''').firstMatch(swiftText);
+  checkedCount++;
+  if (swiftVersionMatch == null) {
+    throw PinCheckException(
+        'could not find bareRuntimeVersion in $swiftHostPath');
+  } else if (swiftVersionMatch.group(1) != pinnedVersion) {
+    mismatches.add(PinMismatch(
+      field: 'bare-runtime version',
+      valueA: pinnedVersion,
+      sourceA: pinPath,
+      valueB: swiftVersionMatch.group(1)!,
+      sourceB: swiftHostPath,
+    ));
+  }
+
+  // Both #if arch(...) branches' sha256 constants appear as consecutive
+  // "bareRuntimeUpstreamSha256 = \"...\"" literals in source order (arm64
+  // first, matching the file's own #if arch(arm64)/#elseif arch(x86_64)
+  // ordering) -- extracted positionally rather than by parsing the #if
+  // directives themselves, same "this repo controls the source format, a
+  // full parser is more code for no benefit" rationale as this file's own
+  // header comment.
+  final swiftShaMatches = RegExp(r'''bareRuntimeUpstreamSha256\s*=\s*\n?\s*"([0-9a-fA-F]{64})"''')
+      .allMatches(swiftText)
+      .toList();
+  const archOrder = ['darwin-arm64', 'darwin-x64'];
+  if (swiftShaMatches.length != archOrder.length) {
+    throw PinCheckException('expected ${archOrder.length} '
+        'bareRuntimeUpstreamSha256 constants (one per #if arch branch) in '
+        '$swiftHostPath, found ${swiftShaMatches.length}');
+  }
+  for (var i = 0; i < archOrder.length; i++) {
+    final hostKey = archOrder[i];
+    final hostPin = hosts[hostKey] as Map<String, dynamic>?;
+    checkedCount++;
+    if (hostPin == null) {
+      throw PinCheckException('$pinPath is missing a "$hostKey" entry under '
+          '"hosts"');
+    }
+    final pinnedSha256 = hostPin['upstreamSha256'] as String?;
+    final swiftSha256 = swiftShaMatches[i].group(1);
+    if (pinnedSha256 == null) {
+      throw PinCheckException(
+          '$pinPath\'s "$hostKey" entry is missing "upstreamSha256"');
+    }
+    if (pinnedSha256.toLowerCase() != swiftSha256!.toLowerCase()) {
+      mismatches.add(PinMismatch(
+        field: 'bare-runtime sha256 ($hostKey)',
+        valueA: pinnedSha256,
+        sourceA: pinPath,
+        valueB: swiftSha256,
+        sourceB: swiftHostPath,
+      ));
+    }
+  }
+
+  return (mismatches: mismatches, checkedCount: checkedCount);
 }
 
 bool _containsBytes(List<int> haystack, List<int> needle) {

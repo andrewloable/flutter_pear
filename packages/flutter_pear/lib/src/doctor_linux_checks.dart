@@ -17,6 +17,13 @@ const _maintainerOnlyRemediation = 'This indicates a corrupted install of '
     'flutter_pear itself, not something fixable in your own project -- '
     'try dart pub cache repair, or file a GitHub issue if it persists.';
 
+/// A missing `bare` runtime is a fatal precondition on every desktop host,
+/// not a nice-to-have check -- see `doctor_macos_checks.dart`'s identically
+/// named constant (flutter_pear-bhv) for the full rationale.
+const _bareRuntimeRemediation = 'Install the Bare runtime globally with '
+    '`npm i -g bare`, then restart your app. See '
+    'ERRORS.md#BARE_RUNTIME_MISSING.';
+
 /// Everything a single doctor Linux check run needs, gathered in one place
 /// (same shape as `DoctorMacosContext`) so every check function takes
 /// exactly one argument, and tests can swap every environment-touching
@@ -73,7 +80,34 @@ Future<List<DoctorCheckResult>> runDoctorLinuxChecks(
   return [
     ...await _checkLinuxToolchain(ctx),
     await _checkCommittedDesktopBundle(ctx),
+    await _checkBareRuntime(ctx),
   ];
+}
+
+/// Confirms the real `bare` runtime is on `PATH` -- flutter_pear-a4p's own
+/// fix makes a missing `bare` a catchable Dart exception at `Pear.start()`
+/// instead of a hard crash, but doctor should still catch it as a real
+/// [DoctorCheckStatus.fail] ahead of time (flutter_pear-bhv).
+Future<DoctorCheckResult> _checkBareRuntime(DoctorLinuxContext ctx) async {
+  final ProcessResult result;
+  try {
+    result = await ctx.processRunner('bare', ['--version']);
+  } on ProcessException {
+    return const DoctorCheckResult(
+      DoctorCheckStatus.fail,
+      'the `bare` runtime was not found on PATH (bare --version failed to run)',
+      remediation: _bareRuntimeRemediation,
+    );
+  }
+  if (result.exitCode != 0) {
+    return DoctorCheckResult(
+      DoctorCheckStatus.fail,
+      'bare --version exited ${result.exitCode}',
+      remediation: _bareRuntimeRemediation,
+    );
+  }
+  return DoctorCheckResult(
+      DoctorCheckStatus.pass, "'bare' runtime found: ${'${result.stdout}'.trim()}");
 }
 
 /// Renders [results] as one newline-joined block of `[PASS]`/`[FAIL]`/

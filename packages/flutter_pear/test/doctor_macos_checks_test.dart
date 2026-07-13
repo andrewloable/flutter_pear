@@ -71,7 +71,7 @@ void main() {
         .writeAsStringSync(_validEntitlements);
     File('$consumerRoot/macos/Runner.xcodeproj/project.pbxproj')
         .writeAsStringSync('''
-				MACOSX_DEPLOYMENT_TARGET = 10.15;
+				MACOSX_DEPLOYMENT_TARGET = 10.15.4;
 ''');
     File('$bareRoot/macos/flutter_pear_bare/Package.swift')
         .writeAsStringSync('''
@@ -79,7 +79,7 @@ void main() {
 let package = Package(
     name: "flutter_pear_bare",
     platforms: [
-        .macOS("10.15")
+        .macOS("10.15.4")
     ]
 )
 ''');
@@ -94,6 +94,9 @@ let package = Package(
     }
     if (executable == 'flutter') {
       return _ok(jsonEncode({'frameworkVersion': '3.44.4'}));
+    }
+    if (executable == 'bare') {
+      return _ok('1.16.0');
     }
     throw StateError('unexpected executable: $executable');
   }
@@ -313,10 +316,35 @@ let package = Package(
       final targetResult = results
           .firstWhere((r) => r.message.contains('deployment target'));
       expect(targetResult.status, DoctorCheckStatus.fail);
-      expect(targetResult.remediation, contains('10.15'));
+      expect(targetResult.remediation, contains('10.15.4'));
     });
 
     test('at the minimum passes', () async {
+      final results = await runDoctorMacosChecks(buildContext());
+      final targetResult = results
+          .firstWhere((r) => r.message.contains('deployment target'));
+      expect(targetResult.status, DoctorCheckStatus.pass);
+    });
+
+    test(
+        '3-component minimum (10.15.4) correctly FAILs a project target '
+        'one patch below it (10.15.3 < 10.15.4) -- a plain double can\'t '
+        'even represent "10.15.4" (two decimal points), so this pins the '
+        'fix for flutter_pear-a4p\'s deployment-target bump', () async {
+      File('$consumerRoot/macos/Runner.xcodeproj/project.pbxproj')
+          .writeAsStringSync('MACOSX_DEPLOYMENT_TARGET = 10.15.3;\n');
+      final results = await runDoctorMacosChecks(buildContext());
+      final targetResult = results
+          .firstWhere((r) => r.message.contains('deployment target'));
+      expect(targetResult.status, DoctorCheckStatus.fail);
+      expect(targetResult.remediation, contains('10.15.4'));
+    });
+
+    test(
+        '3-component project target above the minimum (10.15.5 > 10.15.4) '
+        'passes', () async {
+      File('$consumerRoot/macos/Runner.xcodeproj/project.pbxproj')
+          .writeAsStringSync('MACOSX_DEPLOYMENT_TARGET = 10.15.5;\n');
       final results = await runDoctorMacosChecks(buildContext());
       final targetResult = results
           .firstWhere((r) => r.message.contains('deployment target'));
@@ -379,6 +407,229 @@ let package = Package(
       final versionResult =
           results.firstWhere((r) => r.message.contains('3.10.0'));
       expect(versionResult.status, DoctorCheckStatus.pass);
+    });
+  });
+
+  group('bare runtime (flutter_pear-bhv)', () {
+    test('bare not found on PATH -> a FAIL naming npm i -g bare, not a '
+        'silently-passing SKIP', () async {
+      final results = await runDoctorMacosChecks(buildContext(
+        processRunner: (exe, args) async {
+          if (exe == 'bare') throw const ProcessException('bare', []);
+          return passingProcessRunner(exe, args);
+        },
+      ));
+      final bareResult =
+          results.firstWhere((r) => r.message.contains('bare'));
+      expect(bareResult.status, DoctorCheckStatus.fail);
+      expect(bareResult.remediation, contains('npm i -g bare'));
+      expect(bareResult.remediation, contains('BARE_RUNTIME_MISSING'));
+    });
+
+    test('bare --version exits nonzero -> a FAIL', () async {
+      final results = await runDoctorMacosChecks(buildContext(
+        processRunner: (exe, args) async {
+          if (exe == 'bare') return _ok('', exitCode: 1);
+          return passingProcessRunner(exe, args);
+        },
+      ));
+      final bareResult =
+          results.firstWhere((r) => r.message.contains('bare --version'));
+      expect(bareResult.status, DoctorCheckStatus.fail);
+    });
+
+    test('bare present passes', () async {
+      final results = await runDoctorMacosChecks(buildContext());
+      final bareResult =
+          results.firstWhere((r) => r.message.contains("'bare' runtime"));
+      expect(bareResult.status, DoctorCheckStatus.pass);
+    });
+  });
+
+  group('applyMacosFixes (--fix, flutter_pear-jxf)', () {
+    test(
+        'sandboxed (true) entitlements FIXED to false in BOTH files, one '
+        'change line per file, Info.plist untouched (setUp fixture already '
+        'has NSLocalNetworkUsageDescription)', () {
+      File('$consumerRoot/macos/Runner/DebugProfile.entitlements')
+          .writeAsStringSync(_sandboxedEntitlements);
+      File('$consumerRoot/macos/Runner/Release.entitlements')
+          .writeAsStringSync(_sandboxedEntitlements);
+
+      final changes = applyMacosFixes(consumerRoot);
+
+      expect(changes, hasLength(2));
+      expect(changes.any((c) => c.contains('DebugProfile.entitlements')),
+          isTrue);
+      expect(changes.any((c) => c.contains('Release.entitlements')), isTrue);
+    });
+
+    test('already-correct project (setUp fixture) -> no changes at all '
+        '(idempotent)', () {
+      final changes = applyMacosFixes(consumerRoot);
+      expect(changes, isEmpty);
+    });
+
+    test(
+        'sandboxed entitlements: after fixing, the file actually reads '
+        'app-sandbox=false, and re-running reports no further change',
+        () {
+      File('$consumerRoot/macos/Runner/DebugProfile.entitlements')
+          .writeAsStringSync(_sandboxedEntitlements);
+
+      final firstRun = applyMacosFixes(consumerRoot);
+      expect(
+          firstRun,
+          contains(contains(
+              'DebugProfile.entitlements: set com.apple.security.app-sandbox to false')));
+
+      final fixedText = File('$consumerRoot/macos/Runner/DebugProfile.entitlements')
+          .readAsStringSync();
+      expect(
+          RegExp(r'<key>com\.apple\.security\.app-sandbox</key>\s*<false\s*/>')
+              .hasMatch(fixedText),
+          isTrue);
+      // The key must appear exactly once -- a buggy insert-instead-of-
+      // replace would leave the old <true/> pair AND add a new <false/> one.
+      expect('com.apple.security.app-sandbox'.allMatches(fixedText).length, 1);
+
+      final secondRun = applyMacosFixes(consumerRoot);
+      expect(
+          secondRun.where((c) => c.contains('DebugProfile.entitlements')),
+          isEmpty);
+    });
+
+    test(
+        'entitlements file with the app-sandbox key entirely ABSENT gets '
+        'it inserted as false, producing well-formed XML', () {
+      const noSandboxKey = '''
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.network.client</key>
+	<true/>
+</dict>
+</plist>
+''';
+      File('$consumerRoot/macos/Runner/DebugProfile.entitlements')
+          .writeAsStringSync(noSandboxKey);
+
+      final changes = applyMacosFixes(consumerRoot);
+
+      expect(
+          changes,
+          contains(contains(
+              'DebugProfile.entitlements: added com.apple.security.app-sandbox = false')));
+      final fixedText = File('$consumerRoot/macos/Runner/DebugProfile.entitlements')
+          .readAsStringSync();
+      expect(
+          RegExp(r'<key>com\.apple\.security\.app-sandbox</key>\s*<false\s*/>')
+              .hasMatch(fixedText),
+          isTrue);
+      expect(fixedText, contains('com.apple.security.network.client'),
+          reason: 'the pre-existing key must survive the insertion');
+    });
+
+    test('Info.plist missing NSLocalNetworkUsageDescription gets it added',
+        () {
+      File('$consumerRoot/macos/Runner/Info.plist').writeAsStringSync('''
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+</dict>
+</plist>
+''');
+
+      final changes = applyMacosFixes(consumerRoot);
+
+      expect(
+          changes,
+          contains(contains(
+              'Info.plist: added NSLocalNetworkUsageDescription')));
+      final fixedText =
+          File('$consumerRoot/macos/Runner/Info.plist').readAsStringSync();
+      expect(fixedText, contains('NSLocalNetworkUsageDescription'));
+      expect(fixedText, contains('NSPrincipalClass'),
+          reason: 'the pre-existing key must survive the insertion');
+    });
+
+    test('Info.plist already has the key -> not touched, not reported',
+        () {
+      final before =
+          File('$consumerRoot/macos/Runner/Info.plist').readAsStringSync();
+      final changes = applyMacosFixes(consumerRoot);
+      expect(changes.where((c) => c.contains('Info.plist')), isEmpty);
+      expect(File('$consumerRoot/macos/Runner/Info.plist').readAsStringSync(),
+          before);
+    });
+
+    test('missing files entirely (no macos/ dir) -> returns empty, does '
+        'not throw', () {
+      Directory('$consumerRoot/macos').deleteSync(recursive: true);
+      expect(applyMacosFixes(consumerRoot), isEmpty);
+    });
+
+    test(
+        'a below-minimum MACOSX_DEPLOYMENT_TARGET is raised to the pinned '
+        'minimum (found via /devex-review dogfooding a real fresh-project '
+        'build -- a below-minimum target fails the BUILD itself, not just '
+        'a doctor check, with a raw non-flutter_pear-branded SwiftPM '
+        'error)', () {
+      File('$consumerRoot/macos/Runner.xcodeproj/project.pbxproj')
+          .writeAsStringSync('MACOSX_DEPLOYMENT_TARGET = 10.15;\n');
+
+      final changes = applyMacosFixes(consumerRoot);
+
+      expect(
+          changes,
+          contains(contains('raised 1 MACOSX_DEPLOYMENT_TARGET setting to '
+              '10.15.4')));
+      final fixedText =
+          File('$consumerRoot/macos/Runner.xcodeproj/project.pbxproj')
+              .readAsStringSync();
+      expect(fixedText, contains('MACOSX_DEPLOYMENT_TARGET = 10.15.4;'));
+    });
+
+    test(
+        'a real project.pbxproj with 3 build configurations (Debug/'
+        'Release/Profile) gets all 3 below-minimum lines raised in one '
+        'pass, plural in the change message', () {
+      File('$consumerRoot/macos/Runner.xcodeproj/project.pbxproj')
+          .writeAsStringSync('''
+				MACOSX_DEPLOYMENT_TARGET = 10.15;
+				MACOSX_DEPLOYMENT_TARGET = 10.15;
+				MACOSX_DEPLOYMENT_TARGET = 10.15;
+''');
+
+      final changes = applyMacosFixes(consumerRoot);
+
+      expect(
+          changes,
+          contains(contains('raised 3 MACOSX_DEPLOYMENT_TARGET settings to '
+              '10.15.4')));
+      final fixedText =
+          File('$consumerRoot/macos/Runner.xcodeproj/project.pbxproj')
+              .readAsStringSync();
+      expect('MACOSX_DEPLOYMENT_TARGET = 10.15.4;'.allMatches(fixedText).length,
+          3);
+    });
+
+    test(
+        'an already-at-minimum project.pbxproj (setUp fixture) -> not '
+        'touched, not reported (already covered by the broader '
+        'already-correct-project test, pinned again here for this '
+        'specific fix)', () {
+      final before =
+          File('$consumerRoot/macos/Runner.xcodeproj/project.pbxproj')
+              .readAsStringSync();
+      final changes = applyMacosFixes(consumerRoot);
+      expect(changes.where((c) => c.contains('project.pbxproj')), isEmpty);
+      expect(
+          File('$consumerRoot/macos/Runner.xcodeproj/project.pbxproj')
+              .readAsStringSync(),
+          before);
     });
   });
 

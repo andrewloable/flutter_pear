@@ -87,6 +87,22 @@ directory by default, matching the same "never let a backup/sync restore
 fork a Hypercore writer key onto a second device" rationale documented for
 the other platforms.
 
+## The `bare` runtime is fetched automatically, not a manual install
+
+**As of flutter_pear-8f6, a flutter_pear Linux app fetches its own `bare`
+runtime on first launch** — end users do NOT need `npm i -g bare` first.
+`flutter_pear_bare_plugin.cc` resolves `bare` in this order: a previously-
+fetched copy cached under `$XDG_DATA_HOME/flutter_pear/bare-runtime/
+<version>/bare` (instant on every launch after the first); a first-use
+fetch of the real, published `bare-runtime-linux-x64` npm package
+(Apache-2.0, `github.com/holepunchto/bare-runtime`) from
+`registry.npmjs.org` via `curl`, verified against a SHA-256 pin committed
+in `flutter_pear_bare/bare-runtime-pin.json` BEFORE the binary is ever
+cached or run, then extracted via `tar`; `bare` on `PATH` (the ORIGINAL
+mechanism) as a fallback only if the fetch itself fails. Verified live on
+a real Ubuntu machine — both the fetch-success and checksum-rejection
+paths.
+
 ## What's covered, and what's still open
 
 **Real, on-hardware validation performed for this host** (`flutter_pear-65g`):

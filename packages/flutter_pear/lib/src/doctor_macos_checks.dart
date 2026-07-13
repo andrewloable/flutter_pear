@@ -19,9 +19,29 @@ const _minFlutterVersionForSpm = (3, 44, 0);
 
 /// Minimum `MACOSX_DEPLOYMENT_TARGET` -- mirrors
 /// `flutter_pear_bare/macos/flutter_pear_bare/Package.swift`'s own
-/// `.macOS("10.15")` pin, kept in sync by hand (a consumer's pub.dev
+/// `.macOS("10.15.4")` pin, kept in sync by hand (a consumer's pub.dev
 /// install never has this repo's own COMPATIBILITY.md).
-const _minDeploymentTargetFallback = 10.15;
+const _minDeploymentTargetFallback = '10.15.4';
+
+/// Parses a dot-separated version string ("10.15.4") into numeric parts --
+/// a plain `double` can't represent a 3-component macOS version like
+/// `10.15.4` (two decimal points), which `Package.swift`'s pin needs
+/// (flutter_pear-a4p bumped it past 10.15 for a 10.15.4-gated API).
+List<int> _parseVersionParts(String version) =>
+    version.split('.').map(int.parse).toList();
+
+/// Compares two version-part lists component-wise, left to right, treating
+/// a shorter list's missing trailing components as 0 (so `10.15` ==
+/// `10.15.0`). Negative/zero/positive like [Comparable.compareTo].
+int _compareVersionParts(List<int> a, List<int> b) {
+  final length = a.length > b.length ? a.length : b.length;
+  for (var i = 0; i < length; i++) {
+    final result =
+        (i < a.length ? a[i] : 0).compareTo(i < b.length ? b[i] : 0);
+    if (result != 0) return result;
+  }
+  return 0;
+}
 
 const _plistRemediationBlock = '''
 Add this to macos/Runner/Info.plist:
@@ -34,6 +54,16 @@ macos/Runner/DebugProfile.entitlements and macos/Runner/Release.entitlements
 -- the macOS host spawns the real `bare` runtime as an external, non-bundled
 subprocess (flutter_pear-71g), which the App Sandbox blocks unconditionally.
 A sandboxed distribution story is a documented follow-up, not yet available.''';
+
+/// A missing `bare` runtime hard-crashed this host before flutter_pear-a4p's
+/// fix; it's now a typed, catchable Dart exception at runtime, but doctor
+/// should still catch it ahead of time as a real [DoctorCheckStatus.fail],
+/// not the JS-side `checkWorkletBoot`'s old non-failing [SKIP]
+/// (flutter_pear-bhv) -- a missing `bare` is a fatal precondition on every
+/// desktop host, not a nice-to-have check.
+const _bareRuntimeRemediation = 'Install the Bare runtime globally with '
+    '`npm i -g bare`, then restart your app. See '
+    'ERRORS.md#BARE_RUNTIME_MISSING.';
 
 /// Everything a single doctor macOS check run needs, gathered in one place
 /// (same shape as `DoctorIosContext`) so every check function takes exactly
@@ -98,7 +128,34 @@ Future<List<DoctorCheckResult>> runDoctorMacosChecks(
     ..._checkEntitlements(ctx),
     await _checkCommittedDesktopBundle(ctx),
     await _checkDeploymentTarget(ctx),
+    await _checkBareRuntime(ctx),
   ];
+}
+
+/// Confirms the real `bare` runtime is on `PATH` -- flutter_pear-a4p's own
+/// fix makes a missing `bare` a catchable Dart exception at `Pear.start()`
+/// instead of a hard crash, but doctor should still catch it as a real
+/// [DoctorCheckStatus.fail] ahead of time (flutter_pear-bhv).
+Future<DoctorCheckResult> _checkBareRuntime(DoctorMacosContext ctx) async {
+  final ProcessResult result;
+  try {
+    result = await ctx.processRunner('bare', ['--version']);
+  } on ProcessException {
+    return const DoctorCheckResult(
+      DoctorCheckStatus.fail,
+      'the `bare` runtime was not found on PATH (bare --version failed to run)',
+      remediation: _bareRuntimeRemediation,
+    );
+  }
+  if (result.exitCode != 0) {
+    return DoctorCheckResult(
+      DoctorCheckStatus.fail,
+      'bare --version exited ${result.exitCode}',
+      remediation: _bareRuntimeRemediation,
+    );
+  }
+  return DoctorCheckResult(
+      DoctorCheckStatus.pass, "'bare' runtime found: ${'${result.stdout}'.trim()}");
 }
 
 /// Renders [results] as one newline-joined block of `[PASS]`/`[FAIL]`/
@@ -312,6 +369,151 @@ DoctorCheckResult _checkOneEntitlementsFile(
       '$relativePath has com.apple.security.app-sandbox set to false');
 }
 
+/// `dart run flutter_pear:doctor --fix`'s macOS half (flutter_pear-jxf):
+/// applies the run-blocking/LAN-breaking edits [_checkEntitlements],
+/// [_checkInfoPlist], and [_checkDeploymentTarget] already detect --
+/// disabling the App Sandbox in both entitlements files, adding
+/// Info.plist's `NSLocalNetworkUsageDescription`, and raising a
+/// below-minimum `MACOSX_DEPLOYMENT_TARGET` in project.pbxproj (added via
+/// /devex-review dogfooding a real fresh-project build: a below-minimum
+/// deployment target fails the BUILD ITSELF, before the app ever runs,
+/// with a raw SwiftPM error naming no flutter_pear file or fix at all --
+/// exactly as run-blocking as the two XML edits jxf originally scoped this
+/// to, just not textually XML). Idempotent: a file that already needs no
+/// change contributes NOTHING to the returned list (never a "no-op"
+/// line), so re-running against an already-fixed project returns `[]`.
+///
+/// Surgical text edits, not a real plist/pbxproj parser -- there is no
+/// such library anywhere in this repo, and pulling one in for three
+/// known-shape edits would be a heavier dependency than the problem
+/// calls for. Each edit covers both shapes the corresponding check
+/// already distinguishes: the key/value present with the wrong value,
+/// and (for the two XML edits) the key absent entirely. Anything else (a
+/// malformed file, a key present in an unrecognized shape) is reported
+/// back as a message rather than guessed at or silently left broken.
+List<String> applyMacosFixes(String consumerRoot) {
+  final changes = <String>[];
+  for (final relativePath in [
+    'macos/Runner/DebugProfile.entitlements',
+    'macos/Runner/Release.entitlements',
+  ]) {
+    final change = _fixEntitlementsFile(consumerRoot, relativePath);
+    if (change != null) changes.add(change);
+  }
+  final infoPlistChange = _fixInfoPlist(consumerRoot);
+  if (infoPlistChange != null) changes.add(infoPlistChange);
+  final deploymentTargetChange = _fixDeploymentTarget(consumerRoot);
+  if (deploymentTargetChange != null) changes.add(deploymentTargetChange);
+  return changes;
+}
+
+String? _fixEntitlementsFile(String consumerRoot, String relativePath) {
+  final file = File('$consumerRoot/$relativePath');
+  if (!file.existsSync()) return null; // nothing to fix, matches the check's own skip
+
+  final text = file.readAsStringSync();
+  final match = RegExp(
+          r'<key>com\.apple\.security\.app-sandbox</key>\s*<(true|false)\s*/>')
+      .firstMatch(text);
+
+  if (match != null) {
+    if (match.group(1) == 'false') return null; // already correct
+    final fixed = '${text.substring(0, match.start)}'
+        '<key>com.apple.security.app-sandbox</key>\n\t<false/>'
+        '${text.substring(match.end)}';
+    file.writeAsStringSync(fixed);
+    return '$relativePath: set com.apple.security.app-sandbox to false';
+  }
+
+  if (text.contains('com.apple.security.app-sandbox')) {
+    return '$relativePath: found com.apple.security.app-sandbox but not in '
+        'the expected <key>/<value> layout -- fix by hand';
+  }
+
+  final dictIndex = text.indexOf('<dict>');
+  if (dictIndex == -1) {
+    return '$relativePath: could not find a <dict> element to insert into '
+        '-- fix by hand';
+  }
+  final insertAt = dictIndex + '<dict>'.length;
+  final fixed = '${text.substring(0, insertAt)}'
+      '\n\t<key>com.apple.security.app-sandbox</key>\n\t<false/>'
+      '${text.substring(insertAt)}';
+  file.writeAsStringSync(fixed);
+  return '$relativePath: added com.apple.security.app-sandbox = false';
+}
+
+const _defaultLocalNetworkUsageDescription =
+    "Describe your app's own use of the local network here.";
+
+String? _fixInfoPlist(String consumerRoot) {
+  final file = File('$consumerRoot/macos/Runner/Info.plist');
+  if (!file.existsSync()) return null; // nothing to fix, matches the check's own skip
+
+  final text = file.readAsStringSync();
+  if (text.contains('NSLocalNetworkUsageDescription')) return null;
+
+  final dictIndex = text.indexOf('<dict>');
+  if (dictIndex == -1) {
+    return 'macos/Runner/Info.plist: could not find a <dict> element to '
+        'insert into -- fix by hand';
+  }
+  final insertAt = dictIndex + '<dict>'.length;
+  final fixed = '${text.substring(0, insertAt)}'
+      '\n\t<key>NSLocalNetworkUsageDescription</key>'
+      '\n\t<string>$_defaultLocalNetworkUsageDescription</string>'
+      '${text.substring(insertAt)}';
+  file.writeAsStringSync(fixed);
+  return 'macos/Runner/Info.plist: added NSLocalNetworkUsageDescription';
+}
+
+/// Raises every `MACOSX_DEPLOYMENT_TARGET` line in project.pbxproj that's
+/// below [_minDeploymentTargetFallback] -- a real `flutter create` project
+/// has one per build configuration (Debug/Release/Profile), all identical
+/// by default, so this handles all of them in one pass rather than
+/// assuming exactly one. Uses the hardcoded fallback minimum directly, not
+/// Package.swift's own pin ([_checkDeploymentTarget]'s more thorough
+/// resolution) -- keeps `--fix` a quick, dependency-light operation; a
+/// real drift between the two would still surface as a `[FAIL]` from a
+/// plain (non-`--fix`) `doctor` run afterward, which reads Package.swift
+/// directly.
+String? _fixDeploymentTarget(String consumerRoot) {
+  final file =
+      File('$consumerRoot/macos/Runner.xcodeproj/project.pbxproj');
+  if (!file.existsSync()) return null; // nothing to fix, matches the check's own skip
+
+  final text = file.readAsStringSync();
+  final pattern = RegExp(r'MACOSX_DEPLOYMENT_TARGET = (\d+(?:\.\d+){0,2});');
+  final matches = pattern.allMatches(text).toList();
+  if (matches.isEmpty) return null;
+
+  final buffer = StringBuffer();
+  var cursor = 0;
+  var changedCount = 0;
+  for (final match in matches) {
+    buffer.write(text.substring(cursor, match.start));
+    final actual = match.group(1)!;
+    final isBelowMinimum = _compareVersionParts(_parseVersionParts(actual),
+            _parseVersionParts(_minDeploymentTargetFallback)) <
+        0;
+    if (isBelowMinimum) {
+      buffer.write(
+          'MACOSX_DEPLOYMENT_TARGET = $_minDeploymentTargetFallback;');
+      changedCount++;
+    } else {
+      buffer.write(match.group(0));
+    }
+    cursor = match.end;
+  }
+  buffer.write(text.substring(cursor));
+
+  if (changedCount == 0) return null;
+  file.writeAsStringSync(buffer.toString());
+  return 'macos/Runner.xcodeproj/project.pbxproj: raised '
+      '$changedCount MACOSX_DEPLOYMENT_TARGET setting'
+      '${changedCount == 1 ? '' : 's'} to $_minDeploymentTargetFallback';
+}
+
 const _maintainerOnlyRemediation = 'This indicates a corrupted install of '
     'flutter_pear itself, not something fixable in your own project -- '
     'try dart pub cache repair, or file a GitHub issue if it persists.';
@@ -345,9 +547,9 @@ Future<DoctorCheckResult> _checkDeploymentTarget(
       '${ctx.flutterPearBareRoot}/macos/flutter_pear_bare/Package.swift');
   var minTarget = _minDeploymentTargetFallback;
   if (packageSwift.existsSync()) {
-    final match =
-        RegExp(r'\.macOS\("(\d+(?:\.\d+)?)"\)').firstMatch(packageSwift.readAsStringSync());
-    if (match != null) minTarget = double.parse(match.group(1)!);
+    final match = RegExp(r'\.macOS\("(\d+(?:\.\d+){0,2})"\)')
+        .firstMatch(packageSwift.readAsStringSync());
+    if (match != null) minTarget = match.group(1)!;
   }
 
   final pbxproj =
@@ -358,7 +560,7 @@ Future<DoctorCheckResult> _checkDeploymentTarget(
       'Could not find macos/Runner.xcodeproj/project.pbxproj',
     );
   }
-  final match = RegExp(r'MACOSX_DEPLOYMENT_TARGET = (\d+(?:\.\d+)?)')
+  final match = RegExp(r'MACOSX_DEPLOYMENT_TARGET = (\d+(?:\.\d+){0,2})')
       .firstMatch(pbxproj.readAsStringSync());
   if (match == null) {
     return const DoctorCheckResult(
@@ -366,8 +568,10 @@ Future<DoctorCheckResult> _checkDeploymentTarget(
       'Could not find MACOSX_DEPLOYMENT_TARGET in project.pbxproj',
     );
   }
-  final actual = double.parse(match.group(1)!);
-  if (actual < minTarget) {
+  final actual = match.group(1)!;
+  if (_compareVersionParts(
+          _parseVersionParts(actual), _parseVersionParts(minTarget)) <
+      0) {
     return DoctorCheckResult(
       DoctorCheckStatus.fail,
       'macOS deployment target $actual (from project.pbxproj) is below '

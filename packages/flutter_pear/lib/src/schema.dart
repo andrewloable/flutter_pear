@@ -489,6 +489,13 @@ abstract final class PearErrorCode {
   /// event, not a response).
   static const workletCrashed = 'WORKLET_CRASHED';
 
+  /// The `bare` runtime is not installed (not found on `PATH`) on a desktop
+  /// host (macOS/Linux) -- [Pear.start] could never even boot a worklet.
+  /// Synthesized on the Dart side from a native `bare_runtime_missing`
+  /// platform-channel error (flutter_pear-a4p); the worklet itself never
+  /// sends this, since it never got to run.
+  static const bareRuntimeMissing = 'BARE_RUNTIME_MISSING';
+
   /// [PearSwarmState.failed] reason: `PearSwarm.join`'s bounded
   /// discovery/connect timeout (`PearSwarmDefaults.joinTimeout`) elapsed
   /// with no peer connection ever established. Synthesized entirely on the

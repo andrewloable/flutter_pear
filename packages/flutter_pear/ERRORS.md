@@ -129,6 +129,26 @@ this file (GitHub, pub.dev, a local viewer, ...).
   via `Pear.start()` again; file an issue if the crash looks like a bug in
   flutter_pear itself.
 
+<a id="BARE_RUNTIME_MISSING"></a>
+### BARE_RUNTIME_MISSING
+
+- **Problem:** The `bare` runtime could not be resolved on this desktop
+  machine, so `Pear.start()` could not boot a worklet at all.
+- **Cause:** macOS, Linux, and Windows desktop hosts run pear-end as a
+  real `bare` subprocess -- unlike mobile, there is no linked-in runtime.
+  As of desktop, each host fetches its own `bare` automatically on first
+  launch (checksum-verified, then cached) instead of requiring a manual
+  install, so this should now be rare -- it means the fetch itself failed
+  (e.g. no network on this machine's first launch) *and* no `bare` was
+  found on `PATH` either.
+- **Fix:** Check your network connection and restart the app to retry the
+  fetch; as a manual fallback, install the Bare runtime globally with
+  `npm i -g bare` and restart. **Platform note:** on Windows specifically,
+  this exact scenario (fetch failed, nothing on `PATH`) currently surfaces
+  as [`WORKLET_CRASHED`](#WORKLET_CRASHED) instead of this code -- the
+  clean pre-flight check that produces `BARE_RUNTIME_MISSING` is
+  implemented on macOS and Linux only today.
+
 ## Storage (Corestore / Hypercore / Hyperbee / Hyperdrive / Autobase)
 
 <a id="STORAGE_UNAVAILABLE"></a>

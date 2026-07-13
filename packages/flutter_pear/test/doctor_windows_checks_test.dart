@@ -38,6 +38,9 @@ void main() {
     if (executable == vswherePath) {
       return _ok(r'C:\Program Files\Microsoft Visual Studio\2022\Community');
     }
+    if (executable == 'bare') {
+      return _ok('1.16.0');
+    }
     throw StateError('unexpected executable: $executable');
   }
 
@@ -76,10 +79,11 @@ void main() {
   });
 
   group('Visual Studio check', () {
-    test('vswhere present and reports an install path, bundle exists -> '
-        'every check passes', () async {
+    test(
+        'vswhere present and reports an install path, bundle exists, bare '
+        'present -> every check passes', () async {
       final results = await runDoctorWindowsChecks(buildContext());
-      expect(results, hasLength(2));
+      expect(results, hasLength(3));
       expect(results.every((r) => r.status == DoctorCheckStatus.pass), isTrue,
           reason: results.map((r) => r.render()).join('\n'));
     });
@@ -88,8 +92,12 @@ void main() {
         'run it', () async {
       final results = await runDoctorWindowsChecks(buildContext(
         vswherePathOverride: '${root.path}/does-not-exist.exe',
-        processRunner: (executable, args) async =>
-            throw StateError('should not run: $executable'),
+        processRunner: (executable, args) async {
+          // The bare-runtime check (flutter_pear-bhv) is unrelated to
+          // vswhere's own existence guard and still legitimately runs.
+          if (executable == 'bare') return _ok('1.16.0');
+          throw StateError('should not run: $executable');
+        },
       ));
       final vsResult =
           results.firstWhere((r) => r.message.contains('Visual Studio') ||
@@ -106,6 +114,35 @@ void main() {
       final vsResult =
           results.firstWhere((r) => r.message.contains('Visual Studio'));
       expect(vsResult.status, DoctorCheckStatus.fail);
+    });
+  });
+
+  group('bare runtime (flutter_pear-bhv)', () {
+    test('bare not found on PATH -> a FAIL naming npm i -g bare, not a '
+        'silently-passing SKIP', () async {
+      final results = await runDoctorWindowsChecks(buildContext(
+        processRunner: (executable, args) async {
+          if (executable == 'bare') throw const ProcessException('bare', []);
+          return passingProcessRunner(executable, args);
+        },
+      ));
+      final bareResult =
+          results.firstWhere((r) => r.message.contains('bare'));
+      expect(bareResult.status, DoctorCheckStatus.fail);
+      expect(bareResult.remediation, contains('npm i -g bare'));
+      expect(bareResult.remediation, contains('BARE_RUNTIME_MISSING'));
+    });
+
+    test('bare --version exits nonzero -> a FAIL', () async {
+      final results = await runDoctorWindowsChecks(buildContext(
+        processRunner: (executable, args) async {
+          if (executable == 'bare') return _ok('', exitCode: 1);
+          return passingProcessRunner(executable, args);
+        },
+      ));
+      final bareResult =
+          results.firstWhere((r) => r.message.contains('bare --version'));
+      expect(bareResult.status, DoctorCheckStatus.fail);
     });
   });
 

@@ -10,6 +10,22 @@ Anchors below are explicit `<a id="...">` tags, matching
 [../ERRORS.md](../ERRORS.md)'s own convention, so a link into this page
 from a Gradle error message stays stable regardless of Markdown renderer.
 
+<a id="bare-runtime-missing"></a>
+## Desktop: `PearException(BARE_RUNTIME_MISSING)` from `Pear.start()`
+
+Unlike everything else on this page, this is a RUNTIME failure (it comes
+from `Pear.start()`, not from Gradle/Xcode) -- included here anyway because
+it's the single most common first failure a desktop (macOS/Linux/Windows)
+developer hits. Full problem/cause/fix:
+[ERRORS.md#BARE_RUNTIME_MISSING](../ERRORS.md#BARE_RUNTIME_MISSING).
+
+Short version: macOS, Linux, and Windows all fetch their own `bare`
+runtime automatically on first launch (checksum-verified, then cached --
+flutter_pear-8f6), so you should not need to install anything by hand. If
+you still hit this, either that first-launch fetch failed (check your
+network and try again) or `bare` genuinely isn't reachable any other way
+-- `npm i -g bare` remains a manual fallback either way.
+
 <a id="slow-first-build"></a>
 ## The first build is slow, or looks stuck
 

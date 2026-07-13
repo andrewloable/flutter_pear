@@ -1,4 +1,5 @@
 import Cocoa
+import CryptoKit
 import FlutterMacOS
 import Foundation
 
@@ -20,6 +21,32 @@ private let bundleAssetSubpath = "assets/desktop/darwin-x64/pear-end.bundle"
 #error("flutter_pear_bare (macOS): unsupported architecture -- only arm64 and x86_64 have a committed desktop bundle (flutter_pear-6yz)")
 #endif
 private let bundlePackage = "flutter_pear"
+
+/// Pin for the real, published `bare-runtime-darwin-<arch>` npm package
+/// (Apache-2.0, github.com/holepunchto/bare-runtime) -- flutter_pear-8f6:
+/// so a flutter_pear desktop app can fetch its own `bare` runtime instead
+/// of requiring the end user to `npm i -g bare` first. Kept in sync by
+/// hand with `flutter_pear_bare/bare-runtime-pin.json`, the human-readable
+/// source of truth for this pin -- NOT wired through SwiftPM's own
+/// `binaryTarget` mechanism (that API targets `.xcframework`/
+/// `.artifactbundle`, not a bare CLI executable) or through `bin/pack.dart`
+/// (that pipeline is pear-end/BareKit-specific); this is a plain,
+/// synchronous fetch+verify+cache done entirely in this file at first use.
+/// No repacking needed (unlike BareKit's own xcframework pin, which needed
+/// a maintainer-repack step) -- this npm package already ships exactly the
+/// single binary this host needs, at a stable, versioned registry URL.
+#if arch(arm64)
+private let bareRuntimeUpstreamUrl =
+  "https://registry.npmjs.org/bare-runtime-darwin-arm64/-/bare-runtime-darwin-arm64-1.30.3.tgz"
+private let bareRuntimeUpstreamSha256 =
+  "83d155f92b5ac1e584417c520d30e337e43f70a69b8e8fc476c264382cd7b34c"
+#elseif arch(x86_64)
+private let bareRuntimeUpstreamUrl =
+  "https://registry.npmjs.org/bare-runtime-darwin-x64/-/bare-runtime-darwin-x64-1.30.3.tgz"
+private let bareRuntimeUpstreamSha256 =
+  "713a1987722e1f4c6cece8c4af334942608987cdb515de1b27ea93e6933548fe"
+#endif
+private let bareRuntimeVersion = "1.30.3"
 
 // Worklet lifecycle (mirrors WorkletState in bare_worklet.dart). This
 // comment block is duplicated VERBATIM in FlutterPearBarePlugin.kt/.swift,
@@ -53,15 +80,131 @@ private let bundlePackage = "flutter_pear"
 // `[weak self]` (the flutter_pear-iqp bug fix).
 private enum FlutterPearBareError: Error, CustomStringConvertible {
   case bundleNotFound
+  case runtimeNotFound
   case processLaunchFailed(String)
 
   var description: String {
     switch self {
     case .bundleNotFound:
       return "flutter_pear_bare: could not resolve the bundled \(bundleAssetSubpath) asset"
+    case .runtimeNotFound:
+      return "flutter_pear_bare: the `bare` runtime was not found on PATH -- install it with `npm i -g bare`"
     case .processLaunchFailed(let reason):
       return "flutter_pear_bare: failed to launch the bare subprocess: \(reason)"
     }
+  }
+}
+
+/// Searches `PATH` for an executable named `name`, mirroring the shape of
+/// the Linux host's own `g_find_program_in_path("bare")`
+/// (flutter_pear_bare_plugin.cc) -- `Process` has no PATH search of its
+/// own. Returns the first match's absolute path, or nil if `name` isn't
+/// found in any `PATH` directory (flutter_pear-a4p Defect 1: without this
+/// pre-check, spawning happens via `/usr/bin/env`, which ALWAYS exists, so
+/// `process.run()` never throws even when `bare` itself is missing).
+private func resolveOnPath(_ name: String) -> String? {
+  guard let pathVar = ProcessInfo.processInfo.environment["PATH"] else { return nil }
+  for dir in pathVar.split(separator: ":") {
+    let candidate = "\(dir)/\(name)"
+    if FileManager.default.isExecutableFile(atPath: candidate) {
+      return candidate
+    }
+  }
+  return nil
+}
+
+/// Where a fetched `bare` runtime is cached, once per pinned version --
+/// Application Support, the SAME storage root decision as pear-end's own
+/// storage (Eng2 decision 35), just a different subdirectory. Versioned so
+/// bumping [bareRuntimeVersion] naturally re-fetches instead of reusing a
+/// stale cached binary under the same path.
+private func cachedBareRuntimePath() -> String? {
+  guard let appSupportURL = try? FileManager.default.url(
+    for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+  else { return nil }
+  return appSupportURL
+    .appendingPathComponent("flutter_pear", isDirectory: true)
+    .appendingPathComponent("bare-runtime", isDirectory: true)
+    .appendingPathComponent(bareRuntimeVersion, isDirectory: true)
+    .appendingPathComponent("bare")
+    .path
+}
+
+/// Resolves the `bare` runtime for this run (flutter_pear-8f6): a
+/// previously-fetched, cached copy first (instant on every launch after
+/// the first), then a first-use fetch of the pinned npm-published binary
+/// (checksum-verified before it's ever cached or run), falling back to
+/// [resolveOnPath] -- today's dev-time-only mechanism -- only if the fetch
+/// itself fails (e.g. no network on a machine that happens to have `bare`
+/// installed globally anyway). Linux (flutter_pear_bare_plugin.cc) and
+/// Windows (flutter_pear_bare_plugin_impl.cpp) mirror this same mechanism.
+///
+/// The fetch is a SYNCHRONOUS network call on `startWorklet`'s own thread
+/// (consistent with every other call in this file -- there is no async
+/// plumbing anywhere in this plugin to report progress back to Dart), so a
+/// cold first launch blocks for as long as the ~20MB download takes
+/// (typically a few seconds on a real network) before the worklet boots.
+/// Documented, known follow-up: a non-blocking fetch with a Dart-visible
+/// progress signal would need new platform-channel surface this ticket's
+/// scope didn't include.
+private func resolveBareRuntime() -> String? {
+  if let cachePath = cachedBareRuntimePath(), FileManager.default.isExecutableFile(atPath: cachePath) {
+    return cachePath
+  }
+  if let fetched = fetchAndCacheBareRuntime() {
+    return fetched
+  }
+  return resolveOnPath("bare")
+}
+
+/// Downloads [bareRuntimeUpstreamUrl], verifies it against
+/// [bareRuntimeUpstreamSha256] BEFORE extracting anything, extracts just
+/// `package/bin/bare` via the system's own `/usr/bin/tar` (always present
+/// on macOS -- no gzip/tar-parsing code of our own to write or maintain),
+/// and atomically installs it at [cachedBareRuntimePath]. Returns nil (never
+/// throws) on ANY failure along the way -- a failed fetch is not fatal,
+/// [resolveBareRuntime] falls back to PATH resolution.
+private func fetchAndCacheBareRuntime() -> String? {
+  guard let cachePath = cachedBareRuntimePath() else { return nil }
+  guard let url = URL(string: bareRuntimeUpstreamUrl) else { return nil }
+  guard let data = try? Data(contentsOf: url) else { return nil }
+
+  let actualSha256 = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+  guard actualSha256 == bareRuntimeUpstreamSha256 else {
+    NSLog("FlutterPearBarePlugin (macOS): fetched bare-runtime tarball checksum mismatch "
+      + "(expected \(bareRuntimeUpstreamSha256), got \(actualSha256)) -- refusing to use it")
+    return nil
+  }
+
+  let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  defer { try? FileManager.default.removeItem(at: tmpDir) }
+  do {
+    try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+    let tarballPath = tmpDir.appendingPathComponent("bare-runtime.tgz")
+    try data.write(to: tarballPath)
+
+    let tar = Process()
+    tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+    tar.arguments = ["-xzf", tarballPath.path, "-C", tmpDir.path, "package/bin/bare"]
+    try tar.run()
+    tar.waitUntilExit()
+    guard tar.terminationStatus == 0 else { return nil }
+
+    let extractedBinary = tmpDir.appendingPathComponent("package/bin/bare")
+    guard FileManager.default.fileExists(atPath: extractedBinary.path) else { return nil }
+
+    let destURL = URL(fileURLWithPath: cachePath)
+    try FileManager.default.createDirectory(
+      at: destURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    if FileManager.default.fileExists(atPath: cachePath) {
+      try FileManager.default.removeItem(atPath: cachePath)
+    }
+    try FileManager.default.moveItem(at: extractedBinary, to: destURL)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cachePath)
+    return cachePath
+  } catch {
+    NSLog("FlutterPearBarePlugin (macOS): failed to extract/cache the fetched bare-runtime: \(error)")
+    return nil
   }
 }
 
@@ -100,8 +243,20 @@ public class FlutterPearBarePlugin: NSObject, FlutterPlugin {
     )
     instance.ipc = ipc
     ipc.setMessageHandler { message, reply in
-      if let data = (message as? FlutterStandardTypedData)?.data {
-        FlutterPearBarePlugin.stdinHandle?.write(data)
+      if let data = (message as? FlutterStandardTypedData)?.data,
+         let process = FlutterPearBarePlugin.process, process.isRunning,
+         let stdinHandle = FlutterPearBarePlugin.stdinHandle {
+        do {
+          // flutter_pear-a4p Defect 2: the deprecated FileHandle.write(_:)
+          // raises an Objective-C NSException on a broken pipe (e.g. the
+          // worklet just exited) -- Swift CANNOT catch an NSException, so a
+          // do/catch around that call still crashed the whole host app.
+          // write(contentsOf:) is the throwing Swift-native replacement
+          // (@available(macOS 10.15.4+), see Package.swift/podspec's pin).
+          try stdinHandle.write(contentsOf: data)
+        } catch {
+          NSLog("FlutterPearBarePlugin (macOS): write to worklet stdin failed (worklet likely exited): \(error)")
+        }
       }
       reply(nil)
     }
@@ -142,6 +297,11 @@ public class FlutterPearBarePlugin: NSObject, FlutterPlugin {
         let args = call.arguments as? [String: Any]
         let reattached = try startWorklet(bundlePath: args?["bundlePath"] as? String)
         result(["reattached": reattached, "generationId": FlutterPearBarePlugin.workletGeneration])
+      } catch FlutterPearBareError.runtimeNotFound {
+        // Distinct code (flutter_pear-a4p) so the Dart side can surface a
+        // typed, actionable PearException instead of a generic start
+        // failure -- see Pear.start's own translation of this code.
+        result(FlutterError(code: "bare_runtime_missing", message: "\(FlutterPearBareError.runtimeNotFound)", details: nil))
       } catch {
         result(FlutterError(code: "worklet_start_failed", message: "\(error)", details: nil))
       }
@@ -205,17 +365,27 @@ public class FlutterPearBarePlugin: NSObject, FlutterPlugin {
     let storageBase = appSupportURL.appendingPathComponent("flutter_pear", isDirectory: true)
     try FileManager.default.createDirectory(at: storageBase, withIntermediateDirectories: true)
 
-    // `Process` has no PATH search of its own (unlike Dart's Process.start
-    // or a plain shell) -- /usr/bin/env is the standard indirection.
+    // Resolve `bare` ourselves (flutter_pear-a4p Defect 1) -- `Process` has
+    // no PATH search of its own, and spawning indirected through
+    // `/usr/bin/env` (the original approach) can never surface a "missing"
+    // error: /usr/bin/env always exists, so `process.run()` below would
+    // succeed regardless, only for env to fail silently to exec `bare` and
+    // exit 127. [resolveBareRuntime] (flutter_pear-8f6) prefers a fetched/
+    // cached binary over PATH, so end users don't need `bare` preinstalled;
+    // PATH search (mirroring the Linux host's own
+    // g_find_program_in_path("bare") pre-check) remains a fallback.
+    guard let barePath = resolveBareRuntime() else {
+      throw FlutterPearBareError.runtimeNotFound
+    }
+
     // pear-end/index.js's desktop branch expects the storage dir at
-    // Bare.argv[2] (flutter_pear-71g's own pear-end fix): `env bare
-    // <bundlePath> <storageDir>` execs bare with argv = ["bare",
-    // bundlePath, storageDir] (env passes the literal command name through
-    // as argv[0], confirmed by this task's own E-D1-era probing), matching
-    // that position exactly regardless of exactly what ends up in argv[0].
+    // Bare.argv[2] (flutter_pear-71g's own pear-end fix): argv =
+    // [barePath, resolvedBundlePath, storageBase.path] -- Process sets
+    // argv[0] to executableURL itself, so no env indirection is needed to
+    // get bundlePath/storageDir into argv[1]/argv[2].
     let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    process.arguments = ["bare", resolvedBundlePath, storageBase.path]
+    process.executableURL = URL(fileURLWithPath: barePath)
+    process.arguments = [resolvedBundlePath, storageBase.path]
 
     let stdinPipe = Pipe()
     let stdoutPipe = Pipe()

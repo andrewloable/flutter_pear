@@ -108,6 +108,29 @@ environments. Roaming would risk exactly the failure mode Eng2 decision 35
 exists to prevent: a sync/profile-roam restoring a Hypercore writer key onto
 a second device and forking the core, not just duplicating a file.
 
+## The `bare` runtime is fetched automatically, not a manual install
+
+**As of flutter_pear-8f6, a flutter_pear Windows app fetches its own
+`bare` runtime on first launch** — end users do NOT need `npm i -g bare`
+first. `flutter_pear_bare_plugin_impl.cpp` resolves `bare` in this order: a
+previously-fetched copy cached under `%LOCALAPPDATA%\flutter_pear\
+bare-runtime\<version>\bare.exe` (instant on every launch after the
+first); a first-use fetch of the real, published `bare-runtime-win32-x64`
+npm package (Apache-2.0, `github.com/holepunchto/bare-runtime`) from
+`registry.npmjs.org` via `curl.exe`, verified via Windows CNG (`bcrypt.h`)
+SHA-256 against a pin committed in
+`flutter_pear_bare/bare-runtime-pin.json` BEFORE the binary is ever cached
+or run, then extracted via `tar.exe` (both built into Windows 10
+1803+/Server 2019+); the ORIGINAL `cmd.exe /c bare ...` PATH/PATHEXT
+mechanism as a fallback only if the fetch itself fails. Verified live on a
+real Windows 11 machine (Visual Studio 2022 Community, MSVC 14.44) — both
+the fetch-success and checksum-rejection paths. Note: a rejected/failed
+fetch falling back to the PATH mechanism still surfaces a generic
+`WORKLET_CRASHED` rather than a clean `BARE_RUNTIME_MISSING` if `bare` also
+isn't on PATH — flutter_pear-a4p/-bhv's pre-flight-check fixes for a clean
+typed error were scoped to macOS/Linux only, not Windows; confirmed live,
+not a regression from this fetch mechanism.
+
 ## What's covered, and what's still open
 
 **Real, on-hardware validation performed for this host** (`flutter_pear-pfp`):

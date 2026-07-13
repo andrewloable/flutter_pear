@@ -4,16 +4,25 @@
 // plugin template convention -- windows.h has ordering-sensitive macros).
 #include <windows.h>
 
+#include <bcrypt.h>
+
 #include <flutter/method_channel.h>
 #include <flutter/plugin_registrar_windows.h>
 #include <flutter/standard_message_codec.h>
 #include <flutter/standard_method_codec.h>
 
+#include <iomanip>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
+
+// Windows CNG (bcrypt.h) -- flutter_pear-8f6's checksum verification for
+// the fetched bare-runtime tarball. Not header-only; needs this explicit
+// link (MSVC-specific pragma, matches this file's existing MSVC-only
+// assumption -- Flutter Windows only builds with MSVC).
+#pragma comment(lib, "bcrypt.lib")
 
 namespace flutter_pear_bare {
 
@@ -25,6 +34,25 @@ namespace {
 // this platform the way iOS/macOS's FlutterDartProject API has one.
 const wchar_t *kBundleAssetSubpath =
     L"packages\\flutter_pear\\assets\\desktop\\win32-x64\\pear-end.bundle";
+
+// Pin for the real, published `bare-runtime-win32-x64` npm package
+// (Apache-2.0, github.com/holepunchto/bare-runtime) -- flutter_pear-8f6:
+// so a flutter_pear Windows app can fetch its own `bare` runtime instead
+// of requiring the end user to `npm i -g bare` first. Kept in sync by hand
+// with `flutter_pear_bare/bare-runtime-pin.json`, the human-readable
+// source of truth for this pin. Mirrors the macOS/Linux hosts' identical
+// mechanism -- see FlutterPearBarePlugin.swift's own doc comment for why
+// this fetches a plain npm tarball rather than going through any existing
+// packaging pipeline. Unlike an `npm i -g bare` install (a 3-process
+// cmd.exe->node.exe->native-binary chain, see the class-level comment
+// above), this npm package ships a single, real, standalone bare.exe --
+// no node.exe shim in the loop for a FETCHED binary specifically.
+const wchar_t *kBareRuntimeUpstreamUrl =
+    L"https://registry.npmjs.org/bare-runtime-win32-x64/-/"
+    L"bare-runtime-win32-x64-1.30.3.tgz";
+const wchar_t *kBareRuntimeUpstreamSha256Hex =
+    L"623d7df42de4aa925e8df3e7df0af0dc2f38e479a68c9528aed5cbead3f06e0e";
+const wchar_t *kBareRuntimeVersion = L"1.30.3";
 
 // Custom relay-window messages (see "static, process-lifetime state" below).
 constexpr UINT kMsgWorkletData = WM_APP + 1;
@@ -339,6 +367,208 @@ std::wstring QuoteArg(const std::wstring &arg) {
   return result;
 }
 
+// Runs [cmdline] (a literal Win32 command line, NOT shell-interpreted --
+// build with QuoteArg for any path that might contain spaces) to
+// completion, returning true only on a real zero exit code. Used for the
+// two external tools flutter_pear-8f6's fetch needs (curl.exe, tar.exe --
+// both built into Windows 10 1803+/Server 2019+, matching this project's
+// already-implied minimum Windows version for Flutter desktop support).
+bool RunToCompletion(std::wstring cmdline) {
+  std::vector<wchar_t> cmdline_buf(cmdline.begin(), cmdline.end());
+  cmdline_buf.push_back(L'\0');
+  STARTUPINFOW startup_info = {};
+  startup_info.cb = sizeof(startup_info);
+  PROCESS_INFORMATION process_info = {};
+  BOOL created =
+      CreateProcessW(nullptr, cmdline_buf.data(), nullptr, nullptr, FALSE,
+                     CREATE_NO_WINDOW, nullptr, nullptr, &startup_info,
+                     &process_info);
+  if (!created) return false;
+  CloseHandle(process_info.hThread);
+  WaitForSingleObject(process_info.hProcess, INFINITE);
+  DWORD exit_code = 1;
+  GetExitCodeProcess(process_info.hProcess, &exit_code);
+  CloseHandle(process_info.hProcess);
+  return exit_code == 0;
+}
+
+// Computes the SHA-256 hex digest of the file at [path], or an empty
+// string on any failure. Windows CNG (bcrypt.h), not a shelled-out tool
+// like RunToCompletion's callers -- unlike curl.exe/tar.exe (where only
+// the exit CODE matters, so text-output brittleness isn't a concern), a
+// checksum's exact digest value is safety-critical and worth avoiding
+// another program's text-output format entirely.
+std::wstring Sha256HexOfFile(const std::wstring &path) {
+  std::wstring result;
+  HANDLE file =
+      CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE) return result;
+
+  BCRYPT_ALG_HANDLE alg = nullptr;
+  BCRYPT_HASH_HANDLE hash = nullptr;
+  if (BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0) == 0 &&
+      BCryptCreateHash(alg, &hash, nullptr, 0, nullptr, 0, 0) == 0) {
+    std::vector<uint8_t> buffer(65536);
+    DWORD bytes_read = 0;
+    bool read_ok = true;
+    for (;;) {
+      if (!ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()),
+                    &bytes_read, nullptr)) {
+        read_ok = false;
+        break;
+      }
+      if (bytes_read == 0) break;
+      if (BCryptHashData(hash, buffer.data(), bytes_read, 0) != 0) {
+        read_ok = false;
+        break;
+      }
+    }
+    if (read_ok) {
+      uint8_t digest[32];
+      if (BCryptFinishHash(hash, digest, sizeof(digest), 0) == 0) {
+        std::wostringstream oss;
+        for (uint8_t b : digest) {
+          oss << std::hex << std::setw(2) << std::setfill(L'0')
+              << static_cast<int>(b);
+        }
+        result = oss.str();
+      }
+    }
+  }
+  if (hash != nullptr) BCryptDestroyHash(hash);
+  if (alg != nullptr) BCryptCloseAlgorithmProvider(alg, 0);
+  CloseHandle(file);
+  return result;
+}
+
+// %LOCALAPPDATA%\flutter_pear\bare-runtime\<version>\bare.exe -- where a
+// fetched `bare` runtime is cached, once per pinned version. Same
+// storage-root decision as ResolveStorageDir below, just a different
+// subdirectory. Versioned so bumping kBareRuntimeVersion naturally
+// re-fetches instead of reusing a stale cached binary under the same path.
+bool CachedBareRuntimePath(std::wstring *out_path) {
+  wchar_t buf[MAX_PATH];
+  DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", buf, MAX_PATH);
+  if (len == 0 || len >= MAX_PATH) return false;
+  *out_path = std::wstring(buf, len) + L"\\flutter_pear\\bare-runtime\\" +
+              kBareRuntimeVersion + L"\\bare.exe";
+  return true;
+}
+
+// Downloads kBareRuntimeUpstreamUrl via curl.exe, verifies it against
+// kBareRuntimeUpstreamSha256Hex BEFORE extracting anything, extracts just
+// package/bin/bare.exe via tar.exe, and installs it at
+// CachedBareRuntimePath(). Returns false (never fatal to the caller) on
+// ANY failure -- ResolveBareRuntime falls back to PATH resolution via
+// cmd.exe's own PATHEXT search, same as today.
+//
+// flutter_pear-8f6: mirrors the macOS/Linux hosts' identical mechanism;
+// verified live on a real Windows 11 machine (VS2022 Community, MSVC
+// 14.44) over SSH -- both the fetch-success and checksum-rejection paths,
+// not just a local compile. A rejected/failed fetch falls back to the
+// pre-existing `cmd.exe /c bare ...` PATH mechanism, whose own missing-bare
+// case still surfaces as a generic WORKLET_CRASHED rather than a clean
+// BARE_RUNTIME_MISSING (flutter_pear-a4p/-bhv's pre-flight fixes were
+// scoped to macOS/Linux only) -- confirmed live, not a regression from
+// this fetch mechanism.
+bool FetchAndCacheBareRuntime(std::wstring *out_path) {
+  wchar_t temp_path[MAX_PATH];
+  DWORD temp_len = GetTempPathW(MAX_PATH, temp_path);
+  if (temp_len == 0 || temp_len >= MAX_PATH) return false;
+  wchar_t temp_dir_name[MAX_PATH];
+  // The well-known GetTempFileNameW trick for a unique temp DIRECTORY name:
+  // it creates a uniquely-named FILE, which is deleted and recreated as a
+  // directory below -- simpler than pulling in a GUID/COM dependency just
+  // for this.
+  if (GetTempFileNameW(temp_path, L"fpb", 0, temp_dir_name) == 0) {
+    return false;
+  }
+  std::wstring tmp_dir(temp_dir_name);
+  DeleteFileW(tmp_dir.c_str());
+  if (!CreateDirectoryW(tmp_dir.c_str(), nullptr)) return false;
+
+  auto cleanup = [&]() {
+    RunToCompletion(L"cmd.exe /c rmdir /s /q " + QuoteArg(tmp_dir));
+  };
+
+  std::wstring tarball_path = tmp_dir + L"\\bare-runtime.tgz";
+  std::wstring curl_cmdline = L"curl.exe -sL --fail -o " +
+      QuoteArg(tarball_path) + L" " + QuoteArg(kBareRuntimeUpstreamUrl);
+  if (!RunToCompletion(curl_cmdline)) {
+    cleanup();
+    return false;
+  }
+
+  std::wstring actual_sha256 = Sha256HexOfFile(tarball_path);
+  if (actual_sha256.empty() ||
+      _wcsicmp(actual_sha256.c_str(), kBareRuntimeUpstreamSha256Hex) != 0) {
+    cleanup();
+    return false;
+  }
+
+  std::wstring tar_cmdline = L"tar.exe -xzf " + QuoteArg(tarball_path) +
+      L" -C " + QuoteArg(tmp_dir) + L" package/bin/bare.exe";
+  if (!RunToCompletion(tar_cmdline)) {
+    cleanup();
+    return false;
+  }
+
+  std::wstring extracted_binary = tmp_dir + L"\\package\\bin\\bare.exe";
+  if (GetFileAttributesW(extracted_binary.c_str()) ==
+      INVALID_FILE_ATTRIBUTES) {
+    cleanup();
+    return false;
+  }
+
+  std::wstring cache_path;
+  if (!CachedBareRuntimePath(&cache_path)) {
+    cleanup();
+    return false;
+  }
+  size_t last_slash = cache_path.find_last_of(L'\\');
+  if (last_slash == std::wstring::npos) {
+    cleanup();
+    return false;
+  }
+  std::wstring cache_dir = cache_path.substr(0, last_slash);
+  if (!RunToCompletion(L"cmd.exe /c mkdir " + QuoteArg(cache_dir)) &&
+      GetFileAttributesW(cache_dir.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    cleanup();
+    return false;
+  }
+  // MoveFileExW with REPLACE_EXISTING, not a plain rename -- handles a
+  // stale partial cache from an interrupted previous fetch, and (unlike a
+  // raw MoveFileW) works across volumes if %TEMP% and %LOCALAPPDATA%
+  // happen to be on different drives.
+  if (!MoveFileExW(extracted_binary.c_str(), cache_path.c_str(),
+                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED)) {
+    cleanup();
+    return false;
+  }
+
+  cleanup();
+  *out_path = cache_path;
+  return true;
+}
+
+// Resolves the `bare` runtime for this run (flutter_pear-8f6): a
+// previously-fetched, cached copy first (instant on every launch after the
+// first), then a first-use fetch of the pinned npm-published binary,
+// falling back to PATH resolution (today's `cmd.exe /c bare ...`
+// mechanism, still handled by StartWorklet itself when this returns
+// false) only if the fetch itself fails. Mirrors the macOS/Linux hosts'
+// identically-named resolve functions.
+bool ResolveBareRuntime(std::wstring *out_path) {
+  std::wstring cache_path;
+  if (CachedBareRuntimePath(&cache_path) &&
+      GetFileAttributesW(cache_path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+    *out_path = cache_path;
+    return true;
+  }
+  return FetchAndCacheBareRuntime(out_path);
+}
+
 // Resolves the bundled pear-end.bundle's absolute path -- Windows' Flutter
 // asset bundle is a flat, predictable layout (confirmed against a real
 // build): <bundle_root>\data\flutter_assets\<asset_subpath>, with the
@@ -422,17 +652,25 @@ bool StartWorklet(const std::wstring &bundle_path_arg, std::wstring *error) {
   SetHandleInformation(parent_stdin_write, HANDLE_FLAG_INHERIT, 0);
   SetHandleInformation(parent_stdout_read, HANDLE_FLAG_INHERIT, 0);
 
-  // `cmd.exe /c bare ...` (not a direct CreateProcess of a resolved `bare`
-  // path): letting cmd.exe do PATHEXT resolution is the SAME code path a
-  // real `bare <args>` typed at a prompt takes, so it correctly finds
-  // whatever shape a given machine's npm install produced (bare.cmd,
-  // bare.ps1, or a future native bare.exe) without this host having to
-  // hardcode npm's own internal package layout. %* inside bare.cmd
+  // ResolveBareRuntime (flutter_pear-8f6) prefers a fetched/cached bare.exe
+  // over PATH, so end users don't need `bare` preinstalled; when that
+  // fails (fetch failed AND nothing cached), fall back to the ORIGINAL
+  // `cmd.exe /c bare ...` behavior -- letting cmd.exe do PATHEXT
+  // resolution is the SAME code path a real `bare <args>` typed at a
+  // prompt takes, so it correctly finds whatever shape a given machine's
+  // npm install produced (bare.cmd, bare.ps1, or a native bare.exe)
+  // without this host having to hardcode npm's own internal package
+  // layout. Either way the command token is quoted the same way
+  // (QuoteArg), so %* inside bare.cmd's own PATH-resolved case still
   // reproduces each argument's ORIGINAL quoting as received (documented
-  // batch-file behavior), so the explicit quoting below survives the whole
-  // chain intact even for paths containing spaces.
-  std::wstring cmdline = L"cmd.exe /c bare " + QuoteArg(bundle_path) + L" " +
-                        QuoteArg(storage_dir);
+  // batch-file behavior) -- explicit quoting survives the whole chain
+  // intact even for paths containing spaces.
+  std::wstring bare_runtime_path;
+  std::wstring bare_command = ResolveBareRuntime(&bare_runtime_path)
+      ? QuoteArg(bare_runtime_path)
+      : L"bare";
+  std::wstring cmdline = L"cmd.exe /c " + bare_command + L" " +
+                        QuoteArg(bundle_path) + L" " + QuoteArg(storage_dir);
   std::vector<wchar_t> cmdline_buf(cmdline.begin(), cmdline.end());
   cmdline_buf.push_back(L'\0');
 
