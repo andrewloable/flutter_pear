@@ -1,3 +1,23 @@
+## 0.3.1
+
+**Each desktop host now fetches and caches its own `bare` runtime binary**
+instead of only resolving it from `PATH`: the real, published
+`bare-runtime-<host>` npm packages for `darwin-arm64`/`darwin-x64`/
+`linux-x64`/`win32-x64`, checksum-verified against a new
+`bare-runtime-pin.json` before use and cached locally (Application Support
+on macOS, XDG data dir on Linux, `%LOCALAPPDATA%` on Windows). `bare` on
+`PATH` remains a fallback, used only if the fetch itself fails. Implemented
+natively per host — `CryptoKit`/`Process` on macOS
+(`FlutterPearBarePlugin.swift`), `GLib`/`GIO` on Linux
+(`flutter_pear_bare_plugin.cc`), and Win32/CNG (`bcrypt.h`) on Windows
+(`flutter_pear_bare_plugin_impl.cpp`) — with a distinct, catchable
+`bare_runtime_missing` platform error surfaced on macOS and Linux when the
+fetch fails and no `PATH` fallback is found (Windows currently surfaces a
+generic crash for the same scenario instead of that specific code, a
+smaller known gap).
+
+No breaking changes to the lifecycle contract from 0.3.0.
+
 ## 0.3.0
 
 **macOS, Linux, and Windows desktop hosts, new in 0.3.0.** No BareKit build

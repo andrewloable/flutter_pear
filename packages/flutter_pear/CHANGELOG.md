@@ -1,3 +1,42 @@
+## 0.3.1
+
+**`bare` is now fetched automatically on all three desktop platforms** —
+macOS, Linux, and Windows each fetch their own `bare` runtime on first
+launch (the real, published `bare-runtime-<host>` npm packages, checksum-
+verified before use and cached locally), so `npm i -g bare` is a manual
+fallback only, never a hard prerequisite. Previously this only worked
+reliably on macOS; Linux and Windows needed `bare` on `PATH` first. A
+missing/unfetchable `bare` now throws a typed, catchable
+`PearException(BARE_RUNTIME_MISSING)` on macOS and Linux instead of
+crashing; Windows currently surfaces the same scenario as a generic
+`WORKLET_CRASHED` instead of that specific code (its pre-flight check isn't
+as precise yet — a smaller known gap, not a regression). See
+[ERRORS.md#BARE_RUNTIME_MISSING](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/ERRORS.md#BARE_RUNTIME_MISSING).
+
+**`dart run flutter_pear:doctor --fix`, new in 0.3.1.** Applies the macOS
+section's three run-blocking/LAN-breaking fixes automatically instead of
+hand-editing XML/project settings: the App Sandbox entitlement in both
+`macos/Runner/DebugProfile.entitlements` and `macos/Runner/Release.entitlements`,
+Info.plist's `NSLocalNetworkUsageDescription`, and a below-minimum
+`MACOSX_DEPLOYMENT_TARGET` in `project.pbxproj`. Idempotent — a file needing
+no change is silently left alone. `bare` on `PATH` is a separate
+precondition this does not and cannot fix (installing a runtime isn't a
+file edit).
+
+**`dart run flutter_pear:doctor` fixes:** `--help`/`-h` now prints usage
+and exits immediately instead of silently running the full diagnostic
+suite; a project with a real platform/packaging `[FAIL]` no longer prints
+a contradictory "All checks passed." as its last line (that verdict
+previously only reflected the runtime connectivity checks, blind to an
+earlier Dart-side failure in the same output).
+
+**Docs:** the Desktop quick-start now shows `dart run flutter_pear:doctor --fix`
+as an explicit step between `flutter create` and `flutter run`, not just in
+trailing prose — following it top-to-bottom now avoids the raw SwiftPM
+`requires minimum platform version 10.15.4` error entirely.
+
+No breaking changes. Requires `flutter_pear_bare: ^0.3.1`.
+
 ## 0.3.0
 
 **macOS, Linux, and Windows desktop support, new in 0.3.0.** `flutter_pear`

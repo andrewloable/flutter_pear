@@ -1,3 +1,13 @@
+## 0.3.1
+
+Version bump only, in lockstep with `flutter_pear`/`flutter_pear_bare`'s
+0.3.1 (all three desktop platforms now auto-fetch their own `bare` runtime,
+plus `doctor` CLI fixes — see those packages' own CHANGELOGs). The native
+`bare_runtime_missing` platform error this release adds is surfaced through
+`flutter_pear`'s existing `PearException(BARE_RUNTIME_MISSING)` translation,
+which this package's fake does not need to reproduce (it never spawns a
+real subprocess). No code changes here.
+
 ## 0.3.0
 
 Version bump only, in lockstep with `flutter_pear`/`flutter_pear_bare`'s
