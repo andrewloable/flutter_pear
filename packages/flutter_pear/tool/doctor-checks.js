@@ -8,27 +8,44 @@
 // BareWorklet's platform channels the way a real app does -- there is no
 // way for a pure-Dart CLI to boot the ACTUAL Android/iOS worklet. What it
 // CAN do, and what actually answers "is this network going to work",
-// is join the real Hyperswarm DHT directly (same libraries pear-end wraps,
-// resolved through its own node_modules so versions never drift -- see
-// flutter_pear_example/tool/peer.js's identical pattern) and report what it
-// finds. The worklet-boot check below is attempted only if a `bare` CLI is
-// on PATH; if not, it's reported as an explicit SKIP, never faked as a pass.
+// is join the real Hyperswarm DHT directly and report what it finds.
+//
+// This file used to ALSO check for a `bare` CLI on PATH here (a non-failing
+// [SKIP] when absent). That check has moved to the pure-Dart half
+// (doctor_macos_checks.dart/doctor_linux_checks.dart/
+// doctor_windows_checks.dart) as a real [FAIL] -- flutter_pear-bhv: a
+// missing `bare` is a fatal precondition (it hard-crashed macOS apps before
+// flutter_pear-a4p's fix), not a nice-to-have this Node half could shrug
+// off as a SKIP, and the Node half is unreachable for consumers whenever
+// IT is the thing broken (flutter_pear-ewf) -- exactly the scenario where
+// the check matters most. Removed here rather than duplicated, so doctor
+// never emits two contradictory verdicts about the same `bare` binary.
+//
+// `require('hyperswarm')` resolves against the COMMITTED, trimmed
+// tool/node_modules/ sitting right next to this file (flutter_pear-ewf) --
+// NOT pear-end/node_modules, which is gitignored and never published, so
+// this used to throw MODULE_NOT_FOUND for every pub.dev consumer. See
+// tool/build_doctor_node_modules.dart's own doc comment for how that tree
+// is built/regenerated and why the already-committed
+// assets/desktop/<host>/node_modules/*/prebuilds/*.bare files can't be
+// reused for it (they're Bare-addon-ABI binaries, not Node-loadable).
 
 const path = require('node:path')
-const { execFile, spawn } = require('node:child_process')
-const { promisify } = require('node:util')
-const execFileAsync = promisify(execFile)
+const { spawn } = require('node:child_process')
 
-const pearEndRequire = require('node:module').createRequire(
-  path.join(__dirname, '..', 'pear-end', 'package.json')
-)
-const Hyperswarm = pearEndRequire('hyperswarm')
+const Hyperswarm = require('hyperswarm')
 const crypto = require('node:crypto')
 
 const LOOPBACK_PEER_JS = path.join(__dirname, 'doctor-loopback-peer.js')
 
 const DHT_READY_TIMEOUT_MS = 15000
-const LOOPBACK_TIMEOUT_MS = 20000
+// 35s, not 20s (flutter_pear-ewf): observed repeatedly during testing that
+// a COLD DHT client (first Hyperswarm instance created in a while) can take
+// >20s to complete its DHT rendezvous+hole-punch even on a healthy network
+// -- a warm client reconnects in ~5s. 20s produced a false [FAIL] ("likely
+// a local firewall blocking loopback UDP") on a perfectly reachable
+// network, exactly the false diagnosis this check exists to avoid.
+const LOOPBACK_TIMEOUT_MS = 35000
 
 function pass (line) {
   console.log(`[PASS] ${line}`)
@@ -38,9 +55,6 @@ function fail (line) {
 }
 function info (line) {
   console.log(`[INFO] ${line}`)
-}
-function skip (line) {
-  console.log(`[SKIP] ${line}`)
 }
 
 async function checkDhtReachability (swarm) {
@@ -117,25 +131,6 @@ async function checkLoopback () {
   }
 }
 
-// Always returns true (SKIP and PASS both count as non-failing) --
-// intentional: this check can only ever confirm a `bare` runtime starts,
-// never that pear-end's own code boots (see the PASS message below), so it
-// isn't a fair contributor to the overall pass/fail verdict either way.
-async function checkWorkletBoot () {
-  try {
-    await execFileAsync('bare', ['--version'])
-  } catch {
-    skip("Worklet boot check -- 'bare' CLI not found on PATH (npm i -g bare-kit's bare to enable this check); the real worklet only boots inside the example app's Flutter engine anyway")
-    return true // not a failure -- nothing to report as broken
-  }
-  // A `bare` CLI is present but actually booting pear-end/index.js needs
-  // BareKit.IPC (the mobile embedding's global, not available to a plain
-  // `bare` process either) -- so even with `bare` installed, this can only
-  // confirm the runtime itself starts, not that pear-end's own code boots.
-  pass("'bare' CLI found -- full worklet boot still requires the example app's Flutter engine to provide BareKit.IPC")
-  return true
-}
-
 async function main () {
   console.log('flutter_pear doctor -- runtime connectivity diagnostics\n')
 
@@ -143,15 +138,14 @@ async function main () {
   // concurrently so the total wall-clock is the max of the two, not the
   // sum, keeping this closer to the "<30s" target.
   const dhtSwarm = new Hyperswarm()
-  const [dhtOk, loopbackOk, workletOk] = await Promise.all([
+  const [dhtOk, loopbackOk] = await Promise.all([
     checkDhtReachability(dhtSwarm).finally(() => {
       checkNatType(dhtSwarm)
       return dhtSwarm.destroy()
     }),
-    checkLoopback(),
-    checkWorkletBoot()
+    checkLoopback()
   ])
-  const ok = dhtOk && loopbackOk && workletOk
+  const ok = dhtOk && loopbackOk
 
   console.log()
   console.log(ok ? 'All checks passed.' : 'Some checks failed -- see [FAIL] lines above.')

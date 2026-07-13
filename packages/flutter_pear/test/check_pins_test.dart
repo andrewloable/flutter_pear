@@ -44,8 +44,10 @@ void main() {
       isTrue,
       reason: 'expected a by-design podspec skip, got: ${result.permanentSkips}',
     );
-    expect(result.skipped,
-        hasLength(3)); // barekit-pin.json, Package.swift, swift host
+    expect(
+        result.skipped,
+        hasLength(
+            4)); // barekit-pin.json, Package.swift, swift host, bare-runtime-pin.json
   });
 
   test(
@@ -68,6 +70,24 @@ void main() {
             'a386063fa405b0bb4967490e84745075f007f95359c9871c5b7a45c18c2f49e2',
       ),
       swiftHostContent: _swiftHost(assetName: 'assets/pear-end.bundle'),
+      bareRuntimePinJson: {
+        'bareRuntimeVersion': _defaultBareRuntimeVersion,
+        'hosts': {
+          'darwin-arm64': {
+            'upstreamUrl': 'https://example.test/bare-runtime-darwin-arm64.tgz',
+            'upstreamSha256': _defaultBareRuntimeArm64Sha256,
+          },
+          'darwin-x64': {
+            'upstreamUrl': 'https://example.test/bare-runtime-darwin-x64.tgz',
+            'upstreamSha256': _defaultBareRuntimeX64Sha256,
+          },
+        },
+      },
+      macosSwiftHostBareRuntimeContent: _macosSwiftHostBareRuntime(
+        version: _defaultBareRuntimeVersion,
+        arm64Sha256: _defaultBareRuntimeArm64Sha256,
+        x64Sha256: _defaultBareRuntimeX64Sha256,
+      ),
     );
     addTearDown(() => fixture.root.deleteSync(recursive: true));
 
@@ -79,14 +99,87 @@ void main() {
   });
 
   test(
-      'the default fixture (no optional legs created) skips exactly the 4 '
+      'the default fixture (no optional legs created) skips exactly the 5 '
       'not-yet-landed legs, matching the real repo\'s own shape', () {
     final fixture = _buildFixture();
     addTearDown(() => fixture.root.deleteSync(recursive: true));
 
     final result = checkPins(fixture.pkgRoot);
     expect(result.mismatches, isEmpty);
-    expect(result.skipped, hasLength(4));
+    expect(result.skipped, hasLength(5));
+  });
+
+  test(
+      'a bare-runtime sha256 mismatch between bare-runtime-pin.json and the '
+      'macOS Swift host\'s hardcoded constant is caught and named '
+      '(flutter_pear-8f6)', () {
+    final fixture = _buildFixture(
+      bareRuntimePinJson: {
+        'bareRuntimeVersion': _defaultBareRuntimeVersion,
+        'hosts': {
+          'darwin-arm64': {
+            'upstreamUrl': 'https://example.test/bare-runtime-darwin-arm64.tgz',
+            'upstreamSha256': 'aa' * 32,
+          },
+          'darwin-x64': {
+            'upstreamUrl': 'https://example.test/bare-runtime-darwin-x64.tgz',
+            'upstreamSha256': _defaultBareRuntimeX64Sha256,
+          },
+        },
+      },
+      macosSwiftHostBareRuntimeContent: _macosSwiftHostBareRuntime(
+        version: _defaultBareRuntimeVersion,
+        arm64Sha256: 'bb' * 32,
+        x64Sha256: _defaultBareRuntimeX64Sha256,
+      ),
+    );
+    addTearDown(() => fixture.root.deleteSync(recursive: true));
+
+    final result = checkPins(fixture.pkgRoot);
+    final shaMismatches = result.mismatches
+        .where((m) => m.field == 'bare-runtime sha256 (darwin-arm64)');
+    expect(shaMismatches, hasLength(1),
+        reason: result.mismatches.map((m) => m.describe()).join('\n'));
+    expect(
+      shaMismatches.single.describe(),
+      allOf(contains('aa' * 32), contains('bb' * 32)),
+    );
+  });
+
+  test(
+      'a bare-runtime version mismatch between bare-runtime-pin.json and '
+      'the macOS Swift host is caught and named (flutter_pear-8f6)', () {
+    final fixture = _buildFixture(
+      bareRuntimePinJson: {
+        'bareRuntimeVersion': '9.9.9',
+        'hosts': {
+          'darwin-arm64': {
+            'upstreamUrl': 'https://example.test/bare-runtime-darwin-arm64.tgz',
+            'upstreamSha256': _defaultBareRuntimeArm64Sha256,
+          },
+          'darwin-x64': {
+            'upstreamUrl': 'https://example.test/bare-runtime-darwin-x64.tgz',
+            'upstreamSha256': _defaultBareRuntimeX64Sha256,
+          },
+        },
+      },
+      macosSwiftHostBareRuntimeContent: _macosSwiftHostBareRuntime(
+        version: _defaultBareRuntimeVersion,
+        arm64Sha256: _defaultBareRuntimeArm64Sha256,
+        x64Sha256: _defaultBareRuntimeX64Sha256,
+      ),
+    );
+    addTearDown(() => fixture.root.deleteSync(recursive: true));
+
+    final result = checkPins(fixture.pkgRoot);
+    final versionMismatches =
+        result.mismatches.where((m) => m.field == 'bare-runtime version');
+    expect(versionMismatches, hasLength(1),
+        reason: result.mismatches.map((m) => m.describe()).join('\n'));
+    expect(
+      versionMismatches.single.describe(),
+      allOf(contains('9.9.9'), contains(_defaultBareRuntimeVersion)),
+    );
   });
 
   test(
@@ -230,7 +323,10 @@ void main() {
     addTearDown(() => fixture.root.deleteSync(recursive: true));
 
     final result = checkPins(fixture.pkgRoot);
-    expect(result.skipped, hasLength(3)); // barekit-pin.json, podspec, swift host
+    expect(
+        result.skipped,
+        hasLength(
+            4)); // barekit-pin.json, podspec, swift host, bare-runtime-pin.json
     expect(result.mismatches, isEmpty,
         reason: result.mismatches.map((m) => m.describe()).join('\n'));
   });
@@ -276,6 +372,11 @@ const _defaultVersion = '2.3.0';
 const _defaultSha256 =
     'a386063fa405b0bb4967490e84745075f007f95359c9871c5b7a45c18c2f49e2';
 const _defaultBakedVersion = 'e21b84c0cfec344d';
+const _defaultBareRuntimeVersion = '1.30.3';
+const _defaultBareRuntimeArm64Sha256 =
+    'ee9af7368e35dca777e2f768a6da536432517a8f6711dc7df7dca4b9535d9128';
+const _defaultBareRuntimeX64Sha256 =
+    '713a1987722e1f4c6cece8c4af334942608987cdb515de1b27ea93e6933548fe';
 
 /// Builds a minimal, self-consistent fixture tree mirroring this repo's real
 /// layout (packages/flutter_pear + packages/flutter_pear_bare) so
@@ -283,9 +384,9 @@ const _defaultBakedVersion = 'e21b84c0cfec344d';
 /// monorepo. Every value agrees by construction unless overridden, letting a
 /// test introduce exactly one deliberate mismatch at a time. The
 /// not-yet-landed legs (barekit-pin.json, Package.swift, the podspec, the
-/// Swift host) are omitted by default, matching the real repo's current
-/// shape -- pass the matching `*Content`/`*Json` parameter to simulate one
-/// having landed.
+/// Swift host, bare-runtime-pin.json) are omitted by default, matching the
+/// real repo's current shape -- pass the matching `*Content`/`*Json`
+/// parameter to simulate one having landed.
 _Fixture _buildFixture({
   String bareKitVersionInGradle = _defaultVersion,
   String bareKitSha256InGradle = _defaultSha256,
@@ -297,6 +398,8 @@ _Fixture _buildFixture({
   String? packageSwiftContent,
   String? podspecContent,
   String? swiftHostContent,
+  Map<String, dynamic>? bareRuntimePinJson,
+  String? macosSwiftHostBareRuntimeContent,
 }) {
   final root = Directory.systemTemp.createTempSync('fp_check_pins');
   final pkgRoot = '${root.path}/packages/flutter_pear';
@@ -352,6 +455,17 @@ private const val BUNDLE_ASSET_SUBPATH = "$kotlinBundleAssetSubpath"
     File('$bareRoot/ios/Classes/FlutterPearBareHost.swift')
         .writeAsStringSync(swiftHostContent);
   }
+  if (bareRuntimePinJson != null) {
+    File('$bareRoot/bare-runtime-pin.json')
+        .writeAsStringSync(jsonEncode(bareRuntimePinJson));
+  }
+  if (macosSwiftHostBareRuntimeContent != null) {
+    Directory('$bareRoot/macos/flutter_pear_bare/Sources/flutter_pear_bare')
+        .createSync(recursive: true);
+    File('$bareRoot/macos/flutter_pear_bare/Sources/flutter_pear_bare/'
+            'FlutterPearBarePlugin.swift')
+        .writeAsStringSync(macosSwiftHostBareRuntimeContent);
+  }
 
   return _Fixture(root, pkgRoot);
 }
@@ -403,4 +517,26 @@ private let bundleAssetSubpath = "$assetName"
 func startWorklet() {
   let key = FlutterDartProject.lookupKey(forAsset: bundleAssetSubpath, fromPackage: "flutter_pear")
 }
+''';
+
+/// Minimal stand-in for the macOS host's real
+/// FlutterPearBarePlugin.swift -- just enough for
+/// `_checkBareRuntimePin`'s own regexes (positional: arm64's
+/// bareRuntimeUpstreamSha256 constant first, matching the real file's own
+/// `#if arch(arm64)`/`#elseif arch(x86_64)` source order) to find what
+/// they're looking for.
+String _macosSwiftHostBareRuntime({
+  required String version,
+  required String arm64Sha256,
+  required String x64Sha256,
+}) =>
+    '''
+#if arch(arm64)
+private let bareRuntimeUpstreamSha256 =
+  "$arm64Sha256"
+#elseif arch(x86_64)
+private let bareRuntimeUpstreamSha256 =
+  "$x64Sha256"
+#endif
+private let bareRuntimeVersion = "$version"
 ''';

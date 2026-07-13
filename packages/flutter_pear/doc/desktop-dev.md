@@ -18,10 +18,16 @@ verified by reading this repo's own source, not assumed:
   **pure Gradle** — no `exec`, `commandLine`, or shell-out of any kind. It
   downloads and links Bare Kit's native binaries the same way on Windows,
   Linux, or macOS.
-- `dart run flutter_pear:doctor` is **pure Dart**. It has no dependency on
-  a POSIX shell, and (as of this page) it prints an explicit verdict naming
-  which build targets your current host supports — see [Verifying your
-  setup](#verifying-your-setup).
+- `dart run flutter_pear:doctor`'s toolchain/environment checks (build
+  target support, packaging path, entitlements, committed-asset integrity,
+  ...) are **pure Dart** and run even without Node installed. Its runtime
+  *connectivity* checks (DHT reachability, NAT estimate, the loopback
+  self-test) still spawn a real `node` process — `node` remains a hard
+  prerequisite for THAT part (flutter_pear-ewf), same as it always was; what
+  changed is that those checks now actually run for every installed copy of
+  flutter_pear instead of throwing a module-resolution error for anyone who
+  installed from pub.dev instead of this repo. Neither half depends on a
+  POSIX shell — see [Verifying your setup](#verifying-your-setup).
 - This package's own consumer-facing docs (this file included) contain no
   `export PATH`, `chmod`, or shebang-only steps presented as something you
   must run.

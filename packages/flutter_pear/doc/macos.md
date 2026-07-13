@@ -126,6 +126,40 @@ deferred follow-up, not yet available — this demo/example usage is meant to
 be run locally via `flutter run -d macos`, not distributed through the Mac
 App Store.
 
+## The `bare` runtime is fetched automatically, not a manual install
+
+**As of flutter_pear-8f6, a flutter_pear macOS app fetches its own `bare`
+runtime on first launch** — end users do NOT need `npm i -g bare` first.
+`FlutterPearBarePlugin.swift` resolves `bare` in this order:
+
+1. A previously-fetched copy cached under `~/Library/Application
+   Support/flutter_pear/bare-runtime/<version>/bare` (instant on every
+   launch after the first).
+2. A first-use fetch of the real, published `bare-runtime-darwin-<arch>` npm
+   package (Apache-2.0, `github.com/holepunchto/bare-runtime`) from
+   `registry.npmjs.org`, verified against a SHA-256 pin committed in
+   `flutter_pear_bare/bare-runtime-pin.json` BEFORE the binary is ever
+   cached or run, then cached at the path above for next time.
+3. `bare` on `PATH` — the ORIGINAL mechanism (`npm i -g bare`), kept only as
+   a fallback for when the fetch itself fails (e.g. no network on a machine
+   that happens to have `bare` installed globally anyway).
+
+The fetch is a synchronous network call on the same thread `Pear.start()`
+blocks on, so a cold first launch pauses for as long as the ~20MB download
+takes (typically a few seconds on a real network) before the worklet boots;
+every launch after that is instant. A non-blocking fetch with a
+Dart-visible progress signal is a documented follow-up, not yet built.
+
+**macOS only, verified only on this dev machine's arm64 build** (both the
+fetch-success and checksum-rejection paths were exercised live). Linux and
+Windows still resolve `bare` from `PATH` only — extending the same
+fetch-and-cache mechanism to those hosts is unverified, tracked as a
+follow-up. The App Sandbox constraint above applies here too: the fetch
+mechanism itself spawns `/usr/bin/tar` to extract the downloaded archive,
+which the App Sandbox blocks the same way it blocks `bare` itself — this
+does not change the sandboxing story, a sandboxed distribution is still not
+supported.
+
 ## Storage root
 
 Same decision as iOS/Android (Eng2 decision 35): worklet storage

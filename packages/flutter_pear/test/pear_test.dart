@@ -469,4 +469,29 @@ void main() {
     );
     expect(controlCalls.where((m) => m == 'terminate'), hasLength(2));
   });
+
+  test(
+      'a native bare_runtime_missing PlatformException (macOS/Linux '
+      'desktop hosts\' pre-flight PATH check, flutter_pear-a4p) surfaces '
+      'from Pear.start() as a typed, catchable BARE_RUNTIME_MISSING '
+      'PearException -- not a raw PlatformException', () async {
+    messenger.setMockMethodCallHandler(control, (call) async {
+      controlCalls.add(call.method);
+      if (call.method == 'start') {
+        throw PlatformException(
+          code: 'bare_runtime_missing',
+          message: 'flutter_pear_bare: the `bare` runtime was not found on '
+              'PATH -- install it with `npm i -g bare`',
+        );
+      }
+      return null;
+    });
+
+    await expectLater(
+      Pear.start(),
+      throwsA(isA<PearException>()
+          .having((e) => e.code, 'code', PearErrorCode.bareRuntimeMissing)
+          .having((e) => e.message, 'message', contains('npm i -g bare'))),
+    );
+  });
 }

@@ -26,6 +26,20 @@ import 'package:flutter_pear/src/doctor_windows_checks.dart';
 /// (LOCKED: no runtime telemetry in a privacy-first P2P library) -- the
 /// bundle is meant to be pasted into a GitHub issue by hand.
 ///
+/// `--fix` (flutter_pear-jxf) applies the macOS section's run-blocking/
+/// LAN-breaking fixes it already detects: the App Sandbox entitlement in
+/// BOTH `macos/Runner/DebugProfile.entitlements` and
+/// `macos/Runner/Release.entitlements`, Info.plist's
+/// `NSLocalNetworkUsageDescription`, and a below-minimum
+/// `MACOSX_DEPLOYMENT_TARGET` in project.pbxproj -- instead of a developer
+/// hand-editing XML/project settings -- then exits WITHOUT running the
+/// normal check-and-report flow below -- re-run `dart run flutter_pear:doctor`
+/// (no `--fix`) afterward to confirm.
+/// Idempotent and safe to re-run: a file needing no change is silently left
+/// alone, never touched or re-reported. `bare` on `PATH` is a SEPARATE
+/// precondition this does not and cannot fix (flutter_pear-a4p/-8f6) --
+/// installing a runtime isn't a file edit.
+///
 /// Runs a pure-Dart host-capability line FIRST (`doctor_host_checks.dart`,
 /// flutter_pear-l0w) -- a one-line verdict naming which build targets THIS
 /// host can build for (Android: any host; iOS/macOS: macOS + Xcode only, an
@@ -45,8 +59,32 @@ import 'package:flutter_pear/src/doctor_windows_checks.dart';
 /// process afterward -- see that file's own doc comment. Exits nonzero if
 /// either side found a real failure (0 only if both the Dart-side checks
 /// and the JS side found none) whether or not `--report` was passed, so
-/// this is usable as a CI gate either way.
+/// this is usable as a CI gate either way. The JS side's own final
+/// "All checks passed."/"Some checks failed" line only speaks for itself
+/// (DHT reachability + loopback) -- [isMisleadingAllClear] catches the one
+/// case where that would read as a false all-clear (a Dart-side `[FAIL]`
+/// above it, but a healthy network) and prints a corrective note, found via
+/// a live /devex-review pass.
+///
+/// `--help`/`-h` prints usage and exits immediately -- no diagnostics run,
+/// no network touched.
 Future<void> main(List<String> args) async {
+  if (args.contains('--help') || args.contains('-h')) {
+    stdout.writeln(_usage.trim());
+    return;
+  }
+  if (args.contains('--fix')) {
+    final changes = applyMacosFixes(Directory.current.path);
+    if (changes.isEmpty) {
+      stdout.writeln('Nothing to fix.');
+    } else {
+      for (final change in changes) {
+        stdout.writeln('Fixed: $change');
+      }
+    }
+    return;
+  }
+
   final report = args.contains('--report');
   final logIndex = args.indexOf('--log');
   if (logIndex != -1 && logIndex + 1 >= args.length) {
@@ -144,6 +182,8 @@ Future<void> main(List<String> args) async {
     }
     final jsExitCode = await process.exitCode;
     exitCode = (jsExitCode != 0 || !dartChecksOk) ? 1 : 0;
+    final misleadingAllClear =
+        isMisleadingAllClear(dartChecksOk: dartChecksOk, jsExitCode: jsExitCode);
 
     if (report) {
       stdout.write(buildDoctorReport(
@@ -152,9 +192,13 @@ Future<void> main(List<String> args) async {
             _packageVersion(packageRoot, 'flutter_pear_bare'),
         hostOs:
             '${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
-        doctorCheckOutput: '$dartCheckOutput\n\n$checkOutput',
+        doctorCheckOutput: '$dartCheckOutput\n\n$checkOutput'
+            '${misleadingAllClear ? '\n\n$_misleadingAllClearNote' : ''}',
         rawLog: logPath == null ? null : File(logPath).readAsStringSync(),
       ));
+    } else if (misleadingAllClear) {
+      stdout.writeln();
+      stdout.writeln(_misleadingAllClearNote);
     }
   } on ProcessException catch (e) {
     stderr.writeln('Could not run doctor-checks.js: $e');
@@ -162,6 +206,38 @@ Future<void> main(List<String> args) async {
     exit(1);
   }
 }
+
+const _usage = '''
+flutter_pear doctor -- runtime + install-time diagnostics for this app.
+
+Usage: dart run flutter_pear:doctor [options]
+
+  (no options)   Run every check, printing [PASS]/[FAIL]/[INFO]/[SKIP] lines.
+  --report       Print a paste-ready markdown support bundle instead.
+  --log <path>   Include a sanitized tail of this log file in --report output.
+  --fix          Apply macOS's known run-blocking fixes (App Sandbox
+                 entitlement, Info.plist, deployment target), then exit --
+                 no diagnostics run.
+  --help, -h     Show this message and exit.
+
+Run from your own app's root, not from inside the flutter_pear package --
+it needs your project's macos/linux/windows directories to check anything
+platform-specific. Exits nonzero if any check failed, whether or not
+--report was passed, so it's usable as a CI/hand-run gate either way.''';
+
+const _misleadingAllClearNote =
+    'Note: the runtime diagnostics above passed, but an earlier check did '
+    'not -- this project is NOT ready yet. See the [FAIL] line(s) above.';
+
+/// True when `doctor-checks.js`'s own "All checks passed." verdict (which
+/// only covers ITS OWN checks -- DHT reachability, loopback -- and is
+/// printed as the very last line of the whole tool's output, the line a
+/// skimming developer actually reads) would read as a false all-clear
+/// because the Dart-side platform/packaging checks above it already found
+/// a real `[FAIL]`, despite the tool's overall exit code correctly being
+/// nonzero either way.
+bool isMisleadingAllClear({required bool dartChecksOk, required int jsExitCode}) =>
+    !dartChecksOk && jsExitCode == 0;
 
 /// [name]'s package version, read straight from its `pubspec.yaml` --
 /// avoids adding a YAML-parsing dependency for one `version:` line.

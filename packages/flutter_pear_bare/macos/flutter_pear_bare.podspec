@@ -23,6 +23,8 @@ Manager path.
   s.source           = { :path => '.' }
   s.source_files     = 'flutter_pear_bare/Sources/flutter_pear_bare/**/*.swift'
   s.dependency 'FlutterMacOS'
-  s.platform         = :osx, '10.15'
+  # 10.15.4, not 10.15 (flutter_pear-a4p) -- kept in sync with
+  # flutter_pear_bare/Package.swift's own .macOS("10.15.4") pin.
+  s.platform         = :osx, '10.15.4'
   s.swift_version    = '5.9'
 end

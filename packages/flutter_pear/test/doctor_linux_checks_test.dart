@@ -33,6 +33,7 @@ void main() {
     if (executable == 'cmake') return _ok('cmake version 3.28.3');
     if (executable == 'ninja') return _ok('1.11.1');
     if (executable == 'pkg-config') return _ok('3.24.41');
+    if (executable == 'bare') return _ok('1.16.0');
     throw StateError('unexpected executable: $executable');
   }
 
@@ -70,10 +71,11 @@ void main() {
   });
 
   group('toolchain checks', () {
-    test('all 4 tools present and the bundle exists -> every check passes',
-        () async {
+    test(
+        'all 4 tools present, bare present, and the bundle exists -> every '
+        'check passes', () async {
       final results = await runDoctorLinuxChecks(buildContext());
-      expect(results, hasLength(5));
+      expect(results, hasLength(6));
       expect(results.every((r) => r.status == DoctorCheckStatus.pass), isTrue,
           reason: results.map((r) => r.render()).join('\n'));
     });
@@ -91,9 +93,10 @@ void main() {
       final clangResult = results.firstWhere((r) => r.message.contains('clang'));
       expect(clangResult.status, DoctorCheckStatus.fail);
       expect(clangResult.remediation, isNotNull);
-      // The other 3 tool checks + the bundle check still ran and passed.
+      // The other 3 tool checks + the bundle check + the bare check still
+      // ran and passed.
       expect(
-          results.where((r) => r.status == DoctorCheckStatus.pass), hasLength(4));
+          results.where((r) => r.status == DoctorCheckStatus.pass), hasLength(5));
     });
 
     test('GTK dev headers missing (pkg-config exits nonzero) -> a FAIL '
@@ -108,6 +111,35 @@ void main() {
           results.firstWhere((r) => r.message.contains('GTK 3'));
       expect(gtkResult.status, DoctorCheckStatus.fail);
       expect(gtkResult.remediation, contains('libgtk-3-dev'));
+    });
+  });
+
+  group('bare runtime (flutter_pear-bhv)', () {
+    test('bare not found on PATH -> a FAIL naming npm i -g bare, not a '
+        'silently-passing SKIP', () async {
+      final results = await runDoctorLinuxChecks(buildContext(
+        processRunner: (executable, args) async {
+          if (executable == 'bare') throw const ProcessException('bare', []);
+          return passingProcessRunner(executable, args);
+        },
+      ));
+      final bareResult =
+          results.firstWhere((r) => r.message.contains('bare'));
+      expect(bareResult.status, DoctorCheckStatus.fail);
+      expect(bareResult.remediation, contains('npm i -g bare'));
+      expect(bareResult.remediation, contains('BARE_RUNTIME_MISSING'));
+    });
+
+    test('bare --version exits nonzero -> a FAIL', () async {
+      final results = await runDoctorLinuxChecks(buildContext(
+        processRunner: (executable, args) async {
+          if (executable == 'bare') return _ok('', exitCode: 1);
+          return passingProcessRunner(executable, args);
+        },
+      ));
+      final bareResult =
+          results.firstWhere((r) => r.message.contains('bare --version'));
+      expect(bareResult.status, DoctorCheckStatus.fail);
     });
   });
 

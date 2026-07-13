@@ -1,0 +1,22 @@
+{
+  "bareRuntimeVersion": "1.30.3",
+  "hosts": {
+    "darwin-arm64": {
+      "upstreamUrl": "https://registry.npmjs.org/bare-runtime-darwin-arm64/-/bare-runtime-darwin-arm64-1.30.3.tgz",
+      "upstreamSha256": "83d155f92b5ac1e584417c520d30e337e43f70a69b8e8fc476c264382cd7b34c"
+    },
+    "darwin-x64": {
+      "upstreamUrl": "https://registry.npmjs.org/bare-runtime-darwin-x64/-/bare-runtime-darwin-x64-1.30.3.tgz",
+      "upstreamSha256": "713a1987722e1f4c6cece8c4af334942608987cdb515de1b27ea93e6933548fe"
+    },
+    "linux-x64": {
+      "upstreamUrl": "https://registry.npmjs.org/bare-runtime-linux-x64/-/bare-runtime-linux-x64-1.30.3.tgz",
+      "upstreamSha256": "ee9af7368e35dca777e2f768a6da536432517a8f6711dc7df7dca4b9535d9128"
+    },
+    "win32-x64": {
+      "upstreamUrl": "https://registry.npmjs.org/bare-runtime-win32-x64/-/bare-runtime-win32-x64-1.30.3.tgz",
+      "upstreamSha256": "623d7df42de4aa925e8df3e7df0af0dc2f38e479a68c9528aed5cbead3f06e0e"
+    }
+  },
+  "generatedBy": "flutter_pear-8f6: npm pack bare-runtime-<host>@<version>, then shasum -a 256. All four hosts verified live end-to-end on real hardware over SSH (a real Mac for darwin-arm64/darwin-x64, a real Ubuntu machine for linux-x64, a real Windows 11 + VS2022 machine for win32-x64) -- fetch-success and checksum-rejection paths both exercised on each, not just a local compile."
+}

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_pear_bare/flutter_pear_bare.dart';
 
 import 'base.dart';
@@ -174,6 +175,31 @@ class Pear {
     }
   }
 
+  /// Calls [BareWorklet.start], translating a native `bare_runtime_missing`
+  /// [PlatformException] -- the macOS/Linux desktop hosts' pre-flight check
+  /// for the `bare` runtime on `PATH` (flutter_pear-a4p) -- into a typed,
+  /// catchable [PearException] with [PearErrorCode.bareRuntimeMissing].
+  /// Every other native start failure propagates as the raw
+  /// [PlatformException] unchanged; no other native failure has a
+  /// dedicated [PearErrorCode] yet.
+  static Future<BareWorklet> _startWorklet({
+    required String? bundlePath,
+    required Duration linger,
+  }) async {
+    try {
+      return await BareWorklet.start(
+        bundlePath: bundlePath,
+        lingerMs: linger.inMilliseconds,
+      );
+    } on PlatformException catch (e) {
+      if (e.code != 'bare_runtime_missing') rethrow;
+      throw pearExceptionFor(
+        e.message ?? 'the `bare` runtime was not found on PATH',
+        code: PearErrorCode.bareRuntimeMissing,
+      );
+    }
+  }
+
   /// Starts the worklet (from the bundled pear-end, or [bundlePath] if given).
   ///
   /// Always asks the worklet's [PearMethod.attachInfo] for the bundle
@@ -209,10 +235,7 @@ class Pear {
     String? bundlePath,
     Duration linger = PearLifecycleDefaults.linger,
   }) async {
-    var worklet = await BareWorklet.start(
-      bundlePath: bundlePath,
-      lingerMs: linger.inMilliseconds,
-    );
+    var worklet = await _startWorklet(bundlePath: bundlePath, linger: linger);
     var rpc = PearRpc(worklet);
     try {
       String? bundleVersion;
@@ -238,10 +261,7 @@ class Pear {
       if (bundleVersion != kPearEndBundleVersion) {
         await rpc.dispose();
         await worklet.terminate();
-        worklet = await BareWorklet.start(
-          bundlePath: bundlePath,
-          lingerMs: linger.inMilliseconds,
-        );
+        worklet = await _startWorklet(bundlePath: bundlePath, linger: linger);
         rpc = PearRpc(worklet);
         // Second attempt: always a fresh boot (whatever was running got
         // terminated above), so the normal timeout applies -- and a

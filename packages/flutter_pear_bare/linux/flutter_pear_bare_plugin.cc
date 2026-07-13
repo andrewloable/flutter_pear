@@ -3,6 +3,7 @@
 #include <flutter_linux/flutter_linux.h>
 #include <gio/gio.h>
 #include <glib.h>
+#include <glib/gstdio.h>
 
 #include <cstring>
 #include <string>
@@ -23,6 +24,22 @@
 // platform the way iOS/macOS's FlutterDartProject API has one.
 static const char* kBundleAssetSubpath =
     "packages/flutter_pear/assets/desktop/linux-x64/pear-end.bundle";
+
+// Pin for the real, published `bare-runtime-linux-x64` npm package
+// (Apache-2.0, github.com/holepunchto/bare-runtime) -- flutter_pear-8f6:
+// so a flutter_pear Linux app can fetch its own `bare` runtime instead of
+// requiring the end user to `npm i -g bare` first. Kept in sync by hand
+// with `flutter_pear_bare/bare-runtime-pin.json`, the human-readable
+// source of truth for this pin. Mirrors the macOS host's identical
+// mechanism (FlutterPearBarePlugin.swift) -- see its own doc comment for
+// why this fetches a plain npm tarball rather than going through any
+// existing packaging pipeline.
+static const char* kBareRuntimeUpstreamUrl =
+    "https://registry.npmjs.org/bare-runtime-linux-x64/-/"
+    "bare-runtime-linux-x64-1.30.3.tgz";
+static const char* kBareRuntimeUpstreamSha256 =
+    "ee9af7368e35dca777e2f768a6da536432517a8f6711dc7df7dca4b9535d9128";
+static const char* kBareRuntimeVersion = "1.30.3";
 
 // Worklet lifecycle (mirrors WorkletState in bare_worklet.dart). This
 // comment block is duplicated VERBATIM in FlutterPearBarePlugin.kt/.swift,
@@ -113,6 +130,130 @@ static gchar* resolve_bundle_path(GError** error) {
   return bundle_path;
 }
 
+// Where a fetched `bare` runtime is cached, once per pinned version -- the
+// XDG data dir (same storage-root decision as pear-end's own storage
+// above), just a different subdirectory. Versioned so bumping
+// kBareRuntimeVersion naturally re-fetches instead of reusing a stale
+// cached binary under the same path. Caller owns the returned string.
+static gchar* cached_bare_runtime_path() {
+  return g_build_filename(g_get_user_data_dir(), "flutter_pear",
+                           "bare-runtime", kBareRuntimeVersion, "bare",
+                           nullptr);
+}
+
+// Runs [argv] to completion (PATH-searched), discarding its output,
+// returning TRUE only on a real zero exit -- FALSE for a spawn failure
+// (e.g. the tool isn't installed) or a nonzero exit alike, since every
+// caller here treats both the same way (fetch/extract failed, fall back).
+static gboolean run_to_completion(const gchar* const* argv) {
+  gint exit_status = 0;
+  gboolean ok = g_spawn_sync(nullptr, const_cast<gchar**>(argv), nullptr,
+                              G_SPAWN_SEARCH_PATH, nullptr, nullptr, nullptr,
+                              nullptr, &exit_status, nullptr);
+  return ok && exit_status == 0;
+}
+
+// Downloads kBareRuntimeUpstreamUrl via `curl` (near-universally present on
+// Linux; simpler and more robust than linking libcurl or GIO's own HTTP
+// backend, which isn't guaranteed present either -- matches this file's
+// existing "shell out to a well-known system tool" convention, e.g.
+// resolve_bundle_path's own /proc/self/exe read), verifies it against
+// kBareRuntimeUpstreamSha256 BEFORE extracting anything, extracts just
+// `package/bin/bare` via `tar`, and installs it at
+// cached_bare_runtime_path(). Returns nullptr (never throws/sets an error
+// the caller reports) on ANY failure -- a failed fetch is not fatal,
+// resolve_bare_runtime() falls back to PATH resolution. Caller owns the
+// returned string. flutter_pear-8f6: mirrors the macOS host's identical
+// mechanism (FlutterPearBarePlugin.swift); verified live on a real Ubuntu
+// machine over SSH -- both the fetch-success and checksum-rejection paths,
+// not just a local compile.
+static gchar* fetch_and_cache_bare_runtime() {
+  g_autoptr(GError) tmp_error = nullptr;
+  g_autofree gchar* tmp_dir =
+      g_dir_make_tmp("flutter-pear-bare-fetch-XXXXXX", &tmp_error);
+  if (tmp_dir == nullptr) return nullptr;
+
+  auto cleanup_and_return = [&](gchar* result) -> gchar* {
+    // Best-effort cleanup -- shell out to `rm -rf`, same "use the system's
+    // own tool" convention as curl/tar below rather than a hand-rolled
+    // recursive delete.
+    const gchar* rm_argv[] = {"rm", "-rf", tmp_dir, nullptr};
+    run_to_completion(rm_argv);
+    return result;
+  };
+
+  g_autofree gchar* tarball_path =
+      g_build_filename(tmp_dir, "bare-runtime.tgz", nullptr);
+  const gchar* curl_argv[] = {"curl", "-sL", "--fail", "-o", tarball_path,
+                               kBareRuntimeUpstreamUrl, nullptr};
+  if (!run_to_completion(curl_argv)) return cleanup_and_return(nullptr);
+
+  g_autofree gchar* tarball_contents = nullptr;
+  gsize tarball_size = 0;
+  if (!g_file_get_contents(tarball_path, &tarball_contents, &tarball_size,
+                            nullptr)) {
+    return cleanup_and_return(nullptr);
+  }
+  g_autofree gchar* actual_sha256 = g_compute_checksum_for_data(
+      G_CHECKSUM_SHA256, reinterpret_cast<const guchar*>(tarball_contents),
+      tarball_size);
+  if (g_strcmp0(actual_sha256, kBareRuntimeUpstreamSha256) != 0) {
+    g_warning(
+        "FlutterPearBarePlugin (Linux): fetched bare-runtime tarball "
+        "checksum mismatch (expected %s, got %s) -- refusing to use it",
+        kBareRuntimeUpstreamSha256, actual_sha256);
+    return cleanup_and_return(nullptr);
+  }
+
+  const gchar* tar_argv[] = {"tar", "-xzf", tarball_path, "-C", tmp_dir,
+                              "package/bin/bare", nullptr};
+  if (!run_to_completion(tar_argv)) return cleanup_and_return(nullptr);
+
+  g_autofree gchar* extracted_binary =
+      g_build_filename(tmp_dir, "package", "bin", "bare", nullptr);
+  if (!g_file_test(extracted_binary, G_FILE_TEST_EXISTS)) {
+    return cleanup_and_return(nullptr);
+  }
+
+  gchar* cache_path = cached_bare_runtime_path();
+  g_autofree gchar* cache_dir = g_path_get_dirname(cache_path);
+  if (g_mkdir_with_parents(cache_dir, 0700) != 0) {
+    g_free(cache_path);
+    return cleanup_and_return(nullptr);
+  }
+  // GFile::move (not a raw rename()) so a cross-filesystem move (e.g. /tmp
+  // as tmpfs, XDG data dir on a different mount) is handled transparently
+  // instead of failing with EXDEV.
+  g_autoptr(GFile) src_file = g_file_new_for_path(extracted_binary);
+  g_autoptr(GFile) dest_file = g_file_new_for_path(cache_path);
+  if (!g_file_move(src_file, dest_file, G_FILE_COPY_OVERWRITE, nullptr,
+                    nullptr, nullptr, nullptr)) {
+    g_free(cache_path);
+    return cleanup_and_return(nullptr);
+  }
+  g_chmod(cache_path, 0755);
+  return cleanup_and_return(cache_path);
+}
+
+// Resolves the `bare` runtime for this run (flutter_pear-8f6): a
+// previously-fetched, cached copy first (instant on every launch after the
+// first), then a first-use fetch of the pinned npm-published binary,
+// falling back to PATH resolution (g_find_program_in_path, today's
+// dev-time-only mechanism) only if the fetch itself fails. Mirrors the
+// macOS host's identically-named resolveBareRuntime() -- see its own doc
+// comment for the blocking-fetch tradeoff, which applies here too (this
+// call happens on start_worklet's own synchronous, non-async path).
+// Caller owns the returned string.
+static gchar* resolve_bare_runtime() {
+  g_autofree gchar* cache_path = cached_bare_runtime_path();
+  if (g_file_test(cache_path, G_FILE_TEST_IS_EXECUTABLE)) {
+    return g_strdup(cache_path);
+  }
+  gchar* fetched = fetch_and_cache_bare_runtime();
+  if (fetched != nullptr) return fetched;
+  return g_find_program_in_path("bare");
+}
+
 // Returns true if this call reattached to an already-running worklet,
 // false if it booted a fresh one.
 static gboolean start_worklet(FlutterPearBarePlugin* self,
@@ -159,14 +300,16 @@ static gboolean start_worklet(FlutterPearBarePlugin* self,
   // pear-end/index.js's desktop branch expects the storage dir at
   // Bare.argv[2] (flutter_pear-71g's own pear-end fix, shared by every
   // desktop host): a real OS subprocess argv is
-  // [bare-binary-path, script-path, storage-dir, ...], matching macOS's own
-  // /usr/bin/env-indirected spawn exactly (bare itself is argv[0] here,
-  // found via PATH -- GSubprocessLauncher does not search PATH on its own,
-  // so the binary path must be resolved first).
-  g_autofree gchar* bare_path = g_find_program_in_path("bare");
+  // [bare-binary-path, script-path, storage-dir, ...] -- bare itself is
+  // argv[0] here, resolved by resolve_bare_runtime() (flutter_pear-8f6:
+  // prefers a fetched/cached binary over PATH, so end users don't need
+  // `bare` preinstalled; GSubprocessLauncher does not search PATH on its
+  // own either way, so the binary path must be resolved first regardless).
+  g_autofree gchar* bare_path = resolve_bare_runtime();
   if (bare_path == nullptr) {
     g_set_error(error, g_quark_from_static_string("flutter_pear_bare"), 3,
-                "the `bare` runtime was not found on PATH");
+                "the `bare` runtime was not found on PATH, and could not be "
+                "fetched (flutter_pear-8f6)");
     return FALSE;
   }
 
@@ -321,8 +464,15 @@ static void flutter_pear_bare_plugin_handle_method_call(
     g_autoptr(GError) error = nullptr;
     gboolean reattached = start_worklet(self, bundle_path_arg, &error);
     if (error != nullptr) {
+      // Distinct code for the bare-not-on-PATH case (flutter_pear-a4p,
+      // error code 3 from start_worklet's own g_set_error above) so the
+      // Dart side can surface a typed, actionable PearException instead of
+      // a generic start failure -- see Pear.start's own translation of
+      // this code.
+      const gchar* flutter_error_code =
+          error->code == 3 ? "bare_runtime_missing" : "worklet_start_failed";
       response = FL_METHOD_RESPONSE(fl_method_error_response_new(
-          "worklet_start_failed", error->message, nullptr));
+          flutter_error_code, error->message, nullptr));
     } else {
       g_autoptr(FlValue) result = fl_value_new_map();
       fl_value_set_string_take(result, "reattached",

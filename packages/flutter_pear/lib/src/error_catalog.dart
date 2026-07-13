@@ -123,6 +123,15 @@ abstract final class PearErrorCatalog {
           'restart via `Pear.start()` again; file an issue if the crash '
           'looks like a bug in flutter_pear itself.',
     ),
+    PearErrorCode.bareRuntimeMissing: PearErrorCatalogEntry(
+      problem: 'The `bare` runtime is not installed on this desktop '
+          'machine, so `Pear.start()` could not boot a worklet at all.',
+      cause: 'macOS and Linux desktop hosts run pear-end as a real `bare` '
+          'subprocess found on `PATH` -- unlike mobile, there is no '
+          'bundled/linked runtime to fall back to.',
+      fix: 'Install the Bare runtime globally with `npm i -g bare`, then '
+          'restart your app.',
+    ),
     PearErrorCode.connectTimeout: PearErrorCatalogEntry(
       problem: 'PearSwarm.join never found and connected to a peer '
           'within its timeout.',
