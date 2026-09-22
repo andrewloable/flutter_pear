@@ -1,3 +1,27 @@
+## 0.4.0
+
+**`minSdk` is raised 24 → 29 (Android 10), a breaking change for consuming
+apps that corrects a previously false declaration.** The Bare Kit 2.3.0
+prebuild this package shipped was strictly API 31+: `libbare-kit.so` carried
+a `DT_NEEDED` on `libnativehelper.so` (first exposed as a public NDK stub at
+API 31) and imported `JNI_GetCreatedJavaVMs@LIBNATIVEHELPER_S` as a GLOBAL,
+non-weak symbol. With `minSdk = 24` an app on API 24–30 passed every
+build-time check and then failed at runtime with `UnsatisfiedLinkError` the
+first time a worklet was started.
+
+**Bare Kit bumped 2.3.0 → 2.5.5.** Upstream removed the `libnativehelper`
+link in 2.5.0 and now builds against API 29; the pinned 2.5.5
+`libbare-kit.so` reports `.note.android.ident = 0x1d` (29) and every
+undefined symbol it imports resolves against the API 29 NDK stubs (the
+`OPENSSL_memory_*` and v8 `TrapHandlerGuard` imports are WEAK, hence
+optional). `barekit-pin.json` and the Gradle pin both move to the 2.5.5
+release asset, re-verified by checksum against a fresh download.
+
+The supported ABI set is unchanged (`arm64-v8a`, `x86_64`). Upstream 2.5.5
+does now ship `armeabi-v7a` and `x86` prebuilds, which weakens half of the
+original exclusion rationale; that is recorded for a separate revisit rather
+than changed here.
+
 ## 0.3.1
 
 **Each desktop host now fetches and caches its own `bare` runtime binary**

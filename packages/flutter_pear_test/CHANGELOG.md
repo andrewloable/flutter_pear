@@ -1,3 +1,10 @@
+## 0.4.0
+
+Version bump to stay in lockstep with `flutter_pear` and
+`flutter_pear_bare` 0.4.0, whose Android minimum API level moved 24 → 29.
+The in-memory fake is pure Dart and is unaffected — no behaviour or API
+change in this package.
+
 ## 0.3.1
 
 Version bump only, in lockstep with `flutter_pear`/`flutter_pear_bare`'s

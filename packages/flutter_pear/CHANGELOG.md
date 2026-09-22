@@ -1,3 +1,28 @@
+## 0.4.0
+
+**Android's minimum API level is now 29 (Android 10) — this is a breaking
+change for consuming apps, and it corrects a floor that was previously
+wrong.** `flutter_pear_bare` declared `minSdk = 24`, but the Bare Kit 2.3.0
+prebuild it shipped could not load below API 31: `libbare-kit.so` linked
+`libnativehelper.so` and imported `JNI_GetCreatedJavaVMs` under the symbol
+version `@LIBNATIVEHELPER_S`, a non-weak reference whose version tag does
+not exist before Android 12. An app on minSdk 24–30 therefore built,
+installed and launched normally, then threw `UnsatisfiedLinkError` on the
+first `Pear.start()`. If your app targets minSdk 29 or higher, this release
+is the first one that actually works there; if it targets below 29, it was
+already broken and must now raise its floor.
+
+**Bare Kit is bumped 2.3.0 → 2.5.5**, which is what makes API 29 reachable:
+upstream's [holepunchto/bare-kit#115](https://github.com/holepunchto/bare-kit/pull/115)
+("Resolve the JVM at runtime instead of linking libnativehelper", released
+in 2.5.0) removed the hard `libnativehelper` link, and the 2.5.5
+`libbare-kit.so` is built against API 29 (`.note.android.ident = 0x1d`) with
+no non-weak symbol that fails to resolve at that level. The bump also brings
+the Bare runtime to 1.33.4 and several IPC lifetime and queue-locking fixes.
+
+No Dart API changed in this release. The pinned `pear-end` JS module
+versions are unchanged (that bump is tracked separately).
+
 ## 0.3.1
 
 **`bare` is now fetched automatically on all three desktop platforms** —

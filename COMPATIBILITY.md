@@ -8,8 +8,12 @@ tested against, plus which Android toolchain versions its own build
 It is not aspirational documentation — every value below is checked against
 its real source of truth by
 [`packages/flutter_pear/bin/check_compatibility.dart`](packages/flutter_pear/bin/check_compatibility.dart).
-This project does not use GitHub Actions/CI (deliberate decision — run
-quality gates locally); run the checker by hand before every push. If a cell
+This project runs NO push/pull-request CI (deliberate decision — run quality
+gates locally), so run the checker by hand before every push. The one
+exception is `.github/workflows/publish.yml`, which fires on a release tag
+push and on nothing else; it re-runs this checker as a last-chance gate
+before publishing, which is a backstop, not a substitute for running it
+yourself. If a cell
 here and the file it's supposed to describe ever disagree, that script fails,
 naming the exact field, the two disagreeing values, and where the real one
 lives.
@@ -35,6 +39,7 @@ other column.
 | 0.2.1 | 2.3.0 | 7.28.1 | 4.7.3 | 3.0.1 | 2.3.1 | 2.10.1 | 3.3.0 | 7.11.0 | 2.27.3 | 3.7.0 | 13.3.2 | 4.17.0 | 2.2.1 | 1.14.2 | 3.11.0 | 2.28.0 |
 | 0.3.0 | 2.3.0 | 7.28.1 | 4.7.3 | 3.0.1 | 2.3.1 | 2.10.1 | 3.3.0 | 7.11.0 | 2.27.3 | 3.7.0 | 13.3.2 | 4.17.0 | 2.2.1 | 1.14.2 | 3.11.0 | 2.28.0 |
 | 0.3.1 | 2.3.0 | 7.28.1 | 4.7.3 | 3.0.1 | 2.3.1 | 2.10.1 | 3.3.0 | 7.11.0 | 2.27.3 | 3.7.0 | 13.3.2 | 4.17.0 | 2.2.1 | 1.14.2 | 3.11.0 | 2.28.0 |
+| 0.4.0 | 2.5.5 | 7.28.1 | 4.7.3 | 3.0.1 | 2.3.1 | 2.10.1 | 3.3.0 | 7.11.0 | 2.27.3 | 3.7.0 | 13.3.2 | 4.17.0 | 2.2.1 | 1.14.2 | 3.11.0 | 2.28.0 |
 
 ## Toolchain
 
@@ -57,6 +62,7 @@ own root `CLAUDE.md` Toolchain table (JDK); the `:pack`-generated
 | 0.2.1 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 24 | not pinned | arm64-v8a, x86_64 | 17 | 13 | >=15.0 |
 | 0.3.0 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 24 | not pinned | arm64-v8a, x86_64 | 17 | 13 | >=15.0 |
 | 0.3.1 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 24 | not pinned | arm64-v8a, x86_64 | 17 | 13 | >=15.0 |
+| 0.4.0 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 29 | not pinned | arm64-v8a, x86_64 | 17 | 13 | >=15.0 |
 
 ### Reading this table honestly (judgment calls made here)
 

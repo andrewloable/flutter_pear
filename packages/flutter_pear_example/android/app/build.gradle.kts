@@ -19,7 +19,11 @@ android {
         applicationId = "com.example.flutter_pear_example"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // 29, not flutter.minSdkVersion (24): flutter_pear_bare's floor is
+        // API 29 and Gradle's manifest merger hard-fails below it. Every app
+        // depending on flutter_pear must set this the same way -- it is the
+        // one manual Android step the plugin cannot do for a consumer.
+        minSdk = 29
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
