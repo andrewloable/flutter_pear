@@ -42,18 +42,23 @@ apply plugin: "kotlin-android"
 // clears it; the next build re-fetches automatically. Bumping bareKitVersion
 // (below) starts a fresh, separately-versioned cache dir rather than
 // reusing/overwriting the old one.
-def bareKitVersion = "2.3.0"
+def bareKitVersion = "2.5.5"
 // Pinned against the exact release asset (independently re-downloaded and
-// verified 2026-07-03, not just copied from whatever was already cached
+// verified 2026-09-22, not just copied from whatever was already cached
 // locally). Bump together whenever bareKitVersion bumps.
-def bareKitSha256 = "a386063fa405b0bb4967490e84745075f007f95359c9871c5b7a45c18c2f49e2"
+def bareKitSha256 = "fc68740347c8532ba49d45bf61fae9ca1f1040dc7d6c99f2f92dc30c40e84e46"
 // arm64-v8a (physical devices) + x86_64 (desktop-class emulators, including
 // both Apple Silicon's native-arm64 emulator images and Intel/CI x86_64
 // ones). armeabi-v7a/x86 (32-bit) are a deliberate EXCLUSION, not an
-// oversight: bare-kit's own AndroidManifest already declares minSdkVersion
-// 31 (Android 12), and there's essentially no certified 32-bit-only
-// hardware from that era regardless of distribution channel -- sideloaded,
-// enterprise/MDM, or Play, none of that changes what CPUs exist. (Play's
+// oversight -- though the original argument has WEAKENED and deserves a
+// real revisit (flutter_pear-7cd). It used to rest on bare-kit declaring
+// minSdkVersion 31 (Android 12), which made 32-bit-only hardware from that
+// era essentially nonexistent. As of 2.5.0 upstream dropped to minSdk 29
+// and its prebuilds DO now ship armeabi-v7a and x86, so that half of the
+// argument is gone. What still holds is the plain hardware point: 64-bit
+// was already universal on Android 10-era devices regardless of
+// distribution channel -- sideloaded, enterprise/MDM, or Play, none of
+// that changes what CPUs exist. (Play's
 // 64-bit requirement since 2019 is a secondary, weaker point: it mandates
 // INCLUDING a 64-bit build, not dropping 32-bit, so it doesn't by itself
 // justify this exclusion the way the minSdk/hardware argument does.)
@@ -262,12 +267,25 @@ android {
     }
 
     defaultConfig {
-        // NOTE: Bare Kit's own prebuild declares minSdkVersion 31 (see its
-        // AndroidManifest.xml) — untested below that. 24 is kept as this
-        // library's floor for the M0 echo; E1.3's on-device worklet boot is
-        // the real test of whether arm64-v8a API 29 (our only physical
-        // device right now) actually works.
-        minSdk = 24
+        // 29 is the REAL floor -- not a guess, not a template default. It
+        // is the API level the pinned libbare-kit.so is actually built
+        // against (.note.android.ident = 0x1d), verified with llvm-readelf
+        // against the NDK sysroot stubs: every undefined symbol it imports
+        // resolves at API 29, and the OPENSSL_memory_* / v8
+        // TrapHandlerGuard imports are WEAK, hence optional.
+        //
+        // Do NOT lower this below 29, and do NOT assume it survives a kit
+        // bump unchecked. Bare Kit 2.3.0 was strictly API 31+: it linked
+        // libnativehelper.so and imported JNI_GetCreatedJavaVMs with the
+        // symbol version @LIBNATIVEHELPER_S, a GLOBAL (non-weak) reference
+        // whose version tag does not exist before Android 12. The old
+        // `minSdk = 24` here was therefore FALSE -- apps on 24..30 built
+        // and installed fine, then threw UnsatisfiedLinkError on the first
+        // Pear.start(). Upstream removed that link in 2.5.0
+        // (holepunchto/bare-kit#115, "Resolve the JVM at runtime instead of
+        // linking libnativehelper"), which is the only reason 29 is
+        // reachable at all. Re-read the API note after every kit bump.
+        minSdk = 29
         // Ships to every consuming app's R8 pass automatically -- app devs
         // never add this themselves (see consumer-rules.pro for why it's
         // required: libbare-kit.so calls back into Java by unobfuscated

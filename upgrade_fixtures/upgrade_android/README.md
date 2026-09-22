@@ -16,8 +16,10 @@ This directory lives **outside** the melos workspace -- `melos.yaml`'s
 
 - Custom application ID: `com.fpfixture.upgrade_android` (not the
   `com.example.*` default).
-- Non-default but supported `minSdk = 26` (Flutter's own template default,
-  and flutter_pear_bare's stated floor, is 24).
+- Non-default but supported `minSdk = 29` (Flutter's own template default is
+  24). Raised from 26 in 0.4.0: flutter_pear_bare's floor moved to API 29
+  with Bare Kit 2.5.5, and Gradle's manifest merger hard-fails below it, so
+  26 is no longer a value worth testing against.
 - A custom `buildConfigField` (`FIXTURE_TAG`), requiring
   `buildFeatures { buildConfig = true }` -- a realistic "app already has its
   own Gradle customization" scenario the upgrade must survive.
