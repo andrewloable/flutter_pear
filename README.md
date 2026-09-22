@@ -4,9 +4,9 @@ The full [Pear](https://pears.com/) peer-to-peer stack as a Dart-idiomatic Flutt
 
 ![Chat demo: an Android emulator joins a room, connects to a desktop peer, and exchanges messages both ways](docs/chat-demo.gif)
 
-> **Platforms — all five:** Android · iOS (**SIMULATOR-VALIDATED** — see [iOS platform notes](packages/flutter_pear/doc/ios.md) before shipping) · macOS · Linux · Windows (desktop is new in 0.3.0 — see [Desktop](#desktop-new-in-030)). Requires Flutter SDK ≥ 3.24 (bundles Dart ≥ 3.5).
+> **Platforms — all five:** Android · iOS (**SIMULATOR-VALIDATED** — see [iOS platform notes](packages/flutter_pear/doc/ios.md) before shipping) · macOS · Linux · Windows (desktop is new in 0.3.0 — see [Desktop](#desktop-new-in-030)). Requires Flutter SDK ≥ 3.24 (bundles Dart ≥ 3.5) and, on Android, **`minSdk` 29**.
 >
-> **Status: pre-1.0, published on pub.dev (v0.3.1).** Read [What works today](#what-works-today) below before assuming anything here is vaporware — the worklet is real, not a stand-in, and every capability in the coverage table is implemented and tested.
+> **Status: pre-1.0, published on pub.dev (v0.4.0).** Read [What works today](#what-works-today) below before assuming anything here is vaporware — the worklet is real, not a stand-in, and every capability in the coverage table is implemented and tested.
 >
 > Something stuck? Check [Troubleshooting](packages/flutter_pear/doc/troubleshooting.md) — install-time failures (slow/silent downloads, blocked fetches, checksum/ABI mismatches, manifest-merge conflicts) all have a symptom-first fix there. Still stuck? [Open an issue](https://github.com/andrewloable/flutter_pear/issues).
 >
@@ -30,7 +30,7 @@ flutter_pear is under active, incremental development — here's the honest brea
 - **Every capability in the table below has a complete Dart wrapper and a complete, real `pear-end` JS implementation** — no stubs. Each is exhaustively unit/e2e-tested against `flutter_pear_test`'s in-memory fake (every happy path and every typed error path), plus real-worklet validation on real hardware.
 - **The honest remaining gap:** each *data-structure* wrapper's own "does two-device replication actually converge on real hardware" question (`PearBee`, `PearDrive`, `PearBase`, `PearPairing`) was answered against the in-memory fake and the real worklet, not against two physically separate devices per wrapper. Swarm/connection/worklet-lifecycle — the layer everything else rides on — *is* real-hardware confirmed across all five platforms. See [project_plan.md](project_plan.md) for the full milestone breakdown.
 - **iOS is simulator-validated**, by standing decision (sim-tier validation ships). The worklet boots and runs on the iOS Simulator against the real committed `pear-end` bundle, verified with a live cross-platform round trip (simulator-iOS ↔ physical Android). Physical-iPhone validation is a documented follow-up, not a release gate. See [iOS platform notes](packages/flutter_pear/doc/ios.md) for what's genuinely different on iOS: background execution, the Local Network permission (the single biggest sim-invisible risk), and storage roots.
-- **Published on pub.dev.** `flutter_pear`, `flutter_pear_bare`, and `flutter_pear_test` are all live at **v0.3.1**.
+- **Published on pub.dev.** `flutter_pear`, `flutter_pear_bare`, and `flutter_pear_test` are all live at **v0.4.0**.
 
 ## Install
 
@@ -40,9 +40,23 @@ flutter pub add flutter_pear
 
 Native binaries and the P2P runtime resolve automatically — Gradle on Android, SwiftPM (with a CocoaPods compat path) on iOS, and a committed per-OS bundle on desktop. No manual NDK, ABI, or Podfile edits on any platform.
 
+**Android requires `minSdk = 29`** (Android 10) — set it yourself in your app's
+`android/app/build.gradle.kts`:
+
+```kotlin
+defaultConfig {
+    minSdk = 29   // flutter_pear_bare's floor; Flutter's template default of 24 is too low
+}
+```
+
+This is the one manual Android step the plugin cannot do for you. Below 29 the
+Gradle manifest merger fails the build outright. Raised from an effectively
+false 24 in 0.4.0 — see the [changelog](packages/flutter_pear/CHANGELOG.md) for why.
+
+
 Pre-1.0: **minor versions may break the API without notice.** Pin an exact version once you depend on this for real.
 
-**Time to hello world (TTHW):** P50 ≤ 5 minutes / P90 ≤ 10 minutes of active work, zero `flutter_pear`-specific build-wiring steps beyond one copy-paste `Info.plist` block on iOS — "hello world" means the first cross-device message, not just a successful build.
+**Time to hello world (TTHW):** P50 ≤ 5 minutes / P90 ≤ 10 minutes of active work, two `flutter_pear`-specific build-wiring steps — the `minSdk` line above on Android and one copy-paste `Info.plist` block on iOS — "hello world" means the first cross-device message, not just a successful build.
 
 First-build download UX (native binaries fetch once, then cache):
 
@@ -107,7 +121,7 @@ Android-only today? Four steps get you to iOS:
 3. `flutter run` on an iOS Simulator.
 4. Exchange your first message with an Android peer — same `Pear.start()`/`join()` code as above, no platform branching required for the happy path.
 
-Coming from an older release? Pin the new version explicitly (`flutter pub add flutter_pear:^0.3.0`) rather than a bare `flutter pub upgrade` — that can't cross a caret boundary between pre-1.0 minors on its own. If `pub add` reports a stale lock conflict, delete `pubspec.lock` and re-resolve.
+Coming from an older release? Pin the new version explicitly (`flutter pub add flutter_pear:^0.4.0`) rather than a bare `flutter pub upgrade` — that can't cross a caret boundary between pre-1.0 minors on its own. If `pub add` reports a stale lock conflict, delete `pubspec.lock` and re-resolve. **Upgrading to 0.4.0 also requires raising your app's `minSdk` to 29** (see [Install](#install)); leaving it lower fails the Android build at manifest merge.
 
 **Received-file locations** (if your app uses `PearDrive`/file transfer) differ by platform, matching what `flutter_pear_example`'s own file-drop demo does: **iOS** saves into a `Documents` subtree (`path_provider`'s `getApplicationDocumentsDirectory()`), visible in the Files app; **Android** saves into the app's private files directory (`Context.getFilesDir()/received/`), not independently visible — open or share it through your app's own affordance (a `FileProvider` content URI + `ACTION_VIEW`, in the example app's case). Neither location is where the worklet's own protocol storage lives — see [Storage roots](packages/flutter_pear/doc/ios.md#storage-roots-deliberately-non-configurable) for that.
 

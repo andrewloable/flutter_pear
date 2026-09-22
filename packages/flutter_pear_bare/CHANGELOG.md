@@ -1,3 +1,9 @@
+## 0.4.1
+
+Documentation only — no code or behaviour change. Version bump to stay in
+lockstep with `flutter_pear` 0.4.1, whose READMEs were corrected to state the
+`minSdk = 29` requirement this package introduced in 0.4.0.
+
 ## 0.4.0
 
 **`minSdk` is raised 24 → 29 (Android 10), a breaking change for consuming

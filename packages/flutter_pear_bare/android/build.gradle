@@ -51,7 +51,7 @@ def bareKitSha256 = "fc68740347c8532ba49d45bf61fae9ca1f1040dc7d6c99f2f92dc30c40e
 // both Apple Silicon's native-arm64 emulator images and Intel/CI x86_64
 // ones). armeabi-v7a/x86 (32-bit) are a deliberate EXCLUSION, not an
 // oversight -- though the original argument has WEAKENED and deserves a
-// real revisit (flutter_pear-7cd). It used to rest on bare-kit declaring
+// real revisit (flutter_pear-b4u). It used to rest on bare-kit declaring
 // minSdkVersion 31 (Android 12), which made 32-bit-only hardware from that
 // era essentially nonexistent. As of 2.5.0 upstream dropped to minSdk 29
 // and its prebuilds DO now ship armeabi-v7a and x86, so that half of the

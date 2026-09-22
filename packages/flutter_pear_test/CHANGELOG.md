@@ -1,3 +1,8 @@
+## 0.4.1
+
+Documentation only — no code or behaviour change. Version bump to stay in
+lockstep with `flutter_pear` and `flutter_pear_bare` 0.4.1.
+
 ## 0.4.0
 
 Version bump to stay in lockstep with `flutter_pear` and

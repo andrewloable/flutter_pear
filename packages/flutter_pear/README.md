@@ -2,9 +2,9 @@
 
 The full [Pear](https://pears.com/) peer-to-peer stack as a Dart-idiomatic Flutter plugin. Build serverless, end-to-end-encrypted P2P apps — discovery, encrypted connections, append-only logs, key/value stores, file drives, and multi-writer sync — without writing a line of Kotlin, Swift, or JavaScript.
 
-> **Platforms:** Android (stable, published) · iOS (**SIMULATOR-VALIDATED** — see [iOS platform notes](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/ios.md) before shipping) · macOS/Linux/Windows desktop (new in 0.3.0 — a real Hyperswarm join, reaching `connected`, is confirmed on real hardware for all three; see [Desktop dev setup](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/desktop-dev.md) and each platform's own notes for exactly what's covered). Requires Flutter SDK ≥ 3.24 (bundles Dart ≥ 3.5).
+> **Platforms:** Android (stable, published) · iOS (**SIMULATOR-VALIDATED** — see [iOS platform notes](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/ios.md) before shipping) · macOS/Linux/Windows desktop (new in 0.3.0 — a real Hyperswarm join, reaching `connected`, is confirmed on real hardware for all three; see [Desktop dev setup](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/desktop-dev.md) and each platform's own notes for exactly what's covered). Requires Flutter SDK ≥ 3.24 (bundles Dart ≥ 3.5) and, on Android, **`minSdk` 29**.
 >
-> **Status: pre-1.0, published on pub.dev (v0.3.1).** The Bare Kit worklet is real (not a stand-in), and every data-structure wrapper (Corestore/Hypercore, Hyperbee, Hyperdrive, Autobase, blind pairing) is implemented and fake-tested end-to-end, with real-worklet validation on a real Android emulator, the iOS Simulator, and real macOS/Linux/Windows desktop hardware. Physical two-device mobile hardware validation is a documented follow-up, not a release gate. See the [full repository README](https://github.com/andrewloable/flutter_pear#readme) for the complete API coverage table.
+> **Status: pre-1.0, published on pub.dev (v0.4.0).** The Bare Kit worklet is real (not a stand-in), and every data-structure wrapper (Corestore/Hypercore, Hyperbee, Hyperdrive, Autobase, blind pairing) is implemented and fake-tested end-to-end, with real-worklet validation on a real Android emulator, the iOS Simulator, and real macOS/Linux/Windows desktop hardware. Physical two-device mobile hardware validation is a documented follow-up, not a release gate. See the [full repository README](https://github.com/andrewloable/flutter_pear#readme) for the complete API coverage table.
 >
 > Something stuck? Check [Troubleshooting](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/troubleshooting.md). Still stuck? [Open an issue](https://github.com/andrewloable/flutter_pear/issues).
 >
@@ -18,9 +18,23 @@ flutter pub add flutter_pear
 
 Native binaries and the P2P runtime resolve automatically — Gradle on Android, SwiftPM (with a CocoaPods compat path) on iOS, a committed per-OS bundle on desktop. No manual NDK, ABI, or Podfile edits on any platform. Desktop additionally needs the `bare` runtime at *run* time — see [Desktop](#desktop).
 
+**Android requires `minSdk = 29`** (Android 10) — set it yourself in your app's
+`android/app/build.gradle.kts`:
+
+```kotlin
+defaultConfig {
+    minSdk = 29   // flutter_pear_bare's floor; Flutter's template default of 24 is too low
+}
+```
+
+This is the one manual Android step the plugin cannot do for you. Below 29 the
+Gradle manifest merger fails the build outright. Raised from an effectively
+false 24 in 0.4.0 — see the [changelog](CHANGELOG.md) for why.
+
+
 Pre-1.0: **minor versions may break the API without notice.** Pin an exact version once you depend on this for real.
 
-**Time to hello world (TTHW):** P50 ≤ 5 minutes / P90 ≤ 10 minutes of active work, zero `flutter_pear`-specific build-wiring steps beyond one copy-paste `Info.plist` block on iOS — "hello world" means the first cross-device message, not just a successful build.
+**Time to hello world (TTHW):** P50 ≤ 5 minutes / P90 ≤ 10 minutes of active work, two `flutter_pear`-specific build-wiring steps — the `minSdk` line above on Android and one copy-paste `Info.plist` block on iOS — "hello world" means the first cross-device message, not just a successful build.
 
 ## Quick start — chat over Hyperswarm
 
@@ -73,7 +87,7 @@ Android-only today? Four steps get you to iOS:
 3. `flutter run` on an iOS Simulator.
 4. Exchange your first message with an Android peer — same `Pear.start()`/`join()` code as above, no platform branching required for the happy path.
 
-Coming from an older release? Pin the new version explicitly (`flutter pub add flutter_pear:^0.3.0`) rather than a bare `flutter pub upgrade` — that can't cross a caret boundary between pre-1.0 minors on its own. If `pub add` reports a stale lock conflict, delete `pubspec.lock` and re-resolve.
+Coming from an older release? Pin the new version explicitly (`flutter pub add flutter_pear:^0.4.0`) rather than a bare `flutter pub upgrade` — that can't cross a caret boundary between pre-1.0 minors on its own. If `pub add` reports a stale lock conflict, delete `pubspec.lock` and re-resolve.
 
 ## Desktop
 

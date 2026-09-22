@@ -1,3 +1,18 @@
+## 0.4.1
+
+Documentation only — no code, API, or dependency change.
+
+Both READMEs still advertised **v0.3.1** and, worse, promised "no manual NDK,
+ABI, or Podfile edits on any platform" and "zero `flutter_pear`-specific
+build-wiring steps". 0.4.0 made that false: it raised Android's floor to
+`minSdk` 29, which every consuming app must set itself. An app that upgraded
+and left `minSdk` at Flutter's template default of 24 hit an opaque Gradle
+manifest-merge failure with nothing in the docs pointing at the cause.
+
+Install now states the `minSdk = 29` requirement with a copy-pasteable
+`build.gradle.kts` block, the upgrade note warns about it explicitly, and the
+version references and pin advice are corrected to 0.4.x.
+
 ## 0.4.0
 
 **Android's minimum API level is now 29 (Android 10) — this is a breaking
