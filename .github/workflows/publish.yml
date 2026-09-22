@@ -285,24 +285,30 @@ jobs:
         continue-on-error: true
         working-directory: packages/flutter_pear_bare
         run: |
+          set +e
           dart pub publish --dry-run > /tmp/dry-run-flutter_pear_bare.log 2>&1
           echo $? > /tmp/dry-run-flutter_pear_bare.exit
+          exit 0
 
       - name: Dry-run publish flutter_pear (2nd -- depends on flutter_pear_bare)
         id: dry_run_pear
         continue-on-error: true
         working-directory: packages/flutter_pear
         run: |
+          set +e
           dart pub publish --dry-run > /tmp/dry-run-flutter_pear.log 2>&1
           echo $? > /tmp/dry-run-flutter_pear.exit
+          exit 0
 
       - name: Dry-run publish flutter_pear_test (3rd -- depends on both)
         id: dry_run_test
         continue-on-error: true
         working-directory: packages/flutter_pear_test
         run: |
+          set +e
           dart pub publish --dry-run > /tmp/dry-run-flutter_pear_test.log 2>&1
           echo $? > /tmp/dry-run-flutter_pear_test.exit
+          exit 0
 
       - name: Check for blocking publish errors
         run: |
