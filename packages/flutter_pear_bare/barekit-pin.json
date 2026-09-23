@@ -2,7 +2,7 @@
   "bareKitVersion": "2.5.5",
   "upstreamUrl": "https://github.com/holepunchto/bare-kit/releases/download/v2.5.5/prebuilds.zip",
   "upstreamSha256": "fc68740347c8532ba49d45bf61fae9ca1f1040dc7d6c99f2f92dc30c40e84e46",
-  "repackedUrl": "https://github.com/andrewloable/flutter_pear/releases/download/barekit-v2.5.5/BareKit-2.5.5-ios.xcframework.zip",
-  "repackedSha256": "f26780b66b9a067dd0bfae060f708fe6126b79a820195c2ba7ae0f6c1a25ab9e",
+  "repackedUrl": "https://github.com/andrewloable/flutter_pear/releases/download/barekit-v2.5.5-1/BareKit-2.5.5-ios.xcframework.zip",
+  "repackedSha256": "bfbbe1f69341a3eeaa88b5da3da0ab165587aa08b088ffed78689403e5ead931",
   "generatedBy": "dart run flutter_pear:pack --repack-barekit"
 }

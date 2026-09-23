@@ -177,6 +177,26 @@ void main() {
       expect(pin.upstreamSha256, fixtureUpstreamSha);
     });
 
+    test(
+        'readBareKitGradlePin defaults assetRevision to 0 when build.gradle '
+        'has no bareKitAssetRevision, and reads it when present -- so every '
+        'pin predating the field keeps resolving to the original '
+        'barekit-v<version> tag (flutter_pear-1w1)', () {
+      final tmp = Directory.systemTemp.createTempSync('fp_pack_barekit_rev');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      final noRev = Directory('${tmp.path}/a')..createSync();
+      writeFixtureGradle(noRev.path);
+      expect(readBareKitGradlePin(noRev.path).assetRevision, 0);
+
+      final withRev = Directory('${tmp.path}/b')..createSync();
+      writeFixtureGradle(withRev.path,
+          body: 'def bareKitVersion = "$fixtureVersion"\n'
+              'def bareKitSha256 = "$fixtureUpstreamSha"\n'
+              'def bareKitAssetRevision = 3\n');
+      expect(readBareKitGradlePin(withRev.path).assetRevision, 3);
+    });
+
     test('readBareKitGradlePin throws when bareKitVersion is missing', () {
       final tmp =
           Directory.systemTemp.createTempSync('fp_pack_barekit_pin_novers');
@@ -249,6 +269,51 @@ void main() {
       expect(pin['repackedSha256'], matches(RegExp(r'^[0-9a-f]{64}$')));
       expect((pin['repackedUrl'] as String).startsWith('PENDING-UPLOAD'), isTrue);
     });
+
+    test(
+        'the repacked xcframework zip is a VALID archive -- unzip -t passes '
+        '(flutter_pear-1w1 regression: a synthesized zero-length root '
+        'directory entry was emitted by package:archive with a DEFLATE '
+        'stream nothing can inflate, so Xcode SwiftPM rejected the whole '
+        'asset with "invalid archive returned from <url> ... binary target '
+        "'BareKit'\" and iOS dependency resolution failed outright for "
+        'every consumer -- ditto tolerated it, so it survived local checks)',
+        () async {
+      final tmp =
+          Directory.systemTemp.createTempSync('fp_pack_barekit_valid_zip');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final pkgRoot = Directory('${tmp.path}/flutter_pear')..createSync();
+      final fixtureZip = await buildFixtureUpstreamZip(tmp);
+      final realUpstreamSha = sha256Of(await fixtureZip.readAsBytes());
+      writeFixtureGradle(pkgRoot.path,
+          body: 'def bareKitVersion = "$fixtureVersion"\n'
+              'def bareKitSha256 = "$realUpstreamSha"\n');
+
+      File? produced;
+      final code = await repackBareKit(
+        pkgRoot.path,
+        upload: true,
+        downloadFn: (url, dest) async {
+          await fixtureZip.copy(dest.path);
+        },
+        uploadFn: (version, zip) async {
+          // Copy it out -- repackBareKit's own temp dir is gone by the time
+          // this test's expectations run.
+          produced = await zip.copy('${tmp.path}/produced.zip');
+          return 'https://example.invalid/$version.zip';
+        },
+      );
+
+      expect(code, 0);
+      expect(produced, isNotNull,
+          reason: 'uploadFn should have been handed the repacked zip');
+
+      final check = Process.runSync('unzip', ['-t', produced!.path]);
+      expect(check.exitCode, 0,
+          reason: 'the repacked asset must be a valid archive, but unzip -t '
+              'failed:\n${check.stdout}\n${check.stderr}');
+    });
+
 
     test(
         'repackBareKit produces the SAME repackedSha256 across two separate '

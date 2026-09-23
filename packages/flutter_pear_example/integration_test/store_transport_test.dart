@@ -77,6 +77,8 @@ import 'package:flutter_pear/flutter_pear.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'semantics_settle.dart';
+
 // Must match, byte-for-byte and in order, the desktop peer.js --store
 // process's own --append values (see this file's header comment for the
 // exact command). Deliberately includes multi-byte UTF-8 (an em dash and an
@@ -92,6 +94,7 @@ const _kEntries = [
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  settleSemanticsBeforeBaseline();
 
   testWidgets(
     "PearStore reads back a real desktop peer's appended Hypercore entries "

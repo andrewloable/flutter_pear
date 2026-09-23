@@ -35,6 +35,53 @@ with the reason on failure).
 > resetting that side back to `discovering` each time, which looks exactly
 > like a hang.
 
+### Two simulators on one Mac: builds yes, connection no
+
+A Mac can boot an **Android emulator and an iOS simulator at the same time**,
+and both appear as ordinary `flutter devices` targets, so you can build and
+run on each concurrently:
+
+```bash
+emulator -avd <your-avd> &                 # terminal 1
+adb wait-for-device
+xcrun simctl boot <simulator-udid>         # terminal 2
+flutter devices                            # both listed
+```
+
+**That gets you two running apps, but not two peers that can reach each
+other.** Measured on this project's dev Mac, 2026-09-23, flutter_pear 0.4.2:
+
+| Pair | Result |
+|---|---|
+| Android emulator ↔ host CLI peer | connects, both directions |
+| iOS simulator ↔ host CLI peer | connects, both directions |
+| macOS desktop app ↔ host CLI peer | connects, both directions |
+| **Android emulator ↔ iOS simulator** | **never connects** |
+
+Both sides started within 7 seconds of each other and both sat at
+`discovering` until the test's 90-second timeout. Each device connects
+happily to a peer in a host process, so neither runtime is at fault — it is
+**NAT hairpinning** (see the warning above), made worse because the Android
+emulator adds its own 10.0.2.x NAT layer on top of the host's. Do not read a
+failure here as a flutter_pear bug, and do not use this pairing as a smoke
+test.
+
+**Use the headless CLI peer below as the second peer instead.** It exercises
+the same wire protocol, connects reliably from all three platforms, and is
+what every round trip in the table above was verified with. For a genuine
+device-to-device test, put the two peers on genuinely separate networks.
+
+Two more things worth knowing:
+
+- **`xcrun simctl boot` does not open a window.** It boots the runtime
+  headlessly; `flutter test`/`flutter run` work fine against it. The window
+  comes from `Simulator.app` at `$(xcode-select -p)/Applications/Simulator.app`,
+  which a trimmed or command-line-only Xcode install does not ship — check
+  with `ls "$(xcode-select -p)/Applications"`. Headless is enough for tests.
+- **Use 0.4.2 or newer for iOS.** On 0.4.0 and 0.4.1 the published BareKit
+  binary target was a corrupt archive, so SwiftPM resolution failed before any
+  P2P code ran (`flutter_pear-1w1`). Those releases cannot be fixed in place.
+
 The room name is a demo-only shortcut (`PearCrypto.unsafeTopicFromString`) —
 anyone worldwide using the same text lands in the same room. Real apps
 derive a topic from a `PearPairing` invite instead.

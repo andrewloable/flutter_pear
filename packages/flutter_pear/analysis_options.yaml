@@ -7,6 +7,7 @@ analyzer:
     # left on disk from a previous local run can't cause an unrelated
     # `melos run analyze` to fail.
     - test/readme_snippets.g.dart
+    - build/**
 
 linter:
   rules:

@@ -53,6 +53,8 @@ import 'package:flutter_pear/flutter_pear.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'semantics_settle.dart';
+
 // Must match, byte-for-byte, the file the desktop peer.js --drive --put
 // process is given -- both its basename (peer.js's runDrive derives the
 // drive's virtual path as `/${path.basename(args.put)}`) and its content.
@@ -61,6 +63,7 @@ const _kContent = 'flutter_pear-g28 drive-transport integration test payload\n';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  settleSemanticsBeforeBaseline();
 
   testWidgets(
     'PearDrive mirrors a real desktop peer\'s put() file over a real '

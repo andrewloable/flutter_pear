@@ -19,9 +19,12 @@ const _minFlutterVersionForSpm = (3, 44, 0);
 
 /// Minimum `MACOSX_DEPLOYMENT_TARGET` -- mirrors
 /// `flutter_pear_bare/macos/flutter_pear_bare/Package.swift`'s own
-/// `.macOS("10.15.4")` pin, kept in sync by hand (a consumer's pub.dev
+/// `.macOS("12.0")` pin, kept in sync by hand (a consumer's pub.dev
 /// install never has this repo's own COMPATIBILITY.md).
-const _minDeploymentTargetFallback = '10.15.4';
+///
+/// Raised from `10.15.4` in 0.4.2 (flutter_pear-na0): Xcode 27 refuses to
+/// target macOS below 12.0 at all, so the old value could not be built.
+const _minDeploymentTargetFallback = '12.0';
 
 /// Parses a dot-separated version string ("10.15.4") into numeric parts --
 /// a plain `double` can't represent a 3-component macOS version like

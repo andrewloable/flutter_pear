@@ -21,6 +21,8 @@ import 'package:flutter_pear/src/schema.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'semantics_settle.dart';
+
 const _sizes = {
   '1KB': 1024,
   '64KB': 64 * 1024,
@@ -83,6 +85,7 @@ String _fmtThroughput(int bytes, Duration elapsed) {
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  settleSemanticsBeforeBaseline();
 
   testWidgets(
       'E5.1 benchmark: in-channel vs file-path round trip for 1KB-16MB payloads',

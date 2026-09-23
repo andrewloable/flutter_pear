@@ -1,123 +1,36 @@
-## 0.4.1
+## 0.4.2
 
-Documentation only — no code or behaviour change. Version bump to stay in
-lockstep with `flutter_pear` 0.4.1, whose READMEs were corrected to state the
-`minSdk = 29` requirement this package introduced in 0.4.0.
+The repacked BareKit iOS xcframework published for Bare Kit 2.5.5 was a corrupt
+zip, so Xcode could not resolve this package's SwiftPM binary target at all on
+0.4.0 or 0.4.1 (`invalid archive returned from <url> which is required by
+binary target 'BareKit'`). The asset downloaded intact and matched its pinned
+checksum; the archive itself was malformed, by a zero-length root directory
+entry the repack step emitted with an un-inflatable DEFLATE payload. The
+generator no longer emits it.
 
-## 0.4.0
+The committed native addons under `android/src/main/jniLibs/` and `ios/addons/`
+were regenerated against the bumped pear-end dependencies: `bare-os` is no
+longer linked, `bare-path` now is, and `bare-fs`, `bare-pipe`,
+`fs-native-extensions` and `rocksdb-native` moved up a version.
 
-**`minSdk` is raised 24 → 29 (Android 10), a breaking change for consuming
-apps that corrects a previously false declaration.** The Bare Kit 2.3.0
-prebuild this package shipped was strictly API 31+: `libbare-kit.so` carried
-a `DT_NEEDED` on `libnativehelper.so` (first exposed as a public NDK stub at
-API 31) and imported `JNI_GetCreatedJavaVMs@LIBNATIVEHELPER_S` as a GLOBAL,
-non-weak symbol. With `minSdk = 24` an app on API 24–30 passed every
-build-time check and then failed at runtime with `UnsatisfiedLinkError` the
-first time a worklet was started.
+`barekit-pin.json` and the generated `Package.swift` now point at a new
+release tag, `barekit-v2.5.5-1`, carrying a verified-valid asset; the original
+corrupt `barekit-v2.5.5` asset is left untouched. `build.gradle` gained
+`bareKitAssetRevision`, which supplies that tag suffix so a later repack
+reproduces the same tag instead of drifting back to the broken asset.
 
-**Bare Kit bumped 2.3.0 → 2.5.5.** Upstream removed the `libnativehelper`
-link in 2.5.0 and now builds against API 29; the pinned 2.5.5
-`libbare-kit.so` reports `.note.android.ident = 0x1d` (29) and every
-undefined symbol it imports resolves against the API 29 NDK stubs (the
-`OPENSSL_memory_*` and v8 `TrapHandlerGuard` imports are WEAK, hence
-optional). `barekit-pin.json` and the Gradle pin both move to the 2.5.5
-release asset, re-verified by checksum against a fresh download.
+> **iOS on 0.4.0 / 0.4.1 cannot be rescued — upgrade to 0.4.2.** Those
+> releases pin the corrupt asset's checksum and are immutable on pub.dev.
 
-The supported ABI set is unchanged (`arm64-v8a`, `x86_64`). Upstream 2.5.5
-does now ship `armeabi-v7a` and `x86` prebuilds, which weakens half of the
-original exclusion rationale; that is recorded for a separate revisit rather
-than changed here.
+Android is unchanged: still `minSdk = 29`, still Bare Kit 2.5.5,
+still `arm64-v8a` + `x86_64` only.
 
-## 0.3.1
+**Breaking: deployment-target floors raised to iOS 15.0 and macOS 12.0** (from
+iOS 13.0 and macOS 10.15.4), in both podspecs and both `Package.swift` files.
+Xcode 27 cannot target macOS below 12.0 at all, so the previous macOS floor was
+unbuildable rather than merely unverified. The macOS `Package.swift` comment
+explaining the old 10.15.4 pin (`FileHandle.write(contentsOf:)`, which is
+`@available(macOS 10.15.4+)`) is kept — that API sits comfortably below the new
+floor and needs no availability guard.
 
-**Each desktop host now fetches and caches its own `bare` runtime binary**
-instead of only resolving it from `PATH`: the real, published
-`bare-runtime-<host>` npm packages for `darwin-arm64`/`darwin-x64`/
-`linux-x64`/`win32-x64`, checksum-verified against a new
-`bare-runtime-pin.json` before use and cached locally (Application Support
-on macOS, XDG data dir on Linux, `%LOCALAPPDATA%` on Windows). `bare` on
-`PATH` remains a fallback, used only if the fetch itself fails. Implemented
-natively per host — `CryptoKit`/`Process` on macOS
-(`FlutterPearBarePlugin.swift`), `GLib`/`GIO` on Linux
-(`flutter_pear_bare_plugin.cc`), and Win32/CNG (`bcrypt.h`) on Windows
-(`flutter_pear_bare_plugin_impl.cpp`) — with a distinct, catchable
-`bare_runtime_missing` platform error surfaced on macOS and Linux when the
-fetch fails and no `PATH` fallback is found (Windows currently surfaces a
-generic crash for the same scenario instead of that specific code, a
-smaller known gap).
 
-No breaking changes to the lifecycle contract from 0.3.0.
-
-## 0.3.0
-
-**macOS, Linux, and Windows desktop hosts, new in 0.3.0.** No BareKit build
-exists for desktop, so each host (`flutter_pear_bare_plugin.cc`/`.swift` for
-Linux/macOS, a C++ Windows plugin) spawns the real `bare` CLI runtime as a
-subprocess and relays raw binary IPC over its stdin/stdout — the same
-`start`/`terminate`/`suspend`/`resume` lifecycle contract mobile's BareKit
-binding already exposes, just a different transport underneath.
-
-Real, on-hardware validation for all three: the full lifecycle contract
-(fresh boot, reattach with the same generation id, `suspend`/`resume`
-no-ops, a message round-tripping through the relay, `terminate()` actually
-killing the subprocess tree, a post-terminate fresh boot) exercised live
-against the real spawned process, plus a real end-to-end Hyperswarm join
-through `flutter_pear`'s real `PearSwarm.join()` API reaching
-`PearSwarmState.connected` on real hardware. One genuine per-OS difference
-worth knowing: unlike macOS/Linux, a Windows process's Job Object
-(`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) tears down the whole worklet process
-tree automatically even on a forced kill — no orphaned subprocess gap to
-work around there. See each platform's own notes (linked from
-[Desktop dev setup](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/desktop-dev.md))
-for exact detail.
-
-No Android/iOS behavior changes.
-
-## 0.2.1
-
-Docs-only patch: this package's own README still said "Android-only, iOS
-not started" after 0.2.0 shipped iOS support — corrected to match reality.
-No code changes.
-
-## 0.2.0
-
-**No Android behavior changes.** Backed by the pack Android regression test
-(`pack_android_regression_test.dart`) and the locked-`0.0.1` Android upgrade
-fixture. Accept-and-disclose ([flutter/flutter#130210](https://github.com/flutter/flutter/issues/130210)):
-this package's pub.dev download grows by its committed iOS addon
-`.xcframework`s (~21 MB, measured via `git ls-files` + `du`) even for
-Android-only consumers, though none of it enters an Android build.
-
-**iOS support, new in 0.2.0 — SIMULATOR-VALIDATED.** `BareWorklet` now
-boots and runs the real, committed `pear-end` bundle on the iOS Simulator
-via a real Swift host — lifecycle (`start`/`terminate`/`suspend`/`resume`,
-hot-restart reattach-or-kill), raw binary IPC, and a native `suspend(withLinger:)`
-fix that honors the Dart-configured `PearLifecycle(linger:)` value on
-backgrounding. Resolution is SwiftPM-first with a CocoaPods compat path,
-both fetching a repacked, checksum-pinned `BareKit.xcframework` at consumer
-build time — see `barekit-pin.json`. See the `flutter_pear` package's own
-CHANGELOG for the full 5-step Enable-iOS recipe (the
-`flutter pub add flutter_pear:^0.2.0` step covers this package
-transitively; bump it directly too if you pinned it yourself).
-
-**Minimums:** iOS deployment target 13.0; Xcode ≥ 15.0 (`Package.swift`'s
-`swift-tools-version: 5.9` requirement). Expected first-build BareKit
-download: ~107 MB via SwiftPM, or the same artifact via the CocoaPods
-compat path (`ios/Pods/flutter_pear_bare/barekit_cache/<version>/`).
-
-**Rollback:** pin back to `flutter_pear_bare: 0.0.1`. Maintainer-side:
-`dart pub retract` the broken version.
-
-## 0.2.0-dev.1
-
-Prerelease of 0.2.0 above, published first so the upgrade fixtures could
-validate against real hosted pub.dev archives before the stable release.
-
-## 0.0.1
-
-- `BareWorklet` low-level API: lifecycle (`start`/`terminate`/`suspend`/`resume`,
-  hot-restart reattach-or-kill) and raw binary IPC to the real Bare Kit
-  worklet on Android — boots, joins Hyperswarm, and relays bytes; verified on
-  Android emulator/CI. The physical two-device hardware round trip is
-  deferred to a later hardware-validation pass. iOS is a separate, not-yet-
-  started v0.2 milestone.

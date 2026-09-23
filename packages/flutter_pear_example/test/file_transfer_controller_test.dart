@@ -71,6 +71,35 @@ Future<void> _waitUntil(bool Function() condition,
   }
 }
 
+/// Recursively deletes [dir], tolerating a writer that hasn't fully drained.
+///
+/// `dispose()` on both peers returns before the drive/store machinery has
+/// necessarily finished its last write, so a file can reappear inside a
+/// directory the recursive walk has already emptied. The delete then fails
+/// with `FileSystemException: Deletion failed ... (OS Error: Directory not
+/// empty, errno = 66)` -- ENOTEMPTY from a *recursive* delete, which reads
+/// like a missing `recursive: true` but isn't. It turned a green suite red
+/// at random, and only ever on a loaded machine (flutter_pear-1ce).
+///
+/// Retrying is the right shape of fix, not a longer fixed delay: the race is
+/// against another task finishing, which has no knowable wall-clock bound --
+/// a sleep tuned on this machine would simply move the flake to a slower or
+/// busier one. Bounded so a genuinely undeletable directory still fails
+/// loudly instead of hanging the suite.
+Future<void> _deleteWithRetry(Directory dir,
+    {int attempts = 10,
+    Duration between = const Duration(milliseconds: 20)}) async {
+  for (var attempt = 0;; attempt++) {
+    try {
+      if (dir.existsSync()) await dir.delete(recursive: true);
+      return;
+    } on FileSystemException {
+      if (attempt >= attempts - 1) rethrow;
+      await Future<void>.delayed(between);
+    }
+  }
+}
+
 Iterable<FileTransferCard> _allCards(FileTransferController c) =>
     c.cardsByPeer.values.expand((cards) => cards);
 
@@ -105,7 +134,7 @@ void main() {
   tearDown(() async {
     await alice.dispose();
     await bob.dispose();
-    await tempDir.delete(recursive: true);
+    await _deleteWithRetry(tempDir);
   });
 
   Future<String> writeLocalFile(

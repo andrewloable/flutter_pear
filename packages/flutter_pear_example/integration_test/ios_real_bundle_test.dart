@@ -9,8 +9,11 @@ import 'package:flutter_pear/flutter_pear.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'semantics_settle.dart';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  settleSemanticsBeforeBaseline();
 
   testWidgets(
       'T1: Pear.start() boots the real pear-end bundle with all addons resolving',

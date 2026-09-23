@@ -1,184 +1,74 @@
-## 0.4.1
+## 0.4.2
 
-Documentation only — no code, API, or dependency change.
+Dependency refresh plus an iOS packaging fix. No API change.
 
-Both READMEs still advertised **v0.3.1** and, worse, promised "no manual NDK,
-ABI, or Podfile edits on any platform" and "zero `flutter_pear`-specific
-build-wiring steps". 0.4.0 made that false: it raised Android's floor to
-`minSdk` 29, which every consuming app must set itself. An app that upgraded
-and left `minSdk` at Flutter's template default of 24 hit an opaque Gradle
-manifest-merge failure with nothing in the docs pointing at the cause.
+**pear-end JS dependencies bumped to current upstream patches** — all patch or
+minor, no breaking API changes: `autobase` 7.28.1 → 7.28.2, `bare-fs` 4.7.3 →
+4.8.1, `bare-path` 3.0.1 → 3.1.2, `bare-pipe` `^4.2.2` → 4.3.1 (the last
+range-float pin, now exact like its siblings), `compact-encoding` 3.3.0 →
+3.5.0, `corestore` 7.11.0 → 7.12.5, `hyperdrive` 13.3.2 → 13.3.4, `hyperswarm`
+4.17.0 → 4.17.2, `protomux` 3.11.0 → 3.12.0, `streamx` 2.28.0 → 2.28.1, and
+`hypercore` 11.33.5 → 11.36.1 transitively.
 
-Install now states the `minSdk = 29` requirement with a copy-pasteable
-`build.gradle.kts` block, the upgrade note warns about it explicitly, and the
-version references and pin advice are corrected to 0.4.x.
+The two most valuable fixes here are both mobile-network behaviours this
+plugin is squarely exposed to and cannot work around from the Dart side:
+hyperswarm now forces a relay fallback on `CANNOT_HOLEPUNCH` (carrier NAT that
+refuses to hole-punch), and properly re-checks `dht.online` across a network
+change (wifi-to-cellular handoff). `autobase` 7.28.2 fixes `_teardown` freeing
+the lock too early.
 
-## 0.4.0
+`corestore` 7.12.0 removed its implicit flush on `suspend()`. This does not
+affect flutter_pear: the pear-end never calls `corestore.suspend()` at all —
+suspension is handled natively at the Bare Kit worklet level — re-confirmed
+against the bundle as it ships here.
 
-**Android's minimum API level is now 29 (Android 10) — this is a breaking
-change for consuming apps, and it corrects a floor that was previously
-wrong.** `flutter_pear_bare` declared `minSdk = 24`, but the Bare Kit 2.3.0
-prebuild it shipped could not load below API 31: `libbare-kit.so` linked
-`libnativehelper.so` and imported `JNI_GetCreatedJavaVMs` under the symbol
-version `@LIBNATIVEHELPER_S`, a non-weak reference whose version tag does
-not exist before Android 12. An app on minSdk 24–30 therefore built,
-installed and launched normally, then threw `UnsatisfiedLinkError` on the
-first `Pear.start()`. If your app targets minSdk 29 or higher, this release
-is the first one that actually works there; if it targets below 29, it was
-already broken and must now raise its floor.
+**Fixed: the repacked BareKit iOS xcframework was a corrupt zip.** Xcode could
+not resolve the SwiftPM binary target on 0.4.0 or 0.4.1, failing with `invalid
+archive returned from <url> which is required by binary target 'BareKit'`
+before any code compiled. The asset downloaded intact and its checksum matched
+the pin — the archive itself was malformed. `bin/pack.dart`'s repack step
+synthesized a zero-length root directory entry, which `package:archive`'s
+`ZipEncoder` writes with a DEFLATE payload nothing can inflate; `unzip -t`
+fails on exactly that one entry. It went unnoticed because `ditto` tolerates
+it and the 0.4.0 Bare Kit bump was validated on Android only. The repack no
+longer emits that entry, and a regression test now runs `unzip -t` over the
+produced asset.
 
-**Bare Kit is bumped 2.3.0 → 2.5.5**, which is what makes API 29 reachable:
-upstream's [holepunchto/bare-kit#115](https://github.com/holepunchto/bare-kit/pull/115)
-("Resolve the JVM at runtime instead of linking libnativehelper", released
-in 2.5.0) removed the hard `libnativehelper` link, and the 2.5.5
-`libbare-kit.so` is built against API 29 (`.note.android.ident = 0x1d`) with
-no non-weak symbol that fails to resolve at that level. The bump also brings
-the Bare runtime to 1.33.4 and several IPC lifetime and queue-locking fixes.
+A corrected asset is published at the new release tag `barekit-v2.5.5-1`
+(sha256 `bfbbe1f6…`), and 0.4.2 points at it. The original, corrupt
+`barekit-v2.5.5` asset is deliberately left in place rather than overwritten.
 
-No Dart API changed in this release. The pinned `pear-end` JS module
-versions are unchanged (that bump is tracked separately).
+> **iOS on 0.4.0 / 0.4.1 cannot be rescued — upgrade to 0.4.2.** Those
+> releases are immutable on pub.dev and pin the corrupt asset's checksum, so
+> no corrected archive could ever satisfy them. Leaving the old asset
+> reachable keeps their failure identical rather than swapping it for a
+> confusing checksum mismatch. Nothing is stranded by this: iOS never
+> resolved at all on 0.4.0/0.4.1.
 
-## 0.3.1
+No `minSdk` change: Android still requires `minSdk = 29` in every consuming
+app, as 0.4.0 introduced.
 
-**`bare` is now fetched automatically on all three desktop platforms** —
-macOS, Linux, and Windows each fetch their own `bare` runtime on first
-launch (the real, published `bare-runtime-<host>` npm packages, checksum-
-verified before use and cached locally), so `npm i -g bare` is a manual
-fallback only, never a hard prerequisite. Previously this only worked
-reliably on macOS; Linux and Windows needed `bare` on `PATH` first. A
-missing/unfetchable `bare` now throws a typed, catchable
-`PearException(BARE_RUNTIME_MISSING)` on macOS and Linux instead of
-crashing; Windows currently surfaces the same scenario as a generic
-`WORKLET_CRASHED` instead of that specific code (its pre-flight check isn't
-as precise yet — a smaller known gap, not a regression). See
-[ERRORS.md#BARE_RUNTIME_MISSING](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/ERRORS.md#BARE_RUNTIME_MISSING).
+**Breaking for iOS and macOS consumers: the deployment-target floors are
+raised to iOS 15.0 and macOS 12.0** (from iOS 13.0 and macOS 10.15.4).
 
-**`dart run flutter_pear:doctor --fix`, new in 0.3.1.** Applies the macOS
-section's three run-blocking/LAN-breaking fixes automatically instead of
-hand-editing XML/project settings: the App Sandbox entitlement in both
-`macos/Runner/DebugProfile.entitlements` and `macos/Runner/Release.entitlements`,
-Info.plist's `NSLocalNetworkUsageDescription`, and a below-minimum
-`MACOSX_DEPLOYMENT_TARGET` in `project.pbxproj`. Idempotent — a file needing
-no change is silently left alone. `bare` on `PATH` is a separate
-precondition this does not and cannot fix (installing a runtime isn't a
-file edit).
+The old floors were not merely untested, they were unbuildable. Xcode 27
+refuses to target macOS below 12.0 outright — *"the macOS deployment target
+'MACOSX_DEPLOYMENT_TARGET' is set to 10.15.4, but the range of supported
+deployment target versions is 12.0 to 27.0.x"* — so a consumer following this
+project's own README instruction to set 10.15.4 got a hard build failure.
+Flutter's current templates ship `IPHONEOS_DEPLOYMENT_TARGET = 15.0` and
+`MACOSX_DEPLOYMENT_TARGET = 12.0`, and `flutter build ios` auto-migrates older
+projects up to 15.0 regardless of what this package claimed.
 
-**`dart run flutter_pear:doctor` fixes:** `--help`/`-h` now prints usage
-and exits immediately instead of silently running the full diagnostic
-suite; a project with a real platform/packaging `[FAIL]` no longer prints
-a contradictory "All checks passed." as its last line (that verdict
-previously only reflected the runtime connectivity checks, blind to an
-earlier Dart-side failure in the same output).
+This is the same failure the 0.4.0 `minSdk` bump fixed on Android: a floor the
+package advertised, nothing validated, and the toolchain would not honour.
+Every iOS/macOS check now agrees on the real values — both podspecs, both
+`Package.swift` files, `dart run flutter_pear:doctor`, the README, and
+`COMPATIBILITY.md`.
 
-**Docs:** the Desktop quick-start now shows `dart run flutter_pear:doctor --fix`
-as an explicit step between `flutter create` and `flutter run`, not just in
-trailing prose — following it top-to-bottom now avoids the raw SwiftPM
-`requires minimum platform version 10.15.4` error entirely.
+**What you need to do:** an app created with a current Flutter already meets
+both floors and needs no change. An older project carried forward may still
+sit below them — `dart run flutter_pear:doctor --fix` raises the macOS target
+for you, and `flutter build ios` raises the iOS one itself.
 
-No breaking changes. Requires `flutter_pear_bare: ^0.3.1`.
 
-## 0.3.0
-
-**macOS, Linux, and Windows desktop support, new in 0.3.0.** `flutter_pear`
-apps now run on desktop, not just Android/iOS — same `Pear.start()`/`join()`
-API, no platform branching required. There is no BareKit build for desktop,
-so each desktop host spawns the real `bare` CLI runtime as a subprocess and
-relays raw binary IPC over its stdin/stdout instead of linking a worklet
-in-process; this is transparent to app code.
-
-Real, on-hardware validation, not just a compiling build: all three desktop
-hosts booted the real committed per-OS `pear-end.bundle`, completed the
-`attach.info` RPC handshake ("worklet attached"), and — through
-`flutter_pear_example`'s own real Dart `PearSwarm.join()` call — reached
-`PearSwarmState.connected` against a real peer. See each platform's own
-notes for exactly what's covered and what's still a documented gap (a
-repeatable, gated smoke test on Windows/Linux; a fully round-tripped chat
-message, not just `connected`, on Windows/Linux — both already confirmed on
-macOS):
-
-- [macOS platform notes](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/macos.md)
-- [Linux platform notes](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/linux.md)
-- [Windows platform notes](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/windows.md)
-- [Desktop dev setup](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/desktop-dev.md) — the overview page linking all three, plus building an Android/iOS app *from* a Windows/Linux host machine.
-
-`dart run flutter_pear:doctor` gained a desktop build-readiness section per
-OS (toolchain presence, packaging path, the committed desktop bundle) —
-not just the existing host-capability line.
-
-No Android/iOS behavior changes. Requires `flutter_pear_bare: ^0.3.0`.
-
-## 0.2.1
-
-Version bump only, in lockstep with `flutter_pear_bare`/`flutter_pear_test`'s
-0.2.1 (a docs-only README fix in those two packages — this package's own
-README needed no change). No code changes.
-
-## 0.2.0
-
-**No Android behavior changes.** Backed by the pack Android regression test
-(`pack_android_regression_test.dart`, asserts Android's pack outputs cannot
-drift after the iOS extension) and the locked-`0.0.1` Android upgrade
-fixture. Accept-and-disclose ([flutter/flutter#130210](https://github.com/flutter/flutter/issues/130210)):
-the pub.dev download grows by `flutter_pear_bare`'s committed iOS addon
-`.xcframework`s (~21 MB, measured via `git ls-files` + `du`) even for
-Android-only apps, though none of it enters an Android build.
-
-**iOS support, new in 0.2.0 — SIMULATOR-VALIDATED.** Enable it on an
-existing app in 5 steps:
-
-1. `flutter create --platforms=ios .` — plain Flutter, nothing
-   `flutter_pear`-specific.
-2. `flutter pub add flutter_pear:^0.2.0` — explicit, not a bare
-   `flutter pub upgrade`: that command cannot cross the already-published
-   `^0.0.1` caret. If you previously pinned `flutter_pear_bare` directly
-   (a **transitive** dependency of `flutter_pear`), bump it the same way;
-   if `pub add` reports a stale lock conflict, delete `pubspec.lock` and
-   re-resolve.
-3. Paste this into `ios/Runner/Info.plist` (see
-   [`doc/ios.md`](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/ios.md#local-network-permission--the-top-sim-invisible-risk)
-   for the full symptom table if you skip this step):
-   ```xml
-   <key>NSLocalNetworkUsageDescription</key>
-   <string>flutter_pear demos connect directly to your other devices over the local network to exchange chat messages and files.</string>
-   ```
-4. `flutter run` on an iOS Simulator.
-5. Exchange your first message with an Android peer.
-
-**iOS behavior differences from Android** — see
-[`doc/ios.md`](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/ios.md)
-for the full detail:
-
-- **Background execution is foreground-only** (`Pear.platformInfo.backgroundExecution
-  == PearBackgroundExecution.foregroundOnly`) — a native suspend fix
-  transitions backgrounding cleanly, but nothing keeps the worklet
-  connected while backgrounded.
-- **Validation tier is simulator** (`Pear.platformInfo.validationTier ==
-  PearValidationTier.simulator`) — physical-iPhone validation is a
-  documented follow-up, not a release gate.
-- **Storage roots**: worklet storage lives under Application Support
-  (never Documents, deliberately non-configurable — an iCloud restore of
-  writer keys onto a second device forks cores); received files (if your
-  app uses `PearDrive`) are a separate Documents subtree your own app code
-  chooses to use, same as the example app's file-drop demo.
-
-**Minimums:** iOS deployment target 13.0; Xcode ≥ 15.0 (`Package.swift`'s
-`swift-tools-version: 5.9` requirement — the first Xcode release supporting
-that Swift tools version). Expected first-build BareKit download: ~107 MB
-via SwiftPM (the repacked, iOS-only `BareKit.xcframework`) or the same
-artifact via the CocoaPods compat path — see the root README's First-build
-download UX section for cache locations and force-refetch commands.
-
-**Rollback:** consumers can pin back to `flutter_pear: 0.0.1` in either
-direction. Maintainer-side: `dart pub retract` the broken version, triggered
-by a broken consumer build reported within the retract window.
-
-## 0.2.0-dev.1
-
-Prerelease of 0.2.0 above, published first so the upgrade fixtures could
-validate against real hosted pub.dev archives before the stable release.
-
-## 0.0.1
-
-- Scaffold: `Pear`, `PearSwarm`/`PearConnection`, `PearCrypto`/`PearKey`,
-  exception hierarchy, and the JSON RPC bridge over the worklet's binary IPC.
-  Re-exports `BareWorklet` from `flutter_pear_bare`.

@@ -34,7 +34,7 @@ void main() {
 ''');
     File('$consumerRoot/ios/Runner.xcodeproj/project.pbxproj')
         .writeAsStringSync('''
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 ''');
     File('$bareRoot/barekit-pin.json').writeAsStringSync(jsonEncode({
       'bareKitVersion': '2.3.0',
@@ -51,7 +51,7 @@ void main() {
 // swift-tools-version:5.9
 let package = Package(
     name: "flutter_pear_bare",
-    platforms: [.iOS(.v13)],
+    platforms: [.iOS(.v15)],
     targets: []
 )
 ''');
@@ -330,7 +330,7 @@ let package = Package(
     test('CocoaPods path (ios/Podfile present) is detected and named',
         () async {
       File('$consumerRoot/ios/Podfile').writeAsStringSync('''
-platform :ios, '13.0'
+platform :ios, '15.0'
 ''');
       final results = await runDoctorIosChecks(buildContext());
       final pathResult =
@@ -355,14 +355,14 @@ platform :ios, '13.0'
     test('below the plugin minimum FAILs naming both values', () async {
       File('$consumerRoot/ios/Runner.xcodeproj/project.pbxproj')
           .writeAsStringSync('''
-				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 ''');
       final results = await runDoctorIosChecks(buildContext());
       final deployResult =
           results.firstWhere((r) => r.message.contains('deployment target'));
       expect(deployResult.status, DoctorCheckStatus.fail);
-      expect(deployResult.message, contains('12.0'));
-      expect(deployResult.message, contains('13.0'));
+      expect(deployResult.message, contains('14.0'));
+      expect(deployResult.message, contains('15.0'));
     });
 
     test('at or above the minimum passes', () async {

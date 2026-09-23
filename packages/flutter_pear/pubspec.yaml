@@ -1,6 +1,6 @@
 name: flutter_pear
 description: Dart-idiomatic Flutter API for the Pear P2P stack (Hyperswarm, Hypercore, Hyperbee, Hyperdrive, Autobase, blind pairing) over a bundled Bare worklet.
-version: 0.4.1
+version: 0.4.2
 # E9.7/E9.8: publish_to: none removed for real -- flutter_pear_bare is live
 # on pub.dev, confirmed resolvable from a scratch project before this flip.
 # This package is being published for real right after this.
@@ -86,7 +86,7 @@ flutter:
     - assets/desktop/darwin-arm64/
     - assets/desktop/darwin-arm64/node_modules/bare-fs/prebuilds/darwin-arm64/
     - assets/desktop/darwin-arm64/node_modules/bare-inspect/prebuilds/darwin-arm64/
-    - assets/desktop/darwin-arm64/node_modules/bare-os/prebuilds/darwin-arm64/
+    - assets/desktop/darwin-arm64/node_modules/bare-path/prebuilds/darwin-arm64/
     - assets/desktop/darwin-arm64/node_modules/bare-pipe/prebuilds/darwin-arm64/
     - assets/desktop/darwin-arm64/node_modules/bare-type/prebuilds/darwin-arm64/
     - assets/desktop/darwin-arm64/node_modules/bare-url/prebuilds/darwin-arm64/
@@ -100,7 +100,7 @@ flutter:
     - assets/desktop/darwin-x64/
     - assets/desktop/darwin-x64/node_modules/bare-fs/prebuilds/darwin-x64/
     - assets/desktop/darwin-x64/node_modules/bare-inspect/prebuilds/darwin-x64/
-    - assets/desktop/darwin-x64/node_modules/bare-os/prebuilds/darwin-x64/
+    - assets/desktop/darwin-x64/node_modules/bare-path/prebuilds/darwin-x64/
     - assets/desktop/darwin-x64/node_modules/bare-pipe/prebuilds/darwin-x64/
     - assets/desktop/darwin-x64/node_modules/bare-type/prebuilds/darwin-x64/
     - assets/desktop/darwin-x64/node_modules/bare-url/prebuilds/darwin-x64/
@@ -114,7 +114,7 @@ flutter:
     - assets/desktop/linux-x64/
     - assets/desktop/linux-x64/node_modules/bare-fs/prebuilds/linux-x64/
     - assets/desktop/linux-x64/node_modules/bare-inspect/prebuilds/linux-x64/
-    - assets/desktop/linux-x64/node_modules/bare-os/prebuilds/linux-x64/
+    - assets/desktop/linux-x64/node_modules/bare-path/prebuilds/linux-x64/
     - assets/desktop/linux-x64/node_modules/bare-pipe/prebuilds/linux-x64/
     - assets/desktop/linux-x64/node_modules/bare-type/prebuilds/linux-x64/
     - assets/desktop/linux-x64/node_modules/bare-url/prebuilds/linux-x64/
@@ -128,7 +128,7 @@ flutter:
     - assets/desktop/win32-x64/
     - assets/desktop/win32-x64/node_modules/bare-fs/prebuilds/win32-x64/
     - assets/desktop/win32-x64/node_modules/bare-inspect/prebuilds/win32-x64/
-    - assets/desktop/win32-x64/node_modules/bare-os/prebuilds/win32-x64/
+    - assets/desktop/win32-x64/node_modules/bare-path/prebuilds/win32-x64/
     - assets/desktop/win32-x64/node_modules/bare-pipe/prebuilds/win32-x64/
     - assets/desktop/win32-x64/node_modules/bare-type/prebuilds/win32-x64/
     - assets/desktop/win32-x64/node_modules/bare-url/prebuilds/win32-x64/

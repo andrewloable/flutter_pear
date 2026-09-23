@@ -23,8 +23,11 @@ Manager path.
   s.source           = { :path => '.' }
   s.source_files     = 'flutter_pear_bare/Sources/flutter_pear_bare/**/*.swift'
   s.dependency 'FlutterMacOS'
-  # 10.15.4, not 10.15 (flutter_pear-a4p) -- kept in sync with
-  # flutter_pear_bare/Package.swift's own .macOS("10.15.4") pin.
-  s.platform         = :osx, '10.15.4'
+  # 12.0, kept in sync with flutter_pear_bare/Package.swift's own
+  # .macOS("12.0") pin. Raised from 10.15.4 in 0.4.2 (flutter_pear-na0):
+  # Xcode 27 refuses to target macOS below 12.0 outright -- "the range of
+  # supported deployment target versions is 12.0 to 27.0.x" -- so the old
+  # floor was not merely unvalidated, it could not be built at all.
+  s.platform         = :osx, '12.0'
   s.swift_version    = '5.9'
 end

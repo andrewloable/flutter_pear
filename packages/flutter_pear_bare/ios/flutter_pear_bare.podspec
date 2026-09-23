@@ -98,7 +98,7 @@ the primary Swift Package Manager path.
   ]
   s.public_header_files = 'flutter_pear_bare/Sources/flutter_pear_bare/include/*.h'
   s.dependency 'Flutter'
-  s.platform         = :ios, '13.0'
+  s.platform         = :ios, '15.0'
   s.swift_version    = '5.9'
 
   # The 12 addon xcframeworks are committed (never fetched, always present

@@ -342,10 +342,7 @@ final _fixedZipEntryTime = DateTime.utc(2020, 1, 1);
 /// [ZipDecoder.decodeStream] only decompresses the entries this function
 /// actually reads (everything outside [sourcePrefix] stays untouched).
 ///
-/// Every entry (including a synthesized root directory entry, since the
-/// old `zip -r` run against a real `BareKit.xcframework/` directory always
-/// produced one even when the source zip's own central directory has no
-/// explicit marker for it) shares the same fixed [_fixedZipEntryTime], and
+/// Every entry shares the same fixed [_fixedZipEntryTime], and
 /// entries are written in a fixed, alphabetically-sorted order -- both
 /// make [outputZip]'s bytes a pure function of the SOURCE CONTENT under
 /// [sourcePrefix], never of extraction-time mtimes/ordering/extended
@@ -378,10 +375,21 @@ Future<bool> _repackZipSubtree({
       sourceArchive.files.where((f) => f.name.startsWith(sourcePrefix));
   if (matches.isEmpty) return false;
 
-  final relocated = <ArchiveFile>[ArchiveFile.directory(destRootName)];
+  // NO synthesized root directory entry for [destRootName]. An earlier
+  // version added one (mirroring what the old `zip -r` shell-out emitted),
+  // but package:archive's ZipEncoder writes a DEFLATE-compressed stream for
+  // a zero-length directory entry that no standard extractor can inflate:
+  // `unzip -t` reports "invalid compressed data to inflate", and Xcode's
+  // SwiftPM rejects the whole asset with "invalid archive returned from
+  // <url> which is required by binary target 'BareKit'" -- which broke iOS
+  // dependency resolution outright for every consumer (flutter_pear-1w1).
+  // `ditto` happens to tolerate it, which is why it went unnoticed locally.
+  // Explicit directory entries are optional in a zip; the nested paths in
+  // every file entry's name recreate the tree on extraction regardless.
+  final relocated = <ArchiveFile>[];
   for (final entry in matches) {
     final relative = entry.name.substring(sourcePrefix.length);
-    if (relative.isEmpty) continue; // the bare prefix itself, already synthesized above
+    if (relative.isEmpty) continue; // the bare prefix itself
     final newName = '$destRootName/$relative';
     final ArchiveFile newEntry;
     if (entry.isSymbolicLink) {
@@ -428,7 +436,11 @@ class BareKitPinException implements Exception {
 /// [verifySha256]-checks the FULL upstream `prebuilds.zip` against at
 /// Android build time. Both must match what `barekit-pin.json` records, or
 /// Android and iOS would silently pin different Bare Kit releases.
-typedef BareKitGradlePin = ({String version, String upstreamSha256});
+typedef BareKitGradlePin = ({
+  String version,
+  String upstreamSha256,
+  int assetRevision,
+});
 
 /// Parses [BareKitGradlePin] out of `flutter_pear_bare/android/build.gradle`
 /// -- same regex approach as [_addBareKitStaticEntry]'s `bareKitVersion`
@@ -453,11 +465,35 @@ BareKitGradlePin readBareKitGradlePin(String pkgRoot) {
     throw BareKitPinException(
         'could not find a 64-hex-char bareKitSha256 in ${gradleFile.path}');
   }
+  // Optional. Absent (or 0) reproduces the original `barekit-v<version>`
+  // tag, so every pin predating this field keeps resolving unchanged.
+  // Bump it when a REPACK of an unchanged upstream version has to be
+  // republished under a fresh tag -- see _bareKitReleaseTag.
+  final revisionMatch =
+      RegExp(r'bareKitAssetRevision\s*=\s*(\d+)').firstMatch(text);
+
   return (
     version: versionMatch.group(1)!,
     upstreamSha256: shaMatch.group(1)!.toLowerCase(),
+    assetRevision:
+        revisionMatch == null ? 0 : int.parse(revisionMatch.group(1)!),
   );
 }
+
+/// The GitHub release tag holding the repacked BareKit asset for [version].
+///
+/// [assetRevision] 0 yields the plain `barekit-v<version>` tag. A nonzero
+/// revision appends `-<n>`, which is how a BROKEN published asset for an
+/// unchanged upstream version gets superseded without overwriting it:
+/// republishing in place cannot rescue already-released consumers anyway
+/// (their Package.swift pins the old checksum, which no corrected archive
+/// can match), so the old asset is left reachable exactly as it was and the
+/// new one goes to a fresh tag. First used for revision 1 of Bare Kit
+/// 2.5.5, whose original asset was an invalid archive (flutter_pear-1w1).
+String _bareKitReleaseTag(String version, int assetRevision) =>
+    assetRevision == 0
+        ? 'barekit-v$version'
+        : 'barekit-v$version-$assetRevision';
 
 /// Default [repackBareKit] `download` implementation: a plain HTTP(S) GET
 /// to [dest]. Real network I/O, factored out so tests can inject a fake
@@ -495,6 +531,13 @@ Future<bool> _urlHeadOk(String url) async {
   }
 }
 
+/// Release tag [_ghUpload] publishes to, set by [repackBareKit] just before
+/// it calls the upload function. Out of band because the injectable
+/// `uploadFn` signature is `(version, zip)` and every test's fake
+/// implements it -- widening that signature would churn them all to pass a
+/// value only the real `gh` path can use.
+String? _ghUploadTag;
+
 /// Default [repackBareKit] `upload` implementation: `gh release create`
 /// (idempotent -- `--target` is fine to omit; ignores an "already exists"
 /// failure) followed by `gh release upload`, deriving owner/repo from
@@ -502,7 +545,7 @@ Future<bool> _urlHeadOk(String url) async {
 /// `releases/download` URL. Real `gh` I/O, factored out so tests can inject
 /// a fake instead (DO step 7).
 Future<String> _ghUpload(String version, File zip) async {
-  final tag = 'barekit-v$version';
+  final tag = _ghUploadTag ?? 'barekit-v$version';
   final assetName = 'BareKit-$version-ios.xcframework.zip';
 
   final createResult = await Process.run(
@@ -668,7 +711,9 @@ Future<int> repackBareKit(
 
     String repackedUrl;
     if (upload) {
-      stdout.writeln('uploading ${repackedZip.path} via gh release ...');
+      _ghUploadTag = _bareKitReleaseTag(pin.version, pin.assetRevision);
+      stdout.writeln('uploading ${repackedZip.path} to release '
+          '$_ghUploadTag via gh ...');
       repackedUrl = await uploadFn(pin.version, repackedZip);
     } else {
       repackedUrl = 'PENDING-UPLOAD: run `dart run flutter_pear:pack '

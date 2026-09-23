@@ -79,6 +79,8 @@ import 'package:flutter_pear/flutter_pear.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'semantics_settle.dart';
+
 // Must match pairing-peer.js's own `hello from ${args.role} over the paired
 // connection` content exactly -- this side plays the "accept" role, the
 // desktop plays "invite" (see this file's header comment's DIRECTION note).
@@ -87,6 +89,7 @@ const _kExpectedIncoming = 'hello from invite over the paired connection';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  settleSemanticsBeforeBaseline();
 
   testWidgets(
     'PearPairing completes a real invite/accept round trip with a real '

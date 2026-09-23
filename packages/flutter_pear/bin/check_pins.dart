@@ -251,10 +251,16 @@ PinCheckResult checkPins(String pkgRoot) {
       // ...) references that constant by name. Try the direct literal
       // first (covers any hand-written or future simpler shape), then fall
       // back to extracting the fallback URL from that `let` line.
-      final urlMatch = RegExp(r'''url:\s*"[^"]*v(\d[\d.]*\d)/[^"]*"''')
-              .firstMatch(text) ??
-          RegExp(r'''let\s+bareKitURL\s*=.*\?\?\s*"[^"]*v(\d[\d.]*\d)/[^"]*"''')
-              .firstMatch(text);
+      // The `(?:-\d+)?` allows the release tag's optional asset-revision
+      // suffix (barekit-v2.5.5-1) without capturing it -- only the Bare Kit
+      // VERSION is compared against the other pins, and a republished asset
+      // for an unchanged version must not read as a version mismatch
+      // (flutter_pear-1w1; see pack.dart's _bareKitReleaseTag).
+      final urlMatch =
+          RegExp(r'''url:\s*"[^"]*v(\d[\d.]*\d)(?:-\d+)?/[^"]*"''')
+                  .firstMatch(text) ??
+              RegExp(r'''let\s+bareKitURL\s*=.*\?\?\s*"[^"]*v(\d[\d.]*\d)(?:-\d+)?/[^"]*"''')
+                  .firstMatch(text);
       final checksumMatch =
           RegExp(r'''checksum:\s*"([0-9a-fA-F]+)"''').firstMatch(text);
       if (urlMatch == null || checksumMatch == null) {
