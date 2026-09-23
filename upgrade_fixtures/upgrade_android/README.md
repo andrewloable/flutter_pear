@@ -56,7 +56,7 @@ is an accepted substitute for physical hardware in this dev environment, the
 same standing decision already applied to `flutter_pear-doi`. Leg 1 verified
 end to end on `emulator-5554` (arm64 system image) 2026-07-07; the one
 physical Android device otherwise reachable here (a BYD DiLink automotive
-head unit at `<device-ip>:5555`) is a different project's hardware and
+head unit) is a different project's hardware and
 known incompatible with `flutter_pear_bare` for an unrelated ROM-level
 `libnativehelper.so` linker restriction (see `flutter_pear-ovt.1.8`) -- do
 not use it for this fixture.

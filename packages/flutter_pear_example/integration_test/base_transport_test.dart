@@ -62,6 +62,8 @@ import 'package:flutter_pear/flutter_pear.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'semantics_settle.dart';
+
 // Must match, byte-for-byte, the desktop peer.js --base process's own
 // --base-put/--base-expect flags (see this file's header comment for the
 // exact command).
@@ -72,6 +74,7 @@ const _kPeerValue = 'desktop-value';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  settleSemanticsBeforeBaseline();
 
   testWidgets(
     'PearBase converges two independent writers -- this side and a real '

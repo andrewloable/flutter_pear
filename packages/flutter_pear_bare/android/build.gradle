@@ -47,23 +47,42 @@ def bareKitVersion = "2.5.5"
 // verified 2026-09-22, not just copied from whatever was already cached
 // locally). Bump together whenever bareKitVersion bumps.
 def bareKitSha256 = "fc68740347c8532ba49d45bf61fae9ca1f1040dc7d6c99f2f92dc30c40e84e46"
+// Revision of OUR repacked iOS xcframework asset for the SAME upstream
+// bareKitVersion -- appended to its GitHub release tag
+// (barekit-v2.5.5-1), and read only by the iOS repack; Android resolves
+// straight from upstream and ignores it.
+//
+// Revision 1 supersedes the original barekit-v2.5.5 asset, which was an
+// invalid archive: the repack emitted a zero-length root directory entry
+// that package:archive wrote with an un-inflatable DEFLATE payload, so
+// Xcode rejected the whole thing ("invalid archive returned from <url>
+// ... binary target 'BareKit'") and NO iOS consumer on 0.4.0/0.4.1 could
+// resolve dependencies at all (flutter_pear-1w1). The broken asset is
+// deliberately left in place rather than overwritten -- already-released
+// versions pin its old checksum, so no corrected archive could ever
+// satisfy them, and replacing it would only swap one failure mode for
+// another.
+//
+// Bump this ONLY to republish an asset for an unchanged bareKitVersion.
+// A bareKitVersion bump resets it to 0 (or just delete the line).
+def bareKitAssetRevision = 1
 // arm64-v8a (physical devices) + x86_64 (desktop-class emulators, including
 // both Apple Silicon's native-arm64 emulator images and Intel/CI x86_64
 // ones). armeabi-v7a/x86 (32-bit) are a deliberate EXCLUSION, not an
-// oversight -- though the original argument has WEAKENED and deserves a
-// real revisit (flutter_pear-b4u). It used to rest on bare-kit declaring
-// minSdkVersion 31 (Android 12), which made 32-bit-only hardware from that
-// era essentially nonexistent. As of 2.5.0 upstream dropped to minSdk 29
-// and its prebuilds DO now ship armeabi-v7a and x86, so that half of the
-// argument is gone. What still holds is the plain hardware point: 64-bit
-// was already universal on Android 10-era devices regardless of
-// distribution channel -- sideloaded, enterprise/MDM, or Play, none of
-// that changes what CPUs exist. (Play's
-// 64-bit requirement since 2019 is a secondary, weaker point: it mandates
-// INCLUDING a 64-bit build, not dropping 32-bit, so it doesn't by itself
-// justify this exclusion the way the minSdk/hardware argument does.)
-// Revisit only if a real user demonstrates a 32-bit-only device that must
-// run flutter_pear.
+// oversight: Bare Kit 2.5.5 does ship both, but 64-bit was already
+// universal on Android 10-era hardware -- which is our floor, since minSdk
+// is 29 -- regardless of distribution channel (sideloaded, enterprise/MDM
+// or Play alike). Shipping them grows every consuming APK for devices that
+// effectively do not exist.
+//
+// Flipping this is also not a one-line change: pear-end's own linked native
+// addons under src/main/jniLibs/ are emitted by `dart run flutter_pear:pack`
+// for arm64-v8a and x86_64 only, and a bare-kit ABI present without its
+// matching addon ABI fails at dlopen on-device rather than at build time.
+// Add both sides together or neither.
+//
+// Weighed and kept in flutter_pear-b4u (closed). Revisit only if a real user
+// demonstrates a 32-bit-only device that must run flutter_pear.
 def bareKitAbis = ["arm64-v8a", "x86_64"]
 // Version-scoped path: bumping bareKitVersion must invalidate the old cache
 // rather than silently keep serving a stale binary from build/bare-kit/.

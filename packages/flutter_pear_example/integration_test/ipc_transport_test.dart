@@ -16,8 +16,11 @@ import 'package:flutter_pear/flutter_pear.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'semantics_settle.dart';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  settleSemanticsBeforeBaseline();
 
   testWidgets(
       'Pear.start() completes a real attach.info round trip well within '

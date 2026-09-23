@@ -71,7 +71,7 @@ void main() {
         .writeAsStringSync(_validEntitlements);
     File('$consumerRoot/macos/Runner.xcodeproj/project.pbxproj')
         .writeAsStringSync('''
-				MACOSX_DEPLOYMENT_TARGET = 10.15.4;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 ''');
     File('$bareRoot/macos/flutter_pear_bare/Package.swift')
         .writeAsStringSync('''
@@ -79,7 +79,7 @@ void main() {
 let package = Package(
     name: "flutter_pear_bare",
     platforms: [
-        .macOS("10.15.4")
+        .macOS("12.0")
     ]
 )
 ''');
@@ -316,7 +316,7 @@ let package = Package(
       final targetResult = results
           .firstWhere((r) => r.message.contains('deployment target'));
       expect(targetResult.status, DoctorCheckStatus.fail);
-      expect(targetResult.remediation, contains('10.15.4'));
+      expect(targetResult.remediation, contains('12.0'));
     });
 
     test('at the minimum passes', () async {
@@ -327,24 +327,26 @@ let package = Package(
     });
 
     test(
-        '3-component minimum (10.15.4) correctly FAILs a project target '
-        'one patch below it (10.15.3 < 10.15.4) -- a plain double can\'t '
-        'even represent "10.15.4" (two decimal points), so this pins the '
-        'fix for flutter_pear-a4p\'s deployment-target bump', () async {
+        'a 3-component project target below the minimum (11.9.9 < 12.0) '
+        'FAILs -- comparison is component-wise, not a double parse, which '
+        'cannot even represent a version with two decimal points '
+        '(flutter_pear-a4p; minimum itself raised to 12.0 in '
+        'flutter_pear-na0)', () async {
       File('$consumerRoot/macos/Runner.xcodeproj/project.pbxproj')
-          .writeAsStringSync('MACOSX_DEPLOYMENT_TARGET = 10.15.3;\n');
+          .writeAsStringSync('MACOSX_DEPLOYMENT_TARGET = 11.9.9;\n');
       final results = await runDoctorMacosChecks(buildContext());
       final targetResult = results
           .firstWhere((r) => r.message.contains('deployment target'));
       expect(targetResult.status, DoctorCheckStatus.fail);
-      expect(targetResult.remediation, contains('10.15.4'));
+      expect(targetResult.remediation, contains('12.0'));
     });
 
     test(
-        '3-component project target above the minimum (10.15.5 > 10.15.4) '
-        'passes', () async {
+        '3-component project target above the minimum (12.0.1 > 12.0) '
+        'passes -- a trailing component must not be mistaken for being '
+        'below a shorter minimum', () async {
       File('$consumerRoot/macos/Runner.xcodeproj/project.pbxproj')
-          .writeAsStringSync('MACOSX_DEPLOYMENT_TARGET = 10.15.5;\n');
+          .writeAsStringSync('MACOSX_DEPLOYMENT_TARGET = 12.0.1;\n');
       final results = await runDoctorMacosChecks(buildContext());
       final targetResult = results
           .firstWhere((r) => r.message.contains('deployment target'));
@@ -585,11 +587,11 @@ let package = Package(
       expect(
           changes,
           contains(contains('raised 1 MACOSX_DEPLOYMENT_TARGET setting to '
-              '10.15.4')));
+              '12.0')));
       final fixedText =
           File('$consumerRoot/macos/Runner.xcodeproj/project.pbxproj')
               .readAsStringSync();
-      expect(fixedText, contains('MACOSX_DEPLOYMENT_TARGET = 10.15.4;'));
+      expect(fixedText, contains('MACOSX_DEPLOYMENT_TARGET = 12.0;'));
     });
 
     test(
@@ -608,11 +610,11 @@ let package = Package(
       expect(
           changes,
           contains(contains('raised 3 MACOSX_DEPLOYMENT_TARGET settings to '
-              '10.15.4')));
+              '12.0')));
       final fixedText =
           File('$consumerRoot/macos/Runner.xcodeproj/project.pbxproj')
               .readAsStringSync();
-      expect('MACOSX_DEPLOYMENT_TARGET = 10.15.4;'.allMatches(fixedText).length,
+      expect('MACOSX_DEPLOYMENT_TARGET = 12.0;'.allMatches(fixedText).length,
           3);
     });
 

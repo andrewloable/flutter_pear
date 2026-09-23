@@ -7,11 +7,11 @@
 import Foundation
 import PackageDescription
 
-let bareKitURL = ProcessInfo.processInfo.environment["FLUTTER_PEAR_BAREKIT_URL"] ?? "https://github.com/andrewloable/flutter_pear/releases/download/barekit-v2.5.5/BareKit-2.5.5-ios.xcframework.zip"
+let bareKitURL = ProcessInfo.processInfo.environment["FLUTTER_PEAR_BAREKIT_URL"] ?? "https://github.com/andrewloable/flutter_pear/releases/download/barekit-v2.5.5-1/BareKit-2.5.5-ios.xcframework.zip"
 
 let package = Package(
     name: "flutter_pear_bare",
-    platforms: [.iOS(.v13)],
+    platforms: [.iOS(.v15)],
     products: [
         // Flutter's SPM-plugin convention: FlutterGeneratedPluginSwiftPackage looks up this product by name
         // with underscores replaced by hyphens; the TARGET below keeps the underscored name.
@@ -36,7 +36,7 @@ let package = Package(
                 "CBareKit",
                 "AddonBareFs",
                 "AddonBareInspect",
-                "AddonBareOs",
+                "AddonBarePath",
                 "AddonBarePipe",
                 "AddonBareType",
                 "AddonBareUrl",
@@ -49,17 +49,17 @@ let package = Package(
                 "AddonUdxNative",
             ]
         ),
-        .binaryTarget(name: "BareKit", url: bareKitURL, checksum: "f26780b66b9a067dd0bfae060f708fe6126b79a820195c2ba7ae0f6c1a25ab9e"),
-        .binaryTarget(name: "AddonBareFs", path: "addons/bare-fs.4.7.3.xcframework"),
+        .binaryTarget(name: "BareKit", url: bareKitURL, checksum: "bfbbe1f69341a3eeaa88b5da3da0ab165587aa08b088ffed78689403e5ead931"),
+        .binaryTarget(name: "AddonBareFs", path: "addons/bare-fs.4.8.1.xcframework"),
         .binaryTarget(name: "AddonBareInspect", path: "addons/bare-inspect.3.1.4.xcframework"),
-        .binaryTarget(name: "AddonBareOs", path: "addons/bare-os.3.9.3.xcframework"),
-        .binaryTarget(name: "AddonBarePipe", path: "addons/bare-pipe.4.2.2.xcframework"),
+        .binaryTarget(name: "AddonBarePath", path: "addons/bare-path.3.1.2.xcframework"),
+        .binaryTarget(name: "AddonBarePipe", path: "addons/bare-pipe.4.3.1.xcframework"),
         .binaryTarget(name: "AddonBareType", path: "addons/bare-type.1.1.0.xcframework"),
         .binaryTarget(name: "AddonBareUrl", path: "addons/bare-url.2.4.5.xcframework"),
-        .binaryTarget(name: "AddonFsNativeExtensions", path: "addons/fs-native-extensions.1.5.0.xcframework"),
+        .binaryTarget(name: "AddonFsNativeExtensions", path: "addons/fs-native-extensions.1.5.1.xcframework"),
         .binaryTarget(name: "AddonQuickbitNative", path: "addons/quickbit-native.2.4.8.xcframework"),
         .binaryTarget(name: "AddonRabinNative", path: "addons/rabin-native.2.0.0.xcframework"),
-        .binaryTarget(name: "AddonRocksdbNative", path: "addons/rocksdb-native.3.17.1.xcframework"),
+        .binaryTarget(name: "AddonRocksdbNative", path: "addons/rocksdb-native.3.18.0.xcframework"),
         .binaryTarget(name: "AddonSimdleNative", path: "addons/simdle-native.1.3.9.xcframework"),
         .binaryTarget(name: "AddonSodiumNative", path: "addons/sodium-native.5.1.0.xcframework"),
         .binaryTarget(name: "AddonUdxNative", path: "addons/udx-native.1.20.7.xcframework"),

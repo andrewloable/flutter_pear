@@ -517,7 +517,11 @@ Future<DoctorCheckResult> _checkCommittedAddons(DoctorIosContext ctx) async {
 Future<DoctorCheckResult> _checkDeploymentTarget(DoctorIosContext ctx) async {
   final packageSwift =
       File('${ctx.flutterPearBareRoot}/ios/flutter_pear_bare/Package.swift');
-  var minMajor = 13; // fallback if Package.swift isn't resolvable
+  // Fallback if Package.swift isn't resolvable. 15, raised from 13 in
+  // 0.4.2 (flutter_pear-na0) to match the podspec/Package.swift floor --
+  // Flutter's own templates ship IPHONEOS_DEPLOYMENT_TARGET = 15.0 and it
+  // auto-migrates older projects up to it.
+  var minMajor = 15;
   if (packageSwift.existsSync()) {
     final match = RegExp(r'\.iOS\(\.v(\d+)\)')
         .firstMatch(packageSwift.readAsStringSync());

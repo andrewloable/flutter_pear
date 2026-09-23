@@ -43,6 +43,8 @@ import 'package:flutter_pear/flutter_pear.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'semantics_settle.dart';
+
 // Must match the literal stdin line the desktop peer.js --bee process is
 // fed by this test's host-side caller (see this file's header comment).
 const _kKey = 'phone-observed';
@@ -50,6 +52,7 @@ const _kValue = 'from-desktop-peer';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  settleSemanticsBeforeBaseline();
 
   testWidgets(
     "PearBee observes a real desktop peer's put() over a real Hyperswarm "

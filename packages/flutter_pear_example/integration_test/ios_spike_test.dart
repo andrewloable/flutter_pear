@@ -9,8 +9,11 @@ import 'package:flutter_pear_bare/flutter_pear_bare.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'semantics_settle.dart';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  settleSemanticsBeforeBaseline();
 
   // Skipped: flutter_pear-ovt.1.7 switched SpikeBareHost to load the REAL
   // assets/pear-end.bundle -- this spike bundle is no longer wired up. Kept
