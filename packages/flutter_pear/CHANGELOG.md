@@ -1,37 +1,22 @@
-## 0.4.3
+## 0.4.4
 
-Fixes a real message-loss bug on inbound connections. No API change.
+Two small, related additions to `pear-end`. No breaking API change.
 
-**Fixed: a peer that dialed in was silently dropped for up to ~12 minutes.**
-`pear-end` gates every connection event (`SWARM_CONNECTION`, `CONNECTION_DATA`,
-`CONNECTION_CLOSE`, connection errors) on Hyperswarm's `info.topics` — but
-Hyperswarm only populates that list when *this* side's own discovery query
-finds the peer. A connection the *other* peer dialed in starts with
-`info.topics = []`, so whoever joined a topic first — an always-on device a
-phone reaches hours later, the ordinary case — got no `SWARM_CONNECTION` and
-lost every message from that peer until its next scheduled discovery
-refresh: Hyperswarm's `REFRESH_INTERVAL`, 10 minutes plus up to 2 of jitter.
+**Added: `dht.status` reports DHT reachability.** A peer that only waits to
+be found — an always-on device such as a car head unit — previously had no
+way to tell whether anyone could currently find it: its swarm state stays
+`discovering` whether or not the DHT is actually online. The worklet now
+answers `{ online, firewalled }`, reading straight off Hyperswarm's own
+`swarm.dht.online`/`swarm.dht.firewalled`. There is no typed Dart
+convenience API for it yet — this ships the RPC method
+(`PearMethod.dhtStatus`) for callers that need the raw signal now; a typed
+`Pear.networkStatus()` can follow if apps want one.
 
-Found on real hardware (a BladeWatch device): Hyperswarm connected every
-time, zero frames were ever delivered.
-
-The fix re-triggers discovery for every joined topic the moment an inbound
-connection lands (retried at 0/1/3/7/15/30s while untagged), tagging exactly
-the topics the peer itself announces — never a topic merely because this
-side joined it, since the swarm also carries blind-pairing and replication
-peers. Messages that arrive before tagging completes are held (capped at
-1 MiB; a peer that outruns the bound gets its connection dropped rather than
-its data silently lost) and released immediately after the first
-`SWARM_CONNECTION`. No wire change — 0.4.3 peers interoperate with 0.4.2 and
-earlier.
-
-Covered by a new real-testnet test (two genuine worklets, no simulated
-topic-tagging shortcut) that reproduces the production shape of the bug: one
-side already on the topic, the other joins and speaks first. Verified to
-fail against 0.4.2's `index.js` and to fail again with the held-message
-buffer removed, so it actually exercises the fix rather than passing
-vacuously.
-
-No dependency, deployment-target, or native-addon change — this release
-touches only `pear-end/index.js` and the bundle it produces.
+**Lowered the 0.4.3 held-message cap from 1 MiB to 256 KiB per untagged
+connection.** 0.4.3's inbound-connection message hold (see 0.4.3's own entry
+below) bounds each connection individually, but Hyperswarm's default 64-peer
+cap meant anyone who knew a topic could make a worklet hold up to 64 MiB
+total before tagging. A real peer's first flight is a few KB. The new cap
+brings that worst case down to 16 MiB. Found by a security review of the
+0.4.3 change's new network surface.
 

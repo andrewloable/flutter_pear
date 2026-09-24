@@ -1,6 +1,6 @@
 name: flutter_pear
 description: Dart-idiomatic Flutter API for the Pear P2P stack (Hyperswarm, Hypercore, Hyperbee, Hyperdrive, Autobase, blind pairing) over a bundled Bare worklet.
-version: 0.4.3
+version: 0.4.4
 # E9.7/E9.8: publish_to: none removed for real -- flutter_pear_bare is live
 # on pub.dev, confirmed resolvable from a scratch project before this flip.
 # This package is being published for real right after this.
