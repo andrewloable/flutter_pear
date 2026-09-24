@@ -54,6 +54,13 @@ abstract final class PearMethod {
   /// already-running worklet it just reattached to.
   static const attachInfo = 'attach.info';
 
+  /// Whether this worklet can currently reach the DHT: `{online, firewalled}`,
+  /// straight from HyperDHT. A peer that only waits to be found (an always-on
+  /// device) stays in [PearSwarmState.discovering] whether or not it is
+  /// announced, so its swarm state cannot answer "can anyone find me right
+  /// now" -- `online` can. Polled; there is no event for it.
+  static const dhtStatus = 'dht.status';
+
   /// Writes `p.data` (whole-payload base64, NOT chunked/streamed) to a new
   /// file inside the worklet's own storage and returns `{path}` — the
   /// file-path bulk seam (E4.4, codex #4 LOCKED): a primitive for moving

@@ -255,3 +255,20 @@ test('an inbound connection is tagged promptly, and what the dialer sends first 
   assert.equal(data.p.data, hello, 'the held message is delivered intact')
   assert.deepEqual(order, ['connection', 'data'], 'SWARM_CONNECTION first, so Dart knows the connection the data belongs to')
 })
+
+// A peer that only waits to be found stays DISCOVERING whether or not the DHT
+// can reach it, so "can anyone find me right now" needs its own answer.
+test('DHT_STATUS reports whether the DHT is reachable', async (t) => {
+  const testnet = await createTestnet(3)
+  currentBootstrap = testnet.bootstrap
+  t.after(() => testnet.destroy())
+
+  const a = bootWorklet()
+  await a.call(Method.SWARM_JOIN, { topic: 'ee'.repeat(32) })
+  await a.swarm.dht.fullyBootstrapped()
+
+  const res = await a.call(Method.DHT_STATUS, {})
+  assert.ok(!res.err, 'answered')
+  assert.equal(res.ok.online, true, 'online once bootstrapped onto the DHT')
+  assert.equal(typeof res.ok.firewalled, 'boolean')
+})

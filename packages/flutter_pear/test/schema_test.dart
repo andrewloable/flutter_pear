@@ -12,6 +12,7 @@ void main() {
     expect(PearMethod.debugForceCrash, 'debug.forceCrash');
     expect(PearMethod.debugEcho, 'debug.echo');
     expect(PearMethod.attachInfo, 'attach.info');
+    expect(PearMethod.dhtStatus, 'dht.status');
     expect(PearMethod.bulkWriteFile, 'bulk.writeFile');
     expect(PearMethod.storeGet, 'store.get');
     expect(PearMethod.coreAppend, 'core.append');
@@ -132,6 +133,7 @@ void main() {
     expect(jsValue('DEBUG_FORCE_CRASH'), PearMethod.debugForceCrash);
     expect(jsValue('DEBUG_ECHO'), PearMethod.debugEcho);
     expect(jsValue('ATTACH_INFO'), PearMethod.attachInfo);
+    expect(jsValue('DHT_STATUS'), PearMethod.dhtStatus);
     expect(jsValue('BULK_WRITE_FILE'), PearMethod.bulkWriteFile);
     expect(jsValue('STORE_GET'), PearMethod.storeGet);
     expect(jsValue('CORE_APPEND'), PearMethod.coreAppend);

@@ -26,6 +26,7 @@ const Method = {
   // the first-ever query or a Dart hot restart re-querying an
   // already-running worklet.
   ATTACH_INFO: 'attach.info',
+  DHT_STATUS: 'dht.status',
   // File-path bulk seam (E4.4, codex #4 LOCKED): writes p.data (whole
   // payload, base64, NOT chunked/streamed) to a new file in this worklet's
   // storage and returns {path}. See schema.dart's PearMethod.bulkWriteFile.

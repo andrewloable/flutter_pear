@@ -28,6 +28,11 @@ void main() {
     return rpc;
   }
 
+  test('dht.status answers like pear-end: an in-memory hub is always reachable', () async {
+    final rpc = await connectedRpc(FakeBareWorklet(hub: hub));
+    expect(await rpc.call(PearMethod.dhtStatus), {'online': true, 'firewalled': false});
+  });
+
   test(
       'two fake peers joining the same topic both get a connection to '
       'each other', () async {

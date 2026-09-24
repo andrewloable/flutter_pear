@@ -257,7 +257,9 @@ swarm.on('connection', (conn, info) => {
 // because the dialing peer's announcement can still be in flight when its
 // connection lands; refresh() coalesces with one already running.
 const TAG_RETRY_DELAYS_MS = [0, 1000, 3000, 7000, 15000, 30000]
-const MAX_HELD_BYTES = 1024 * 1024
+// Bounds what a peer that dialed in can park before it is tagged: a real peer's first flight is a
+// few KB, and Hyperswarm's 64-peer cap then bounds the whole worklet at 16 MiB.
+const MAX_HELD_BYTES = 256 * 1024
 
 function tagInboundConnection (conn, info) {
   const tagged = () => info.topics.some((topicBuf) => topics.has(topicBuf.toString('hex')))
@@ -700,6 +702,13 @@ async function handle ({ m, p }) {
     // Request/response, not a fire-once event: works correctly whether
     // Dart is asking for the first time (fresh boot) or re-asking after a
     // hot restart reattached to this same already-running worklet.
+    // Whether the DHT is reachable right now -- the only signal a peer that
+    // waits to be found has for "can anyone find me" (its swarm state stays
+    // DISCOVERING either way). `online` flips on HyperDHT's own network
+    // checks; `firewalled` says whether peers can dial it directly.
+    case Method.DHT_STATUS: {
+      return { online: swarm.dht.online === true, firewalled: swarm.dht.firewalled === true }
+    }
     case Method.ATTACH_INFO: {
       return {
         [HandshakeField.NONCE]: SESSION_NONCE,

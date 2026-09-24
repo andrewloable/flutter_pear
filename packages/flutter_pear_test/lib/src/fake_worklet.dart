@@ -263,6 +263,10 @@ class FakeBareWorklet implements WorkletIpc {
 
   Future<Object?> _handle(String? method, Map params) async {
     switch (method) {
+      case PearMethod.dhtStatus:
+        // An in-memory hub is always reachable, and every fake peer can dial
+        // every other directly.
+        return {'online': true, 'firewalled': false};
       case PearMethod.attachInfo:
         return {
           PearHandshakeField.nonce: _sessionNonce,
