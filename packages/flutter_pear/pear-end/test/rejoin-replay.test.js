@@ -217,3 +217,41 @@ test('SWARM_JOIN replay: rejoining a never-connected topic still gets a fresh DI
   await a.call(Method.SWARM_JOIN, { topic: topicHex })
   await secondDiscovering // rejects (failing the test) if no replay is sent for the still-unconnected case
 })
+
+// The production shape of the bug `forceTopicTag` works around: A has been on
+// the topic for a while when B joins, so B's own lookup finds A and B DIALS
+// IN. Hyperswarm tags that inbound connection on A's side only when A's own
+// discovery finds B -- which, before tagInboundConnection, meant A's next
+// scheduled refresh, 10+ minutes away: no SWARM_CONNECTION on A, and every
+// message B sent dropped. No forceTopicTag here on purpose.
+test('an inbound connection is tagged promptly, and what the dialer sends first is held, not dropped', async (t) => {
+  const testnet = await createTestnet(3)
+  currentBootstrap = testnet.bootstrap
+  t.after(() => testnet.destroy())
+
+  const a = bootWorklet()
+  const b = bootWorklet()
+  const topicHex = 'dd'.repeat(32)
+  const order = []
+
+  const aConnected = a.onEvent((msg) => msg.ev === EventName.SWARM_CONNECTION && msg.p.topic === topicHex, 15000)
+    .then((msg) => { order.push('connection'); return msg })
+  const aData = a.onEvent((msg) => msg.ev === EventName.CONNECTION_DATA && msg.p.topic === topicHex, 15000)
+    .then((msg) => { order.push('data'); return msg })
+  const bConnected = b.onEvent((msg) => msg.ev === EventName.SWARM_CONNECTION && msg.p.topic === topicHex)
+
+  await joinWorkletAndWait(a, topicHex)
+  await b.call(Method.SWARM_JOIN, { topic: topicHex })
+
+  // B speaks the moment it sees A -- before A can possibly have been tagged.
+  const toA = await bConnected
+  const hello = Buffer.from('first words').toString('base64')
+  const writeRes = await b.call(Method.CONNECTION_WRITE, { peer: toA.p.peer, data: hello })
+  assert.ok(!writeRes.err, 'the write itself succeeds')
+
+  const connected = await aConnected
+  const data = await aData
+  assert.equal(data.p.peer, connected.p.peer)
+  assert.equal(data.p.data, hello, 'the held message is delivered intact')
+  assert.deepEqual(order, ['connection', 'data'], 'SWARM_CONNECTION first, so Dart knows the connection the data belongs to')
+})

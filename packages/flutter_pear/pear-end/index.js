@@ -143,6 +143,12 @@ swarm.on('connection', (conn, info) => {
   const peer = info.publicKey.toString('hex')
   connections.set(peer, conn)
 
+  // Messages that arrived before this connection was tagged with any joined
+  // topic (base64, oldest first) -- see tagInboundConnection below. Released
+  // by the first announce(), right after its SWARM_CONNECTION.
+  let held = []
+  let heldBytes = 0
+
   // A peer can be discovered via more than one joined topic at once
   // (Hyperswarm shares one connection across every topic that found it) --
   // `info.topics` lists every topic seen SO FAR, and `info.on('topic', ...)`
@@ -158,9 +164,13 @@ swarm.on('connection', (conn, info) => {
     t.everConnected = true
     send({ ev: EventName.SWARM_CONNECTION, p: { topic: topicHex, peer } })
     sendState(topicHex, SwarmState.CONNECTED)
+    for (const data of held) send({ ev: EventName.CONNECTION_DATA, p: { topic: topicHex, peer, data } })
+    held = []
+    heldBytes = 0
   }
   for (const topicBuf of info.topics) announce(topicBuf)
   info.on('topic', announce)
+  if (!info.client) tagInboundConnection(conn, info)
 
   // Method.CONNECTION_DATA/CONNECTION_WRITE's raw app-data pass-through must
   // go through a Protomux channel, not conn.on('data')/conn.write()
@@ -182,12 +192,21 @@ swarm.on('connection', (conn, info) => {
     encoding: c.buffer,
     onmessage (data) {
       const payload = data.toString('base64')
+      let routed = false
       for (const topicBuf of info.topics) {
         const topicHex = topicBuf.toString('hex')
         if (topics.has(topicHex)) {
           send({ ev: EventName.CONNECTION_DATA, p: { topic: topicHex, peer, data: payload } })
+          routed = true
         }
       }
+      if (routed) return
+      // Not tagged yet: hold it rather than drop it -- a peer that dialed in
+      // usually speaks first. Bounded; a peer that outruns the bound loses
+      // the connection instead of silently losing messages.
+      heldBytes += data.byteLength
+      if (heldBytes > MAX_HELD_BYTES) return conn.destroy()
+      held.push(payload)
     }
   })
   channel.open()
@@ -220,6 +239,43 @@ swarm.on('connection', (conn, info) => {
     }
   })
 })
+
+// Hyperswarm tags a connection with a topic (`info.topics`, which gates every
+// event above) only when THIS side's own discovery query finds the peer
+// (`_handlePeer` -> `peerInfo._topic()`). A connection the OTHER peer dialed
+// in -- the normal case for whoever joined first, e.g. an always-on device a
+// phone connects to hours later -- therefore arrives untagged, and used to
+// stay silent (no SWARM_CONNECTION, every message dropped) until this side's
+// next scheduled refresh: hyperswarm's REFRESH_INTERVAL, 10 minutes plus up to
+// 2 of jitter. The test suite's `forceTopicTag` was working around exactly
+// this.
+//
+// So on an inbound connection, re-run discovery for every joined topic now.
+// It re-announces and finds the peer's own announcement, tagging EXACTLY the
+// topics that peer is on -- never a topic merely because this side joined it
+// (the swarm also carries blind-pairing and replication peers). Retried
+// because the dialing peer's announcement can still be in flight when its
+// connection lands; refresh() coalesces with one already running.
+const TAG_RETRY_DELAYS_MS = [0, 1000, 3000, 7000, 15000, 30000]
+const MAX_HELD_BYTES = 1024 * 1024
+
+function tagInboundConnection (conn, info) {
+  const tagged = () => info.topics.some((topicBuf) => topics.has(topicBuf.toString('hex')))
+  let attempt = 0
+  let timer = null
+  const next = () => {
+    if (conn.destroyed || tagged() || attempt >= TAG_RETRY_DELAYS_MS.length) return
+    timer = setTimeout(() => {
+      for (const topicHex of topics.keys()) {
+        const discovery = swarm.status(Buffer.from(topicHex, 'hex'))
+        if (discovery) discovery.refresh().catch(() => {})
+      }
+      next()
+    }, TAG_RETRY_DELAYS_MS[attempt++])
+  }
+  next()
+  conn.on('close', () => clearTimeout(timer))
+}
 
 // Hyperswarm 4.x's own event surface (checked against its installed source)
 // is only 'connection'/'update'/'ban' -- no distinct "found a candidate,
