@@ -42,7 +42,8 @@ class FakeSwarmHub {
   /// Creates an empty hub with no topics or invites yet.
   FakeSwarmHub();
 
-  final Map<String, Set<FakeBareWorklet>> _topics = {};
+  /// Per topic: every joined worklet and the options it joined with.
+  final Map<String, Map<FakeBareWorklet, _JoinMode>> _topics = {};
 
   // E5.6 -- blind-pairing conformance. Unlike cores/bees/drives, an invite
   // is a single shared resource from the moment it's created (real
@@ -63,15 +64,23 @@ class FakeSwarmHub {
   int _nextBaseOpSeq() => _baseOpSeq++;
 
   /// Registers [worklet] as joined to [topicHex], connecting it to every
-  /// other worklet already joined to the same topic (and vice versa).
-  void join(String topicHex, FakeBareWorklet worklet) {
-    final peers = _topics.putIfAbsent(topicHex, () => <FakeBareWorklet>{});
-    for (final other in peers.toList()) {
-      if (identical(other, worklet)) continue;
-      worklet._connectTo(other, topicHex);
-      other._connectTo(worklet, topicHex);
+  /// other worklet already joined to the same topic (and vice versa) that
+  /// real Hyperswarm + pear-end would connect it to: at least one of the two
+  /// must [announce] (or neither can find the other), and each side must be
+  /// able to attribute the connection to the topic -- by finding the other's
+  /// announcement, or by joining with [acceptUnannounced]. A repeat join keeps
+  /// the first join's options, as pear-end does. One simplification: where
+  /// real pear-end leaves a dial-only peer holding a connection the other side
+  /// never attributes -- open, but silent both ways -- this fake makes none.
+  void join(String topicHex, FakeBareWorklet worklet, {bool announce = true, bool acceptUnannounced = false}) {
+    final peers = _topics.putIfAbsent(topicHex, () => <FakeBareWorklet, _JoinMode>{});
+    final mine = peers.putIfAbsent(worklet, () => _JoinMode(announce, acceptUnannounced));
+    for (final other in peers.entries.toList()) {
+      if (identical(other.key, worklet)) continue;
+      if (!_JoinMode.connects(mine, other.value)) continue;
+      worklet._connectTo(other.key, topicHex);
+      other.key._connectTo(worklet, topicHex);
     }
-    peers.add(worklet);
   }
 
   /// Removes [worklet] from [topicHex]'s membership. Existing peer
@@ -254,7 +263,12 @@ class FakeBareWorklet implements WorkletIpc {
         // .connections" never misses a connection that same join()
         // triggers, matching what a real (slower) network naturally
         // guarantees for free.
-        hub.join(params['topic'] as String, this);
+        hub.join(
+          params['topic'] as String,
+          this,
+          announce: params['server'] != false,
+          acceptUnannounced: params['acceptUnannounced'] == true,
+        );
       }
     } on FakeRpcError catch (e) {
       _respond(id, err: {'message': e.message, 'code': e.code});
@@ -1728,4 +1742,20 @@ String _randomHex(int byteLength) {
   final random = Random.secure();
   final bytes = List<int>.generate(byteLength, (_) => random.nextInt(256));
   return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+}
+
+/// How a worklet joined a topic -- [FakeSwarmHub.join]'s connection rule.
+class _JoinMode {
+  const _JoinMode(this.announce, this.acceptUnannounced);
+
+  final bool announce;
+  final bool acceptUnannounced;
+
+  /// Whether real Hyperswarm + pear-end would give [a] and [b] a usable
+  /// connection: someone must announce to be found, and each side attributes
+  /// the connection by the other's announcement or by accepting unannounced.
+  static bool connects(_JoinMode a, _JoinMode b) =>
+      (a.announce || b.announce) &&
+      (b.announce || a.acceptUnannounced) &&
+      (a.announce || b.acceptUnannounced);
 }

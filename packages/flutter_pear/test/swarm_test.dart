@@ -99,6 +99,22 @@ void main() {
     });
   }
 
+  test('join() sends announce and acceptUnannounced only when they differ from the defaults', () async {
+    await joinSwarm();
+    expect((worklet.sentFrames.last['p'] as Map).containsKey('server'), isFalse,
+        reason: 'absent means announce, so bundles that predate the flag behave as before');
+
+    final dialOnly = PearSwarm.join(rpc, topic, announce: false);
+    expect(worklet.sentFrames.last['p'], {'topic': topic.hex, 'server': false});
+    worklet.respond(worklet.lastRequestId, ok: {'joined': topic.hex});
+    await dialOnly;
+
+    final accepting = PearSwarm.join(rpc, topic, acceptUnannounced: true);
+    expect(worklet.sentFrames.last['p'], {'topic': topic.hex, 'acceptUnannounced': true});
+    worklet.respond(worklet.lastRequestId, ok: {'joined': topic.hex});
+    await accepting;
+  });
+
   test('join() starts in discovering state, readable synchronously', () async {
     final swarm = await joinSwarm();
     expect(swarm.currentState.state, PearSwarmState.discovering);

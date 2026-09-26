@@ -131,7 +131,7 @@ const pairing = new BlindPairing(swarm)
 // this is OUR bookkeeping for event routing and the E2.7 state machine, one
 // entry per topic actually requested via Method.SWARM_JOIN below (E4.4:
 // replaces the E1/E1.4 gate's single hardcoded topic).
-const topics = new Map() // topic hex -> { connectedPeers: Set<peer hex>, everConnected: bool }
+const topics = new Map() // topic hex -> { connectedPeers: Set<peer hex>, everConnected: bool, acceptUnannounced: bool }
 
 // E2.7: the PearSwarmState machine's wire side -- see swarm.dart's
 // PearSwarmStatus/PearSwarmState for the Dart-side consumer.
@@ -262,6 +262,14 @@ const TAG_RETRY_DELAYS_MS = [0, 1000, 3000, 7000, 15000, 30000]
 const MAX_HELD_BYTES = 256 * 1024
 
 function tagInboundConnection (conn, info) {
+  // `acceptUnannounced` (PearSwarm.join): with exactly ONE joined topic that accepts dialers it
+  // cannot find announced, an inbound connection belongs to that topic -- tag it now. Tagging by
+  // announcement alone raced the dialer's announcement against the retries below: from a phone
+  // behind a slow or randomizing NAT it often lost, and the connection sat open and silent
+  // (found by BladeWatch, 5 of 8 routes from a hotspot). Never with several such topics: the
+  // connection could belong to any of them. _topic() is what Hyperswarm's own discovery calls.
+  const accepting = [...topics].filter(([, t]) => t.acceptUnannounced)
+  if (accepting.length === 1) info._topic(Buffer.from(accepting[0][0], 'hex'))
   const tagged = () => info.topics.some((topicBuf) => topics.has(topicBuf.toString('hex')))
   let attempt = 0
   let timer = null
@@ -736,8 +744,16 @@ async function handle ({ m, p }) {
     case Method.SWARM_JOIN: {
       const existing = topics.get(p.topic)
       if (!existing) {
-        topics.set(p.topic, { connectedPeers: new Set(), everConnected: false })
-        swarm.join(Buffer.from(p.topic, 'hex'), { server: true, client: true })
+        topics.set(p.topic, { connectedPeers: new Set(), everConnected: false, acceptUnannounced: p.acceptUnannounced === true })
+        // `server: false` (PearSwarm.join's announce: false) joins without announcing: a peer that
+        // only ever dials -- a phone app reaching an always-on device -- would otherwise publish its
+        // own address on the topic every session, and the record outlives the session, costing
+        // every later dialer a connection attempt that can only fail (found by BladeWatch: several
+        // ended sessions left dead announcers beside the one live device). Such a dialer is only
+        // usable by a peer that joined with `acceptUnannounced` -- see tagInboundConnection.
+        // Absent means announce, so callers that predate the flag are unchanged. A repeat join of
+        // an already-joined topic keeps its first mode (the branches below never re-join).
+        swarm.join(Buffer.from(p.topic, 'hex'), { server: p.server !== false, client: true })
         sendState(p.topic, SwarmState.DISCOVERING)
       } else if (existing.connectedPeers.size > 0) {
         for (const peer of existing.connectedPeers) {

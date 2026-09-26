@@ -191,15 +191,42 @@ class PearSwarm {
   /// becomes an honest, bounded failure rather than an infinite silent
   /// wait. This method itself still returns as soon as the join request is
   /// acknowledged; watch [state] (or [connections]) for what happens next.
+  ///
+  /// Two options pair up for a peer that only ever dials an always-on one --
+  /// a phone app reaching a device:
+  ///
+  /// - [acceptUnannounced], on the device: a connection another peer dialed
+  ///   in is used as soon as it arrives. Without it, the device can use such
+  ///   a connection only once its own discovery finds the dialer's
+  ///   announcement, which can lose the race from a slow or randomizing NAT
+  ///   and leave the connection open but silent. Honoured only while exactly
+  ///   one joined topic has it: with several, a connection could belong to
+  ///   any of them.
+  /// - [announce] `false`, on the dialer: it finds and dials peers that
+  ///   announce, but is never announced itself, so it leaves no record on
+  ///   the topic that outlives its session and costs every later dialer a
+  ///   connection attempt that can only fail. Usable ONLY against a peer that
+  ///   joined with [acceptUnannounced] -- any other peer can never attribute
+  ///   the connection to [topic]. Two peers that both join with
+  ///   `announce: false` never find each other.
+  ///
+  /// A repeat join of a topic this worklet has already joined keeps the first
+  /// join's options.
   static Future<PearSwarm> join(
     PearRpc rpc,
     PearKey topic, {
     Duration joinTimeout = PearSwarmDefaults.joinTimeout,
+    bool announce = true,
+    bool acceptUnannounced = false,
   }) async {
     final swarm = PearSwarm._(rpc, topic);
     swarm._wire();
     swarm._joinTimer = Timer(joinTimeout, swarm._onJoinTimeout);
-    await rpc.call(PearMethod.swarmJoin, {'topic': topic.hex});
+    await rpc.call(PearMethod.swarmJoin, {
+      'topic': topic.hex,
+      if (!announce) 'server': false,
+      if (acceptUnannounced) 'acceptUnannounced': true,
+    });
     return swarm;
   }
 

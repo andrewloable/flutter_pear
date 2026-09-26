@@ -191,6 +191,29 @@ test('SWARM_JOIN/SWARM_LEAVE: dynamic join/leave against a stubbed Hyperswarm', 
   assert.equal(joinCalls.length, 2, 'joining again after leaving calls swarm.join() a second time')
 })
 
+test('SWARM_JOIN server: false joins without announcing; absent still announces', async (t) => {
+  const joins = []
+  const originalJoin = Hyperswarm.prototype.join
+  Hyperswarm.prototype.join = function (topic, opts) {
+    joins.push({ topic: topic.toString('hex'), opts })
+    return { flushed: async () => {} }
+  }
+  t.after(() => { Hyperswarm.prototype.join = originalJoin })
+
+  const worklet = bootWorklet()
+  const dialOnly = 'bb'.repeat(32)
+  const announced = 'cc'.repeat(32)
+
+  await worklet.call(Method.SWARM_JOIN, { topic: dialOnly, server: false })
+  await worklet.call(Method.SWARM_JOIN, { topic: announced })
+
+  assert.deepEqual(joins, [
+    { topic: dialOnly, opts: { server: false, client: true } },
+    // A caller that predates the flag: unchanged, it announces and dials.
+    { topic: announced, opts: { server: true, client: true } }
+  ])
+})
+
 test('Bare.argv[0] missing: index.js throws a clear, named error instead of a generic TypeError (flutter_pear-pcg)', () => {
   global.BareKit = { IPC: new EventEmitter() }
   global.Bare = { argv: [], on: () => {}, exit: () => {} }

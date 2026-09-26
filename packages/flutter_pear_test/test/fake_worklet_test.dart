@@ -52,6 +52,42 @@ void main() {
     expect(connB.remotePublicKey.hex, workletA.peerKey);
   });
 
+  group('announce and acceptUnannounced', () {
+    Future<List<String>> peersSeenBy(FakeBareWorklet w, {bool announce = true, bool accept = false}) async {
+      final seen = <String>[];
+      final swarm = await PearSwarm.join(await connectedRpc(w), topic, announce: announce, acceptUnannounced: accept);
+      swarm.connections.listen((c) => seen.add(c.remotePublicKey.hex));
+      return seen;
+    }
+
+    test('dial-only phones reach a device that accepts unannounced, never each other', () async {
+      final device = FakeBareWorklet(hub: hub);
+      final phoneA = FakeBareWorklet(hub: hub);
+      final phoneB = FakeBareWorklet(hub: hub);
+      final seenByA = await peersSeenBy(phoneA, announce: false);
+      final seenByB = await peersSeenBy(phoneB, announce: false);
+      await Future<void>.delayed(Duration.zero);
+      expect(seenByA, isEmpty, reason: 'two peers that do not announce cannot find each other');
+
+      final seenByDevice = await peersSeenBy(device, accept: true);
+      await Future<void>.delayed(Duration.zero);
+      expect(seenByA, [device.peerKey]);
+      expect(seenByB, [device.peerKey]);
+      expect(seenByDevice, unorderedEquals([phoneA.peerKey, phoneB.peerKey]));
+    });
+
+    test('a dial-only phone gets nothing from a device that does not accept unannounced', () async {
+      final device = FakeBareWorklet(hub: hub);
+      final phone = FakeBareWorklet(hub: hub);
+      final seenByDevice = await peersSeenBy(device);
+      final seenByPhone = await peersSeenBy(phone, announce: false);
+      await Future<void>.delayed(Duration.zero);
+      expect(seenByDevice, isEmpty, reason: 'the device can never attribute the connection');
+      // Real pear-end: the phone holds a connection that stays silent; the fake makes none.
+      expect(seenByPhone, isEmpty);
+    });
+  });
+
   test('a write on one peer delivers data on the other', () async {
     final workletA = FakeBareWorklet(hub: hub);
     final workletB = FakeBareWorklet(hub: hub);

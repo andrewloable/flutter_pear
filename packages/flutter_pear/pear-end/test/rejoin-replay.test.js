@@ -256,6 +256,37 @@ test('an inbound connection is tagged promptly, and what the dialer sends first 
   assert.deepEqual(order, ['connection', 'data'], 'SWARM_CONNECTION first, so Dart knows the connection the data belongs to')
 })
 
+// The pairing that removes both the tagging race above and the dialer's dead announcements: a
+// device joined with acceptUnannounced uses an inbound connection at once, so a dialer that never
+// announces (server: false) is still heard -- and its first words are not lost.
+test('a dial-only peer reaches a device that accepts unannounced, and what it sends first arrives', async (t) => {
+  const testnet = await createTestnet(3)
+  currentBootstrap = testnet.bootstrap
+  t.after(() => testnet.destroy())
+
+  const device = bootWorklet()
+  const dialer = bootWorklet()
+  const topicHex = 'ee'.repeat(32)
+
+  const deviceConnected = device.onEvent((msg) => msg.ev === EventName.SWARM_CONNECTION && msg.p.topic === topicHex, 15000)
+  const deviceData = device.onEvent((msg) => msg.ev === EventName.CONNECTION_DATA && msg.p.topic === topicHex, 15000)
+  const dialerConnected = dialer.onEvent((msg) => msg.ev === EventName.SWARM_CONNECTION && msg.p.topic === topicHex)
+
+  await device.call(Method.SWARM_JOIN, { topic: topicHex, acceptUnannounced: true })
+  await device.swarm.flush()
+  await dialer.call(Method.SWARM_JOIN, { topic: topicHex, server: false })
+
+  const toDevice = await dialerConnected
+  const hello = Buffer.from('first words').toString('base64')
+  const writeRes = await dialer.call(Method.CONNECTION_WRITE, { peer: toDevice.p.peer, data: hello })
+  assert.ok(!writeRes.err, 'the write itself succeeds')
+
+  const connected = await deviceConnected // rejects if the device never attributes the connection
+  const data = await deviceData
+  assert.equal(data.p.peer, connected.p.peer)
+  assert.equal(data.p.data, hello, 'the first message is delivered intact')
+})
+
 // A peer that only waits to be found stays DISCOVERING whether or not the DHT
 // can reach it, so "can anyone find me right now" needs its own answer.
 test('DHT_STATUS reports whether the DHT is reachable', async (t) => {

@@ -313,7 +313,11 @@ class Pear {
   }
 
   /// Joins a Hyperswarm [topic] and surfaces peer connections.
-  Future<PearSwarm> join(PearKey topic) => PearSwarm.join(_rpc, topic);
+  ///
+  /// [announce] and [acceptUnannounced] pair up for a dial-only peer and the
+  /// always-on peer it reaches -- see [PearSwarm.join].
+  Future<PearSwarm> join(PearKey topic, {bool announce = true, bool acceptUnannounced = false}) =>
+      PearSwarm.join(_rpc, topic, announce: announce, acceptUnannounced: acceptUnannounced);
 
   /// The Corestore-backed store for append-only [PearCore] logs (E5.2).
   PearStore get store => PearStore(_rpc);
