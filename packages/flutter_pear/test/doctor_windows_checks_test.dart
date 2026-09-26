@@ -13,18 +13,21 @@ void main() {
   late Directory root;
   late String consumerRoot;
   late String flutterPearRoot;
+  late String flutterPearBareRoot;
+  late String desktopBundleDir;
   late String vswherePath;
 
   setUp(() {
     root = Directory.systemTemp.createTempSync('fp_doctor_windows');
     consumerRoot = '${root.path}/consumer';
     flutterPearRoot = '${root.path}/flutter_pear';
+    flutterPearBareRoot = '${root.path}/flutter_pear_bare';
+    desktopBundleDir =
+        '$flutterPearBareRoot/windows/assets/desktop/win32-x64';
     vswherePath = '${root.path}/vswhere.exe';
     Directory('$consumerRoot/windows').createSync(recursive: true);
-    Directory('$flutterPearRoot/assets/desktop/win32-x64')
-        .createSync(recursive: true);
-    File('$flutterPearRoot/assets/desktop/win32-x64/pear-end.bundle')
-        .writeAsBytesSync([1, 2, 3]);
+    Directory(desktopBundleDir).createSync(recursive: true);
+    File('$desktopBundleDir/pear-end.bundle').writeAsBytesSync([1, 2, 3]);
     // The check only needs this file to EXIST (its own existence gates
     // whether vswhere is even invoked) -- content is irrelevant since the
     // fake processRunner below never actually reads it.
@@ -52,6 +55,7 @@ void main() {
       DoctorWindowsContext(
         consumerRoot: consumerRoot,
         flutterPearRoot: flutterPearRoot,
+        flutterPearBareRoot: flutterPearBareRoot,
         isWindows: isWindows,
         vswherePath: vswherePathOverride ?? vswherePath,
         processRunner: processRunner ?? passingProcessRunner,
@@ -149,8 +153,7 @@ void main() {
   group('committed desktop bundle', () {
     test('missing pear-end.bundle for win32-x64 -> FAIL with a '
         'maintainer-only remediation', () async {
-      File('$flutterPearRoot/assets/desktop/win32-x64/pear-end.bundle')
-          .deleteSync();
+      File('$desktopBundleDir/pear-end.bundle').deleteSync();
       final results = await runDoctorWindowsChecks(buildContext());
       final bundleResult =
           results.firstWhere((r) => r.message.contains('pear-end.bundle'));

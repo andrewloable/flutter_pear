@@ -3,24 +3,53 @@ import CryptoKit
 import FlutterMacOS
 import Foundation
 
-/// Subpath (within `flutter_pear`'s Flutter assets) of the bundled pear-end
-/// -- macOS uses the DESKTOP bundle (flutter_pear-6yz, E-D3), not the
-/// mobile assets/pear-end.bundle: unlike mobile's addons (linked ahead of
-/// time into this same binary), a desktop bare subprocess loads addons from
+/// Subpath (within this plugin's OWN resource bundle -- see
+/// `resolvedDesktopResourcesURL()` below, not `flutter_pear`'s Flutter
+/// assets since flutter_pear-9ng) of the bundled pear-end -- macOS uses the
+/// DESKTOP bundle (flutter_pear-6yz, E-D3), not the mobile
+/// assets/pear-end.bundle: unlike mobile's addons (linked ahead of time
+/// into this same binary), a desktop bare subprocess loads addons from
 /// real `file:` prebuilds at runtime, which only the desktop-specific
 /// bundle (built via bin/pack.dart's buildDesktopBundle, `--offload-addons`
 /// instead of `--linked`) ships alongside. `#if arch` is a compile-time
 /// check -- a compiled macOS binary never switches architecture at runtime,
 /// so this is exactly as reliable as the mobile hosts' own per-ABI/
-/// per-slice compiled targets.
+/// per-slice compiled targets. Both darwin hosts are still committed and
+/// bundled together (Package.swift/podspec `resources`): which one this
+/// constant names is decided by which SLICE of a universal binary the OS
+/// actually runs, not by anything this plugin controls at build time.
 #if arch(arm64)
-private let bundleAssetSubpath = "assets/desktop/darwin-arm64/pear-end.bundle"
+private let bundleAssetSubpath = "desktop/darwin-arm64/pear-end.bundle"
 #elseif arch(x86_64)
-private let bundleAssetSubpath = "assets/desktop/darwin-x64/pear-end.bundle"
+private let bundleAssetSubpath = "desktop/darwin-x64/pear-end.bundle"
 #else
 #error("flutter_pear_bare (macOS): unsupported architecture -- only arm64 and x86_64 have a committed desktop bundle (flutter_pear-6yz)")
 #endif
-private let bundlePackage = "flutter_pear"
+
+/// The directory the desktop `pear-end.bundle` + its offloaded addons live
+/// under, regardless of which packaging system built this plugin
+/// (flutter_pear-9ng).
+///
+/// `Bundle.module` is an accessor SPM auto-generates ONLY for a target that
+/// declares `resources:` and is ONLY visible to code inside that SAME
+/// target/module -- exactly this file's situation when built via Swift
+/// Package Manager, which is why this compiles at all despite `Bundle.module`
+/// appearing nowhere in this repo's own source. `SWIFT_PACKAGE` is a
+/// standard compiler-defined condition true only under SPM (not CocoaPods),
+/// making it the correct guard for this dual-packaging split -- the CocoaPods
+/// path instead locates the `.bundle` that `s.resource_bundles` produces,
+/// found via `Bundle(for:)` on a type this pod itself defines.
+private func resolvedDesktopResourcesURL() -> URL? {
+  #if SWIFT_PACKAGE
+  return Bundle.module.resourceURL
+  #else
+  guard let bundleURL = Bundle(for: FlutterPearBarePlugin.self)
+    .url(forResource: "flutter_pear_bare_desktop", withExtension: "bundle"),
+    let resourceBundle = Bundle(url: bundleURL)
+  else { return nil }
+  return resourceBundle.resourceURL ?? resourceBundle.bundleURL
+  #endif
+}
 
 /// Pin for the real, published `bare-runtime-darwin-<arch>` npm package
 /// (Apache-2.0, github.com/holepunchto/bare-runtime) -- flutter_pear-8f6:
@@ -337,19 +366,10 @@ public class FlutterPearBarePlugin: NSObject, FlutterPlugin {
     if let bundlePath = bundlePath {
       resolvedBundlePath = bundlePath
     } else {
-      let assetKey = FlutterDartProject.lookupKey(forAsset: bundleAssetSubpath, fromPackage: bundlePackage)
-      // macOS-specific (unlike iOS, confirmed by testing): lookupKeyForAsset
-      // on macOS returns a path already relative to the OUTER .app bundle's
-      // ROOT (e.g. "Contents/Frameworks/App.framework/Resources/
-      // flutter_assets/..."), not a plain resource name to hand to
-      // Bundle.path(forResource:ofType:) the way iOS's flatter bundle
-      // layout allows -- that API searches relative to resourcePath
-      // (Contents/Resources/), which double-nests and never resolves.
-      // Appending the key directly to Bundle.main's own bundlePath is the
-      // correct join; App.framework/Resources is a standard macOS
-      // framework-versioning symlink to Versions/Current/Resources, so this
-      // reaches the real file transparently.
-      let path = Bundle.main.bundlePath + "/" + assetKey
+      guard let resourcesURL = resolvedDesktopResourcesURL() else {
+        throw FlutterPearBareError.bundleNotFound
+      }
+      let path = resourcesURL.appendingPathComponent(bundleAssetSubpath).path
       guard FileManager.default.fileExists(atPath: path) else {
         throw FlutterPearBareError.bundleNotFound
       }

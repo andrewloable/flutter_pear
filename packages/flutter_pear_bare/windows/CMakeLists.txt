@@ -61,3 +61,72 @@ set(flutter_pear_bare_bundled_libraries
   ""
   PARENT_SCOPE
 )
+
+# Desktop pear-end.bundle + its offloaded native addons, committed by
+# bin/pack.dart's buildDesktopBundle (flutter_pear-9ng): NOT declared via
+# flutter_pear_bare_bundled_libraries above, deliberately -- that variable
+# feeds the app-level CMakeLists.txt's own `install(FILES ...)` call (see
+# Flutter's own Windows app template), and install(FILES) flattens every
+# entry to its bare filename in the destination, destroying the
+# node_modules/<addon>/prebuilds/win32-x64/ nesting bare's own require()
+# needs to find its native addons. install(DIRECTORY ... DESTINATION) is
+# the CMake call that preserves nested structure, so this plugin issues its
+# own directly rather than routing through bundled_libraries at all -- a
+# plain `install()` from an add_subdirectory()-included CMakeLists.txt
+# aggregates into the app's own top-level install step (standard CMake
+# behavior, not a Flutter-specific mechanism, so it does not depend on how
+# Flutter's tooling treats bundled_libraries).
+#
+# NOT a bare install(DIRECTORY ... DESTINATION "data/...") -- build-tested
+# on real Windows hardware (a real SSH-reachable machine, Visual Studio 2022
+# Community) and it fails there, though it works fine on Linux. Root cause:
+# Flutter's own windows/CMakeLists.txt template sets
+# CMAKE_INSTALL_PREFIX to the LITERAL, unresolved string
+# "$<TARGET_FILE_DIR:${BINARY_NAME}>" (a generator expression, needed
+# because Visual Studio is a MULTI-CONFIG generator -- Debug/Release/Profile
+# share one build tree, so the real output directory can only be known at
+# generator-expression-evaluation time, not at plain configure time; Linux's
+# Ninja is single-config and never hits this). install(TARGETS ...)
+# specially resolves a generator expression appearing in its own DESTINATION
+# argument; install(DIRECTORY ...) does NOT get that same treatment, so
+# concatenating a plain relative destination onto ${CMAKE_INSTALL_PREFIX}
+# produces literal, unexpanded "$<TARGET_FILE_DIR:...>" text baked into the
+# path -- confirmed exactly by the real error: CMake Error ... file INSTALL
+# cannot make directory ".../$<TARGET_FILE_DIR:flutter_pear_example>/data/
+# flutter_pear_bare_desktop": Invalid argument.
+#
+# install(CODE "...") sidesteps this: its STRING content is genex-evaluated
+# as part of generating cmake_install.cmake (a well-established pattern for
+# exactly this situation), so by the time file(INSTALL ...) actually runs,
+# ${CMAKE_INSTALL_PREFIX} has already been substituted into a fully-resolved,
+# per-configuration absolute path with no generator-expression syntax left
+# in it at all. file(INSTALL ...) is the same underlying primitive
+# install(DIRECTORY ...) itself expands to, so the trailing-slash/no-
+# trailing-slash source semantics are identical (contents-only copy).
+#
+# The prefix is NOT read straight from ${CMAKE_INSTALL_PREFIX}: the app
+# template includes generated_plugins.cmake BEFORE it sets that variable, so
+# on a FRESH configure this file still sees CMake's default,
+# "C:/Program Files/<project>" -- the files went there (from an elevated
+# shell) or failed with access denied, never next to the .exe. Only a
+# RE-configure, reading the app's cached value, happened to work. This
+# mirrors the app template's own rule instead: default prefix -> the
+# executable's own directory, a caller-set prefix -> that prefix.
+# BINARY_NAME is set by every Flutter Windows app template (the flutter
+# tool itself reads it to find the .exe).
+#
+# Verified end to end on real hardware from a fresh build directory:
+# `flutter build windows --debug` succeeds, and the built bundle's
+# data\flutter_pear_bare_desktop\ contains pear-end.bundle plus the full
+# node_modules\<addon>\prebuilds\win32-x64\ tree, structure intact --
+# matching flutter_pear_bare_plugin_impl.cpp's own ResolveBundlePath.
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  set(FLUTTER_PEAR_BARE_INSTALL_PREFIX "$<TARGET_FILE_DIR:${BINARY_NAME}>")
+else()
+  set(FLUTTER_PEAR_BARE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
+endif()
+install(CODE "
+  file(INSTALL \"${CMAKE_CURRENT_SOURCE_DIR}/assets/desktop/win32-x64/\"
+    DESTINATION \"${FLUTTER_PEAR_BARE_INSTALL_PREFIX}/data/flutter_pear_bare_desktop\"
+  )
+")

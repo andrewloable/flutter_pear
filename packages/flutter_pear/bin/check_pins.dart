@@ -421,10 +421,11 @@ PinCheckResult checkPins(String pkgRoot) {
   // spike host used.
   // ios-only, same reasoning as packageSwiftMatches/podspecMatches above
   // (flutter_pear-71g/6yz): the macOS host deliberately uses a DIFFERENT,
-  // desktop-specific bundleAssetSubpath (assets/desktop/<host>/pear-end.bundle,
-  // via a compile-time #if arch, not bundleAssetPath's mobile-linked
-  // assets/pear-end.bundle) -- comparing it against bundleAssetPath would
-  // flag a by-design difference as a false mismatch.
+  // desktop-specific bundleAssetSubpath (desktop/<host>/pear-end.bundle,
+  // resolved via its own resource bundle rather than a Flutter asset since
+  // flutter_pear-9ng, via a compile-time #if arch) -- not bundleAssetPath's
+  // mobile-linked assets/pear-end.bundle -- comparing it against
+  // bundleAssetPath would flag a by-design difference as a false mismatch.
   final swiftHostMatches = Directory(bareRoot).existsSync()
       ? _findFiles(Directory(bareRoot), '.swift')
           .where((f) => f.uri.pathSegments.last != 'Package.swift')

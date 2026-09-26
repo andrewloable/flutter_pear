@@ -147,9 +147,12 @@ directly via `Get-CimInstance Win32_Process`, not just inferred — both
 under normal operation (the correct `cmd.exe`/`node.exe` parent/child
 relationship, with the exact expected argv) and under a forced kill (see
 above). The `win32-x64` desktop bundle
-(`assets/desktop/win32-x64/pear-end.bundle` plus its offloaded native addon
-prebuilds) is a real, committed build artifact, produced the same way the
-macOS/Linux bundles are (`bare-pack --offload-addons`).
+(`flutter_pear_bare/windows/assets/desktop/win32-x64/pear-end.bundle` plus
+its offloaded native addon prebuilds -- committed inside the plugin's own
+Windows folder, not flutter_pear's shared assets, so a Windows build never
+bundles the other platforms' addons alongside it; flutter_pear-9ng) is a
+real, committed build artifact, produced the same way the macOS/Linux
+bundles are (`bare-pack --offload-addons`).
 
 **A real, in-app Hyperswarm join through `flutter_pear_example` is now
 confirmed** (`flutter_pear-pfp`): using the example app's own

@@ -113,7 +113,70 @@ function reportCrash (kind, err) {
 Bare.on('uncaughtException', (err) => reportCrash('uncaughtException', err))
 Bare.on('unhandledRejection', (reason) => reportCrash('unhandledRejection', reason))
 
-const swarm = new Hyperswarm()
+// File-path bulk seam (E4.4, codex #4 LOCKED) -- see Method.BULK_WRITE_FILE
+// below. A worklet-private directory, not shared/external storage.
+// Storage-dir ARGV POSITION differs by host (flutter_pear-71g, E-D2a):
+// - BareKit (mobile): a synthetic argv with no binary-path/script-path
+//   prefix (a worklet isn't a real OS subprocess) -- Bare.argv[0] IS the
+//   storage dir directly, set by FlutterPearBarePlugin.kt/.swift's
+//   Worklet.start(bundlePath, arguments:).
+// - Desktop bare subprocess: a REAL OS argv (argv[0]=bare binary path,
+//   argv[1]=this script's path), so the storage dir is the first REAL
+//   script argument, Bare.argv[2] -- passed by the desktop host's
+//   Process/bare-subprocess spawn.
+// bare-os's cwd() resolves to "/" in the mobile sandbox (confirmed
+// on-device), and neither BareKit nor Bare expose a storage-path helper, so
+// argv is the only channel available on either host.
+// Guarded explicitly (flutter_pear-pcg) so a future boot path that forgets
+// to pass it fails loudly right here, at the top of module load, instead of
+// a generic path.join(undefined, ...) TypeError with no indication of what
+// was actually missing.
+const STORAGE_DIR = typeof BareKit !== 'undefined' ? Bare.argv[0] : Bare.argv[2]
+if (!STORAGE_DIR) {
+  throw new Error(
+    'pear-end: the worklet\'s private storage directory is missing -- ' +
+    'expected Bare.argv[0] under BareKit (mobile) or Bare.argv[2] for a ' +
+    'desktop bare subprocess; every host\'s boot path must pass it. ' +
+    'Refusing to guess a storage directory.'
+  )
+}
+
+// Opt-in PERSISTENT swarm identity (BladeWatch-rdtj.24). Without it every worklet
+// start draws a random Hyperswarm key pair -- right for a phone or desktop app,
+// which should not carry one trackable identity forever, but wrong for a
+// long-lived server peer: a restarted process comes back as a stranger, so a
+// dial-only client's existing swarm redials a key that no longer exists (it
+// never reconnects), and every restart leaves a dead announcer on the DHT for
+// up to 20 minutes that every later client dials and times out on. Measured on
+// a head unit: 5 announcers after 5 restarts, 4 of them dead, ~9 s per failed
+// dial.
+//
+// A host opts in by passing PERSISTENT_IDENTITY_FLAG anywhere in the worklet's
+// argv after the storage dir. The 32-byte seed lives in the storage dir, mode
+// 0600, written to a temp file and renamed so a crash mid-write cannot leave a
+// short one. A seed of the wrong length is replaced -- the identity changes
+// once, which is exactly what every start did before this option existed. It
+// is a secret: whoever holds it IS this peer.
+const PERSISTENT_IDENTITY_FLAG = '--persistent-identity'
+const IDENTITY_SEED_FILE = path.join(STORAGE_DIR, 'swarm-identity.seed')
+
+function loadOrCreateIdentitySeed () {
+  try {
+    const seed = fs.readFileSync(IDENTITY_SEED_FILE)
+    if (seed.length === 32) return seed
+  } catch (_) {
+    // Absent on the first boot with the flag.
+  }
+  const seed = crypto.randomBytes(32)
+  const tmp = IDENTITY_SEED_FILE + '.tmp'
+  fs.writeFileSync(tmp, seed, { mode: 0o600 })
+  fs.renameSync(tmp, IDENTITY_SEED_FILE)
+  return seed
+}
+
+const swarm = new Hyperswarm(
+  Bare.argv.includes(PERSISTENT_IDENTITY_FLAG) ? { seed: loadOrCreateIdentitySeed() } : {}
+)
 const connections = new Map() // peer public key (hex) -> connection, shared across topics
 // peer hex -> Protomux message sender for Method.CONNECTION_WRITE -- see the
 // Protomux.from(conn) comment in swarm.on('connection', ...) below for why
@@ -314,33 +377,6 @@ swarm.on('error', (err) => {
   }
 })
 
-// File-path bulk seam (E4.4, codex #4 LOCKED) -- see Method.BULK_WRITE_FILE
-// below. A worklet-private directory, not shared/external storage.
-// Storage-dir ARGV POSITION differs by host (flutter_pear-71g, E-D2a):
-// - BareKit (mobile): a synthetic argv with no binary-path/script-path
-//   prefix (a worklet isn't a real OS subprocess) -- Bare.argv[0] IS the
-//   storage dir directly, set by FlutterPearBarePlugin.kt/.swift's
-//   Worklet.start(bundlePath, arguments:).
-// - Desktop bare subprocess: a REAL OS argv (argv[0]=bare binary path,
-//   argv[1]=this script's path), so the storage dir is the first REAL
-//   script argument, Bare.argv[2] -- passed by the desktop host's
-//   Process/bare-subprocess spawn.
-// bare-os's cwd() resolves to "/" in the mobile sandbox (confirmed
-// on-device), and neither BareKit nor Bare expose a storage-path helper, so
-// argv is the only channel available on either host.
-// Guarded explicitly (flutter_pear-pcg) so a future boot path that forgets
-// to pass it fails loudly right here, at the top of module load, instead of
-// a generic path.join(undefined, ...) TypeError with no indication of what
-// was actually missing.
-const STORAGE_DIR = typeof BareKit !== 'undefined' ? Bare.argv[0] : Bare.argv[2]
-if (!STORAGE_DIR) {
-  throw new Error(
-    'pear-end: the worklet\'s private storage directory is missing -- ' +
-    'expected Bare.argv[0] under BareKit (mobile) or Bare.argv[2] for a ' +
-    'desktop bare subprocess; every host\'s boot path must pass it. ' +
-    'Refusing to guess a storage directory.'
-  )
-}
 const BULK_STORAGE_DIR = path.join(STORAGE_DIR, 'pear-bulk')
 
 // E5.2 -- Corestore/Hypercore wrapper (PearStore/PearCore). Same

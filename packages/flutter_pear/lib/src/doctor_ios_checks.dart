@@ -520,7 +520,8 @@ Future<DoctorCheckResult> _checkDeploymentTarget(DoctorIosContext ctx) async {
   // Fallback if Package.swift isn't resolvable. 15, raised from 13 in
   // 0.4.2 (flutter_pear-na0) to match the podspec/Package.swift floor --
   // Flutter's own templates ship IPHONEOS_DEPLOYMENT_TARGET = 15.0 and it
-  // auto-migrates older projects up to it.
+  // auto-migrates older projects up to it. Kept equal to the podspec's
+  // floor by doctor_ios_checks_test.dart (flutter_pear-pqd).
   var minMajor = 15;
   if (packageSwift.existsSync()) {
     final match = RegExp(r'\.iOS\(\.v(\d+)\)')

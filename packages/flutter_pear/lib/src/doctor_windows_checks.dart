@@ -45,6 +45,7 @@ class DoctorWindowsContext {
   const DoctorWindowsContext({
     required this.consumerRoot,
     required this.flutterPearRoot,
+    required this.flutterPearBareRoot,
     this.isWindows = true,
     this.vswherePath = _vswhereDefaultPath,
     this.processRunner = _realProcessRunner,
@@ -54,9 +55,13 @@ class DoctorWindowsContext {
   /// `pubspec.yaml`, ...) -- `Directory.current.path` in production.
   final String consumerRoot;
 
-  /// The resolved `flutter_pear` package's own root directory -- where the
-  /// committed `assets/desktop/<host>/pear-end.bundle` files live.
+  /// The resolved `flutter_pear` package's own root directory.
   final String flutterPearRoot;
+
+  /// The resolved `flutter_pear_bare` package's own root directory -- where
+  /// the committed `windows/assets/desktop/win32-x64/pear-end.bundle`
+  /// files live (flutter_pear-9ng).
+  final String flutterPearBareRoot;
 
   /// Whether this run is on Windows -- `Platform.isWindows` in production.
   /// Every Windows check needs the real, local build toolchain (Visual
@@ -180,12 +185,13 @@ Future<DoctorCheckResult> _checkVisualStudioPresent(
 
 Future<DoctorCheckResult> _checkCommittedDesktopBundle(
     DoctorWindowsContext ctx) async {
-  final bundle = File(
-      '${ctx.flutterPearRoot}/assets/desktop/win32-x64/pear-end.bundle');
+  final bundle = File('${ctx.flutterPearBareRoot}/windows/assets/desktop/'
+      'win32-x64/pear-end.bundle');
   if (!bundle.existsSync() || bundle.lengthSync() == 0) {
     return DoctorCheckResult(
       DoctorCheckStatus.fail,
-      'flutter_pear/assets/desktop/win32-x64/pear-end.bundle is missing',
+      'flutter_pear_bare/windows/assets/desktop/win32-x64/pear-end.bundle '
+          'is missing',
       remediation: _maintainerOnlyRemediation,
     );
   }

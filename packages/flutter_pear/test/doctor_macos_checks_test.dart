@@ -46,15 +46,16 @@ void main() {
     Directory('$consumerRoot/macos/Runner').createSync(recursive: true);
     Directory('$consumerRoot/macos/Runner.xcodeproj')
         .createSync(recursive: true);
-    Directory('$flutterPearRoot/assets/desktop/darwin-arm64')
+    const desktopResourcesDir =
+        'macos/flutter_pear_bare/Sources/flutter_pear_bare/Resources/desktop';
+    Directory('$bareRoot/$desktopResourcesDir/darwin-arm64')
         .createSync(recursive: true);
-    Directory('$flutterPearRoot/assets/desktop/darwin-x64')
+    Directory('$bareRoot/$desktopResourcesDir/darwin-x64')
         .createSync(recursive: true);
-    File('$flutterPearRoot/assets/desktop/darwin-arm64/pear-end.bundle')
+    File('$bareRoot/$desktopResourcesDir/darwin-arm64/pear-end.bundle')
         .writeAsBytesSync([1, 2, 3]);
-    File('$flutterPearRoot/assets/desktop/darwin-x64/pear-end.bundle')
+    File('$bareRoot/$desktopResourcesDir/darwin-x64/pear-end.bundle')
         .writeAsBytesSync([1, 2, 3]);
-    Directory('$bareRoot/macos/flutter_pear_bare').createSync(recursive: true);
 
     File('$consumerRoot/macos/Runner/Info.plist').writeAsStringSync('''
 <?xml version="1.0" encoding="UTF-8"?>
@@ -287,7 +288,8 @@ let package = Package(
 
     test('missing for one host FAILs naming it, remediation never mentions '
         ':pack', () async {
-      File('$flutterPearRoot/assets/desktop/darwin-x64/pear-end.bundle')
+      File('$bareRoot/macos/flutter_pear_bare/Sources/flutter_pear_bare/'
+              'Resources/desktop/darwin-x64/pear-end.bundle')
           .deleteSync();
       final results = await runDoctorMacosChecks(buildContext());
       final bundleResult =
@@ -298,7 +300,8 @@ let package = Package(
     });
 
     test('an empty bundle file FAILs (not just existence-checked)', () async {
-      File('$flutterPearRoot/assets/desktop/darwin-arm64/pear-end.bundle')
+      File('$bareRoot/macos/flutter_pear_bare/Sources/flutter_pear_bare/'
+              'Resources/desktop/darwin-arm64/pear-end.bundle')
           .writeAsBytesSync([]);
       final results = await runDoctorMacosChecks(buildContext());
       final bundleResult =

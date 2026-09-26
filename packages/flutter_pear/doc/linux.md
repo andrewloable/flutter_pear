@@ -117,9 +117,12 @@ actually killing the subprocess, and a post-terminate `start()` booting a
 genuinely fresh worklet (a new generation id). Process-tree hygiene (no
 orphaned `bare` process survives after the app exits) was confirmed
 directly via `pgrep`, not just inferred. The `linux-x64` desktop bundle
-(`assets/desktop/linux-x64/pear-end.bundle` plus its offloaded native addon
-prebuilds) is a real, committed build artifact, produced the same way the
-macOS bundles are (`bare-pack --offload-addons`).
+(`flutter_pear_bare/linux/assets/desktop/linux-x64/pear-end.bundle` plus
+its offloaded native addon prebuilds -- committed inside the plugin's own
+Linux folder, not flutter_pear's shared assets, so a Linux build never
+bundles the other platforms' addons alongside it; flutter_pear-9ng) is a
+real, committed build artifact, produced the same way the macOS bundles are
+(`bare-pack --offload-addons`).
 
 **A real, in-app Hyperswarm join through `flutter_pear_example` is
 confirmed** (`flutter_pear-65g`, `flutter_pear-ymz`): using the example

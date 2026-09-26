@@ -143,11 +143,13 @@ Future<void> main(List<String> args) async {
   final linuxResults = await runDoctorLinuxChecks(DoctorLinuxContext(
     consumerRoot: Directory.current.path,
     flutterPearRoot: packageRoot.path,
+    flutterPearBareRoot: resolvedBareRoot,
     isLinux: Platform.isLinux,
   ));
   final windowsResults = await runDoctorWindowsChecks(DoctorWindowsContext(
     consumerRoot: Directory.current.path,
     flutterPearRoot: packageRoot.path,
+    flutterPearBareRoot: resolvedBareRoot,
     isWindows: Platform.isWindows,
   ));
   final allResults = [

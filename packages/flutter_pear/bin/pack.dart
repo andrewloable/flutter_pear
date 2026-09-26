@@ -825,6 +825,23 @@ Future<int> generatePackageSwift(String pkgRoot) async {
     return 1;
   }
 
+  // The iOS floor is read from the podspec, never hardcoded here
+  // (flutter_pear-pqd): a literal in this generator silently reverted
+  // flutter_pear-na0's 13 -> 15 bump on the next :pack run. The podspec is
+  // the single source of truth; check_compatibility.dart pins it to
+  // COMPATIBILITY.md.
+  final podspecFile = File('$bareRoot/ios/flutter_pear_bare.podspec');
+  final iosFloor = podspecFile.existsSync()
+      ? RegExp("platform\\s*=\\s*:ios,\\s*'(\\d+)(?:\\.\\d+)?'")
+          .firstMatch(podspecFile.readAsStringSync())
+          ?.group(1)
+      : null;
+  if (iosFloor == null) {
+    stderr.writeln('generatePackageSwift: no s.platform = :ios, '
+        "'<version>' entry in ${podspecFile.path}.");
+    return 1;
+  }
+
   final addonsDir = Directory('$bareRoot/ios/addons');
   if (!addonsDir.existsSync()) {
     stderr.writeln('generatePackageSwift: ${addonsDir.path} missing -- run '
@@ -863,7 +880,7 @@ Future<int> generatePackageSwift(String pkgRoot) async {
     ..writeln()
     ..writeln('let package = Package(')
     ..writeln('    name: "flutter_pear_bare",')
-    ..writeln('    platforms: [.iOS(.v13)],')
+    ..writeln('    platforms: [.iOS(.v$iosFloor)],')
     ..writeln('    products: [')
     ..writeln('        // Flutter\'s SPM-plugin convention: '
         'FlutterGeneratedPluginSwiftPackage looks up this product by name')
@@ -1248,9 +1265,37 @@ const desktopBundleHosts = [
   'win32-x64',
 ];
 
-/// Asset path (relative to the `flutter_pear` package root) [host]'s own
-/// bundle + offloaded-addon tree is written under.
-String desktopBundleAssetDir(String host) => 'assets/desktop/$host';
+/// Where [host]'s own bundle + offloaded-addon tree is committed --
+/// inside flutter_pear_bare's OWN platform plugin folder (macos/linux/
+/// windows), never flutter_pear's shared Flutter `assets:` list.
+///
+/// flutter_pear-9ng: Flutter's plain `assets:` mechanism is NOT
+/// per-platform -- every app that merely DEPENDS on flutter_pear bundled
+/// all four desktop hosts regardless of which platform it was built for
+/// (measured: 50MB of dead weight in a real Android release APK). Each
+/// desktop platform's OWN native build only ever bundles what THIS
+/// function routes to its own plugin folder: macOS gets BOTH darwin hosts
+/// (a universal binary decides between them at OS launch depending on
+/// which architecture actually runs it -- see
+/// FlutterPearBarePlugin.swift's `#if arch` compile-time branch, which
+/// picks one of the two darwin subpaths per compiled slice), Linux only
+/// linux-x64, Windows only win32-x64.
+///
+/// [pkgRoot] is `flutter_pear`'s own package root (this function's other
+/// callers already pass it); flutter_pear_bare is resolved as its sibling,
+/// matching every other cross-package path in this file (e.g.
+/// [readBareKitGradlePin]).
+String desktopBundleAssetDir(String pkgRoot, String host) {
+  final bareRoot = '$pkgRoot/../flutter_pear_bare';
+  if (host.startsWith('darwin-')) {
+    return '$bareRoot/macos/flutter_pear_bare/Sources/flutter_pear_bare/'
+        'Resources/desktop/$host';
+  }
+  if (host == 'linux-x64') return '$bareRoot/linux/assets/desktop/$host';
+  if (host == 'win32-x64') return '$bareRoot/windows/assets/desktop/$host';
+  throw ArgumentError('desktopBundleAssetDir: unrecognized host "$host" -- '
+      'add its platform-plugin routing above rather than guessing');
+}
 
 /// Bundles `pear-end/index.js` once PER [desktopBundleHosts] entry, WITHOUT
 /// `--linked` (flutter_pear-6yz, E-D3): unlike mobile, desktop `bare` loads
@@ -1268,7 +1313,7 @@ Future<int> buildDesktopBundle(String pkgRoot) async {
   final base = '$pkgRoot/pear-end/';
   final entry = '${base}index.js';
   for (final host in desktopBundleHosts) {
-    final outDir = Directory('$pkgRoot/${desktopBundleAssetDir(host)}');
+    final outDir = Directory(desktopBundleAssetDir(pkgRoot, host));
     // Wipe first -- an addon dropped from package.json since the last pack
     // must not leave a stale, orphaned .bare file behind (mirrors
     // linkNativeAddonsIos's own "prune what's no longer produced" rule).
@@ -1295,68 +1340,9 @@ Future<int> buildDesktopBundle(String pkgRoot) async {
     }
     stdout.writeln('wrote $out (+ offloaded addons)');
   }
-  updateDesktopAssetList(pkgRoot);
   return 0;
 }
 
-/// Markers delimiting the auto-generated block in `pubspec.yaml`'s
-/// `flutter: assets:` list that [updateDesktopAssetList] rewrites.
-const desktopAssetsBeginMarker =
-    '# BEGIN desktop addon asset dirs (auto-generated, do not edit)';
-const desktopAssetsEndMarker = '# END desktop addon asset dirs';
-
-/// Regenerates `pubspec.yaml`'s desktop asset list (flutter_pear-6yz, E-D3),
-/// between [desktopAssetsBeginMarker] and [desktopAssetsEndMarker]: one
-/// top-level `assets/desktop/<host>/` directory entry per
-/// [desktopBundleHosts] host (covers that host's own `pear-end.bundle` --
-/// a real, previously-hand-maintained gap found and fixed while adding the
-/// linux-x64 host, flutter_pear-65g: a host added here with no matching
-/// top-level entry silently ships without its bundle file at all), plus one
-/// entry per addon per host (required because Flutter's directory-form
-/// assets, a trailing slash, are NOT recursive -- confirmed by testing: a
-/// nested `node_modules/*/prebuilds/<host>/*.bare` tree was silently
-/// dropped from a real built macOS app until each leaf directory was
-/// listed explicitly). Addon names are scanned from [buildDesktopBundle]'s
-/// own output rather than hardcoded, so this self-corrects whenever
-/// pear-end's dependencies change instead of silently drifting stale.
-void updateDesktopAssetList(String pkgRoot) {
-  final entries = <String>[];
-  for (final host in desktopBundleHosts) {
-    final hostDir = Directory('$pkgRoot/${desktopBundleAssetDir(host)}');
-    if (!hostDir.existsSync()) continue;
-    entries.add('    - ${desktopBundleAssetDir(host)}/');
-    final nodeModulesDir = Directory('${hostDir.path}/node_modules');
-    if (!nodeModulesDir.existsSync()) continue;
-    final addonNames = nodeModulesDir
-        .listSync()
-        .whereType<Directory>()
-        .map((d) => d.uri.pathSegments.where((s) => s.isNotEmpty).last)
-        .toList()
-      ..sort();
-    for (final name in addonNames) {
-      entries.add('    - ${desktopBundleAssetDir(host)}/node_modules/'
-          '$name/prebuilds/$host/');
-    }
-  }
-
-  final pubspecFile = File('$pkgRoot/pubspec.yaml');
-  final text = pubspecFile.readAsStringSync();
-  final beginMarkerIdx = text.indexOf(desktopAssetsBeginMarker);
-  final endMarkerIdx = text.indexOf(desktopAssetsEndMarker);
-  if (beginMarkerIdx == -1 || endMarkerIdx == -1 || endMarkerIdx < beginMarkerIdx) {
-    throw StateError('pubspec.yaml is missing the desktop-addon-asset '
-        'markers ($desktopAssetsBeginMarker / $desktopAssetsEndMarker)');
-  }
-  // Everything up to and including the BEGIN marker's own line.
-  final afterBeginLineStart = text.indexOf('\n', beginMarkerIdx) + 1;
-  // Everything from the start of the END marker's own line onward.
-  final endLineStart = text.lastIndexOf('\n', endMarkerIdx) + 1;
-
-  final before = text.substring(0, afterBeginLineStart);
-  final after = text.substring(endLineStart);
-  final body = entries.map((e) => '$e\n').join();
-  pubspecFile.writeAsStringSync('$before$body$after');
-}
 
 /// A short, deterministic version tag for the pear-end bundle, derived from
 /// the content of the JS files this repo authors (`index.js`, `schema.js`)

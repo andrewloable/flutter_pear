@@ -1,3 +1,49 @@
+## Unreleased
+
+**Added: an opt-in persistent swarm identity for long-lived peers.** No
+breaking change; without the option every worklet start still draws a fresh
+random key pair, which is right for a phone or desktop app.
+
+A host that starts the worklet itself can pass `--persistent-identity` in the
+worklet's argv after the storage dir. `pear-end` then derives its Hyperswarm
+key pair from a 32-byte seed in the storage dir, `swarm-identity.seed`. The
+seed is written once at mode 0600, via a temp file and rename, and a seed of
+the wrong length is replaced. It is a secret: whoever holds it IS that peer.
+
+Found by BladeWatch. A car head unit's peer restarted as a stranger every
+time, which caused two problems:
+- A dial-only phone's existing swarm redialed the dead key forever and never
+  reached the car again. The swarm went on "connecting" for minutes, while a
+  new swarm found the car in about 2 s.
+- Every restart left a dead announcer on the DHT for its 20-minute record
+  lifetime, and every later dialer timed out on it: 5 announcers after 5
+  restarts, 4 of them dead, about 9 s per failed dial.
+
+With the option, a restart mid-download was back on Pear in 3.2 s.
+
+**Fixed: every desktop platform's native addons shipped in every app,
+regardless of which platform it was built for.** `flutter_pear`'s pubspec.yaml
+declared the macOS, Linux, and Windows worklet bundles as plain Flutter
+assets, which are not per-platform -- an Android release APK carried all
+three desktop hosts as dead weight (measured: 50MB in a real build), and each
+desktop app carried the other two platforms' addons alongside its own.
+
+Each desktop host's bundle + offloaded native addons now live inside
+`flutter_pear_bare`'s own per-platform plugin folder instead, bundled only by
+that platform's own native build: SwiftPM `resources`/CocoaPods
+`resource_bundles` on macOS (both darwin hosts travel together -- a universal
+binary decides which one it actually reads at OS launch, not at build time),
+CMake `install(...)` on Linux and Windows. An Android release APK now
+contains zero `assets/desktop` entries; a macOS/Linux/Windows build contains
+only its own host(s). Verified end to end on real hardware for all three
+desktop platforms (a real build, correct file placement, a worklet boot, and
+a full P2P round trip over the public DHT), not by analogy.
+
+No API change. `flutter build ios`/`android` need nothing from app
+developers; a Linux or Windows consumer whose own build tooling somehow
+referenced the old `assets/desktop/<host>/` path directly (nothing in this
+repo did) would need to update it.
+
 ## 0.4.5
 
 **Added: `join(topic, acceptUnannounced: true)` and `join(topic, announce: false)`

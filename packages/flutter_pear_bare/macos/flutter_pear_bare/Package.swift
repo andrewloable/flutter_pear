@@ -24,7 +24,20 @@ let package = Package(
             name: "flutter_pear_bare",
             dependencies: [
                 .product(name: "FlutterFramework", package: "FlutterFramework")
-            ]
+            ],
+            // Committed by bin/pack.dart's buildDesktopBundle
+            // (flutter_pear-9ng): the desktop pear-end.bundle + its
+            // offloaded native addons for BOTH darwin hosts -- a universal
+            // macOS binary decides which one actually runs at OS launch
+            // time depending on the CPU underneath it (natively on Apple
+            // Silicon, under Rosetta otherwise), not at build time, so both
+            // must travel together even though only one is ever read by a
+            // given launch (see FlutterPearBarePlugin.swift's `#if arch`).
+            // `.copy` (not `.process`) because these are opaque data files
+            // bare's own require() reads by relative path, not something
+            // Xcode's resource compiler should transform. Resolved at
+            // runtime via the SPM-synthesized `Bundle.module` accessor.
+            resources: [.copy("Resources/desktop")]
         )
     ]
 )

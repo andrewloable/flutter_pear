@@ -28,12 +28,10 @@ namespace flutter_pear_bare {
 
 namespace {
 
-// The asset subpath already includes the owning package's directory
-// (Windows' flat data\flutter_assets\packages\<pkg>\ layout, confirmed
-// against a real build) -- no separate "fromPackage" lookup call exists on
-// this platform the way iOS/macOS's FlutterDartProject API has one.
-const wchar_t *kBundleAssetSubpath =
-    L"packages\\flutter_pear\\assets\\desktop\\win32-x64\\pear-end.bundle";
+// Subpath within this plugin's OWN bundled data directory -- see
+// ResolveBundlePath, not flutter_pear's Flutter assets since
+// flutter_pear-9ng.
+const wchar_t *kBundleAssetSubpath = L"pear-end.bundle";
 
 // Pin for the real, published `bare-runtime-win32-x64` npm package
 // (Apache-2.0, github.com/holepunchto/bare-runtime) -- flutter_pear-8f6:
@@ -156,7 +154,8 @@ namespace {
 HANDLE g_worklet_process = nullptr;  // handle to the top-level cmd.exe
 HANDLE g_worklet_job = nullptr;      // Job Object; killing it kills the tree
 HANDLE g_worklet_stdin_write = nullptr;
-HANDLE g_worklet_stdout_read = nullptr;
+// No g_worklet_stdout_read: the reader thread owns that handle and closes
+// it itself -- see TeardownWorkletState for why this thread never may.
 int g_worklet_generation = 0;
 HWND g_relay_window = nullptr;
 bool g_wndclass_registered = false;
@@ -165,18 +164,18 @@ FlutterPearBarePlugin *g_current_plugin = nullptr;
 
 const wchar_t *kRelayWindowClassName = L"FlutterPearBareRelayWindow";
 
+// Never closes the stdout pipe (flutter_pear-7ka). Unlike POSIX close(),
+// CloseHandle on a synchronous handle BLOCKS while another thread has a
+// ReadFile pending on it -- it does not unblock the read. The old
+// close-stdout-first ordering (copied from the POSIX hosts) hung
+// terminate() and the UI thread forever against an idle worklet, which
+// writes nothing, before the job kill below ever ran. Killing the tree
+// closes the child's write end instead; the pending read then fails with
+// ERROR_BROKEN_PIPE and ReaderThreadMain closes its own handle.
 void TeardownWorkletState() {
   if (g_worklet_stdin_write != nullptr) {
     CloseHandle(g_worklet_stdin_write);
     g_worklet_stdin_write = nullptr;
-  }
-  if (g_worklet_stdout_read != nullptr) {
-    // Closed BEFORE the process/job below so the reader thread's blocking
-    // ReadFile unblocks with an error and exits quietly, whether this is an
-    // intentional terminate() or cleanup after an already-detected crash --
-    // same ordering rationale as every other host's terminateWorklet().
-    CloseHandle(g_worklet_stdout_read);
-    g_worklet_stdout_read = nullptr;
   }
   if (g_worklet_job != nullptr) {
     // Kills cmd.exe, node.exe, and the real bare-runtime grandchild in one
@@ -185,6 +184,9 @@ void TeardownWorkletState() {
     TerminateJobObject(g_worklet_job, 0);
     CloseHandle(g_worklet_job);
     g_worklet_job = nullptr;
+  } else if (g_worklet_process != nullptr) {
+    // No job (CreateJobObjectW failed): kill what we can.
+    TerminateProcess(g_worklet_process, 0);
   }
   if (g_worklet_process != nullptr) {
     CloseHandle(g_worklet_process);
@@ -197,7 +199,8 @@ void TeardownWorkletState() {
 // hosts, there is nothing to re-arm since this loop never stops on its
 // own until the pipe closes). Every posted message is tagged with the
 // generation active when the READ was issued, so the relay window can
-// discard stale messages from an already-torn-down generation.
+// discard stale messages from an already-torn-down generation. Owns
+// [stdout_read] and is the only code that closes it.
 void ReaderThreadMain(HANDLE stdout_read, int generation) {
   std::vector<uint8_t> buffer(65536);
   for (;;) {
@@ -206,9 +209,10 @@ void ReaderThreadMain(HANDLE stdout_read, int generation) {
                         static_cast<DWORD>(buffer.size()), &bytes_read,
                         nullptr);
     if (!ok || bytes_read == 0) {
-      // EOF or a read error -- the pipe closed, whether via an intentional
-      // terminate() (which closes this handle first) or the process dying
-      // on its own (the waiter thread below reports that case).
+      // EOF or ERROR_BROKEN_PIPE -- the process tree died, whether killed
+      // by terminate() or on its own (the waiter thread below reports
+      // that case).
+      CloseHandle(stdout_read);
       return;
     }
     auto *payload = new WorkletDataPayload();
@@ -225,10 +229,14 @@ void ReaderThreadMain(HANDLE stdout_read, int generation) {
 // Runs on a background thread for the worklet's entire lifetime -- the
 // E2.6 backstop, mirrored from every other host's own wait-for-exit
 // mechanism (GSubprocess's wait_async on Linux, Process.exitCode on macOS).
+// [process] is this thread's own duplicate, closed here: terminate() closes
+// g_worklet_process on the UI thread, and waiting on a handle another
+// thread closes is undefined behavior.
 void WaiterThreadMain(HANDLE process, int generation) {
   WaitForSingleObject(process, INFINITE);
   DWORD exit_code = 0;
   GetExitCodeProcess(process, &exit_code);
+  CloseHandle(process);
   auto *payload = new WorkletExitPayload();
   std::wostringstream reason;
   reason << L"bare subprocess exited (status " << exit_code << L")";
@@ -569,10 +577,14 @@ bool ResolveBareRuntime(std::wstring *out_path) {
   return FetchAndCacheBareRuntime(out_path);
 }
 
-// Resolves the bundled pear-end.bundle's absolute path -- Windows' Flutter
-// asset bundle is a flat, predictable layout (confirmed against a real
-// build): <bundle_root>\data\flutter_assets\<asset_subpath>, with the
-// executable itself living directly at <bundle_root>\<exe_name>.exe.
+// Resolves the bundled pear-end.bundle's absolute path -- Windows' build
+// output is a flat, predictable layout (confirmed against a real build):
+// <bundle_root>\<exe_name>.exe, with this plugin's OWN committed desktop
+// asset tree installed (flutter_pear_bare-9ng, CMakeLists.txt's
+// install(DIRECTORY...)) as a sibling of Flutter's own flutter_assets\,
+// both under <bundle_root>\data\ -- NOT inside flutter_assets\ itself
+// (flutter_pear-9ng: that tree is shared across every consuming app
+// regardless of platform, which is the bug this moved away from).
 bool ResolveBundlePath(std::wstring *out_path) {
   wchar_t exe_path[MAX_PATH];
   DWORD len = GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
@@ -580,8 +592,8 @@ bool ResolveBundlePath(std::wstring *out_path) {
   std::wstring path(exe_path, len);
   size_t last_slash = path.find_last_of(L'\\');
   if (last_slash == std::wstring::npos) return false;
-  *out_path = path.substr(0, last_slash) + L"\\data\\flutter_assets\\" +
-             kBundleAssetSubpath;
+  *out_path = path.substr(0, last_slash) +
+             L"\\data\\flutter_pear_bare_desktop\\" + kBundleAssetSubpath;
   return true;
 }
 
@@ -720,14 +732,18 @@ bool StartWorklet(const std::wstring &bundle_path_arg, std::wstring *error) {
   g_worklet_process = process_info.hProcess;
   g_worklet_job = job;
   g_worklet_stdin_write = parent_stdin_write;
-  g_worklet_stdout_read = parent_stdout_read;
   g_worklet_generation = active_generation;
 
   EnsureRelayWindow();
-  std::thread(ReaderThreadMain, g_worklet_stdout_read, active_generation)
+  std::thread(ReaderThreadMain, parent_stdout_read, active_generation)
       .detach();
-  std::thread(WaiterThreadMain, g_worklet_process, active_generation)
-      .detach();
+  HANDLE waiter_process = nullptr;
+  if (DuplicateHandle(GetCurrentProcess(), process_info.hProcess,
+                      GetCurrentProcess(), &waiter_process, 0, FALSE,
+                      DUPLICATE_SAME_ACCESS)) {
+    std::thread(WaiterThreadMain, waiter_process, active_generation)
+        .detach();
+  }
   return false;
 }
 

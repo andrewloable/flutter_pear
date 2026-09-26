@@ -22,6 +22,17 @@ Manager path.
   s.author           = { 'flutter_pear' => 'noreply@example.com' }
   s.source           = { :path => '.' }
   s.source_files     = 'flutter_pear_bare/Sources/flutter_pear_bare/**/*.swift'
+  # CocoaPods' own resource_bundles mechanism, mirroring Package.swift's
+  # `resources: [.copy("Resources/desktop")]` (flutter_pear-9ng) -- the SAME
+  # on-disk files, packaged the CocoaPods way for this compat path. Produces
+  # a `flutter_pear_bare_desktop.bundle` inside the app; see
+  # FlutterPearBarePlugin.swift's `#if SWIFT_PACKAGE` branch for how each
+  # packaging system's result is located at runtime.
+  s.resource_bundles = {
+    'flutter_pear_bare_desktop' => [
+      'flutter_pear_bare/Sources/flutter_pear_bare/Resources/desktop/**/*'
+    ]
+  }
   s.dependency 'FlutterMacOS'
   # 12.0, kept in sync with flutter_pear_bare/Package.swift's own
   # .macOS("12.0") pin. Raised from 10.15.4 in 0.4.2 (flutter_pear-na0):

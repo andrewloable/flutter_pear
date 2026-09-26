@@ -13,16 +13,19 @@ void main() {
   late Directory root;
   late String consumerRoot;
   late String flutterPearRoot;
+  late String flutterPearBareRoot;
+  late String desktopBundleDir;
 
   setUp(() {
     root = Directory.systemTemp.createTempSync('fp_doctor_linux');
     consumerRoot = '${root.path}/consumer';
     flutterPearRoot = '${root.path}/flutter_pear';
+    flutterPearBareRoot = '${root.path}/flutter_pear_bare';
+    desktopBundleDir =
+        '$flutterPearBareRoot/linux/assets/desktop/linux-x64';
     Directory('$consumerRoot/linux').createSync(recursive: true);
-    Directory('$flutterPearRoot/assets/desktop/linux-x64')
-        .createSync(recursive: true);
-    File('$flutterPearRoot/assets/desktop/linux-x64/pear-end.bundle')
-        .writeAsBytesSync([1, 2, 3]);
+    Directory(desktopBundleDir).createSync(recursive: true);
+    File('$desktopBundleDir/pear-end.bundle').writeAsBytesSync([1, 2, 3]);
   });
 
   tearDown(() => root.deleteSync(recursive: true));
@@ -44,6 +47,7 @@ void main() {
       DoctorLinuxContext(
         consumerRoot: consumerRoot,
         flutterPearRoot: flutterPearRoot,
+        flutterPearBareRoot: flutterPearBareRoot,
         isLinux: isLinux,
         processRunner: processRunner ?? passingProcessRunner,
       );
@@ -146,8 +150,7 @@ void main() {
   group('committed desktop bundle', () {
     test('missing pear-end.bundle for linux-x64 -> FAIL with a '
         'maintainer-only remediation', () async {
-      File('$flutterPearRoot/assets/desktop/linux-x64/pear-end.bundle')
-          .deleteSync();
+      File('$desktopBundleDir/pear-end.bundle').deleteSync();
       final results = await runDoctorLinuxChecks(buildContext());
       final bundleResult =
           results.firstWhere((r) => r.message.contains('pear-end.bundle'));

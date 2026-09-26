@@ -371,6 +371,28 @@ platform :ios, '15.0'
           results.firstWhere((r) => r.message.contains('deployment target'));
       expect(deployResult.status, DoctorCheckStatus.pass);
     });
+
+    test("the no-Package.swift fallback matches the REAL podspec's floor "
+        '(flutter_pear-pqd: a floor bump that misses the fallback fails '
+        'here, not in a consumer)', () async {
+      final podspec = File('${Directory.current.path}/../flutter_pear_bare/'
+              'ios/flutter_pear_bare.podspec')
+          .readAsStringSync();
+      final floor = int.parse(
+          RegExp("platform\\s*=\\s*:ios,\\s*'(\\d+)").firstMatch(podspec)!
+              .group(1)!);
+      File('$bareRoot/ios/flutter_pear_bare/Package.swift').deleteSync();
+
+      Future<DoctorCheckResult> deployResultAt(int major) async {
+        File('$consumerRoot/ios/Runner.xcodeproj/project.pbxproj')
+            .writeAsStringSync('IPHONEOS_DEPLOYMENT_TARGET = $major.0;\n');
+        final results = await runDoctorIosChecks(buildContext());
+        return results.firstWhere((r) => r.message.contains('deployment target'));
+      }
+
+      expect((await deployResultAt(floor - 1)).status, DoctorCheckStatus.fail);
+      expect((await deployResultAt(floor)).status, DoctorCheckStatus.pass);
+    });
   });
 
   test('renderDoctorIosChecks matches the [TAG] message line format', () {

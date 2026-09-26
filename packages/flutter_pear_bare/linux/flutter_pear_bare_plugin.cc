@@ -12,18 +12,15 @@
   (G_TYPE_CHECK_INSTANCE_CAST((obj), flutter_pear_bare_plugin_get_type(), \
                                FlutterPearBarePlugin))
 
-// Subpath (within `flutter_pear`'s Flutter assets) of the bundled pear-end
-// -- Linux uses the DESKTOP bundle (same shape as macOS, flutter_pear-6yz's
-// own offload-addons mechanism), not the mobile assets/pear-end.bundle:
-// unlike mobile's addons (linked ahead of time into this same binary), a
-// desktop bare subprocess loads addons from real `file:` prebuilds at
-// runtime, which only the desktop-specific bundle ships alongside.
-// The asset subpath already includes the owning package's directory
-// (Linux's flat flutter_assets/packages/<pkg>/ layout, confirmed against a
-// real build) -- no separate "fromPackage" lookup call exists on this
-// platform the way iOS/macOS's FlutterDartProject API has one.
-static const char* kBundleAssetSubpath =
-    "packages/flutter_pear/assets/desktop/linux-x64/pear-end.bundle";
+// Subpath (within this plugin's OWN bundled data directory -- see
+// resolve_bundle_path, not flutter_pear's Flutter assets since
+// flutter_pear-9ng) of the bundled pear-end -- Linux uses the DESKTOP
+// bundle (same shape as macOS, flutter_pear-6yz's own offload-addons
+// mechanism), not the mobile assets/pear-end.bundle: unlike mobile's
+// addons (linked ahead of time into this same binary), a desktop bare
+// subprocess loads addons from real `file:` prebuilds at runtime, which
+// only the desktop-specific bundle ships alongside.
+static const char* kBundleAssetSubpath = "pear-end.bundle";
 
 // Pin for the real, published `bare-runtime-linux-x64` npm package
 // (Apache-2.0, github.com/holepunchto/bare-runtime) -- flutter_pear-8f6:
@@ -114,19 +111,25 @@ static void register_shutdown_hook_once() {
   g_shutdown_hook_registered = TRUE;
 }
 
-// Resolves the bundled pear-end.bundle's absolute path -- Linux's Flutter
-// asset bundle is a flat, predictable layout (confirmed against a real
-// build): <bundle_root>/data/flutter_assets/<asset_subpath>, with the
-// executable itself living directly at <bundle_root>/<exe_name>. Unlike
+// Resolves the bundled pear-end.bundle's absolute path -- Linux's build
+// output is a flat, predictable layout (confirmed against a real build):
+// <bundle_root>/<exe_name>, with this plugin's OWN committed desktop asset
+// tree installed (flutter_pear_bare-9ng, CMakeLists.txt's
+// install(DIRECTORY...)) as a sibling of Flutter's own flutter_assets/,
+// both under <bundle_root>/data/ -- NOT inside flutter_assets/ itself
+// (flutter_pear-9ng: that tree is shared across every consuming app
+// regardless of platform, which is the bug this moved away from). Unlike
 // iOS/macOS, Linux's flutter_linux embedding exposes no asset-lookup
 // helper on the plugin-registrar path, so this resolves the running
-// executable's own directory via /proc/self/exe instead.
+// executable's own directory via /proc/self/exe instead -- unaffected by
+// exactly where the asset tree itself lives, since it was already doing a
+// plain path join relative to that same bundle root.
 static gchar* resolve_bundle_path(GError** error) {
   g_autofree gchar* exe_path = g_file_read_link("/proc/self/exe", error);
   if (exe_path == nullptr) return nullptr;
   g_autofree gchar* exe_dir = g_path_get_dirname(exe_path);
-  gchar* bundle_path = g_build_filename(exe_dir, "data", "flutter_assets",
-                                         kBundleAssetSubpath, nullptr);
+  gchar* bundle_path = g_build_filename(
+      exe_dir, "data", "flutter_pear_bare_desktop", kBundleAssetSubpath, nullptr);
   return bundle_path;
 }
 

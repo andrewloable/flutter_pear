@@ -14,19 +14,58 @@ void main() {
     });
   });
 
+  group('desktopBundleAssetDir routing (flutter_pear-9ng: each host lands '
+      "inside flutter_pear_bare's OWN per-platform plugin folder, never "
+      "flutter_pear's shared Flutter assets)", () {
+    test('both darwin hosts route to the macOS plugin\'s SPM resources '
+        'directory -- both, not just the current dev machine\'s own '
+        'architecture, since a universal binary decides at OS launch which '
+        'one it actually reads', () {
+      expect(
+        desktopBundleAssetDir('/pkg', 'darwin-arm64'),
+        '/pkg/../flutter_pear_bare/macos/flutter_pear_bare/Sources/'
+            'flutter_pear_bare/Resources/desktop/darwin-arm64',
+      );
+      expect(
+        desktopBundleAssetDir('/pkg', 'darwin-x64'),
+        '/pkg/../flutter_pear_bare/macos/flutter_pear_bare/Sources/'
+            'flutter_pear_bare/Resources/desktop/darwin-x64',
+      );
+    });
+
+    test('linux-x64 routes to the Linux plugin folder', () {
+      expect(
+        desktopBundleAssetDir('/pkg', 'linux-x64'),
+        '/pkg/../flutter_pear_bare/linux/assets/desktop/linux-x64',
+      );
+    });
+
+    test('win32-x64 routes to the Windows plugin folder', () {
+      expect(
+        desktopBundleAssetDir('/pkg', 'win32-x64'),
+        '/pkg/../flutter_pear_bare/windows/assets/desktop/win32-x64',
+      );
+    });
+
+    test('an unrecognized host throws rather than guessing a path', () {
+      expect(() => desktopBundleAssetDir('/pkg', 'freebsd-x64'),
+          throwsArgumentError);
+    });
+  });
+
   group('committed desktop bundle + addon layout (reads the committed tree '
       '-- no bare-pack invocation, no toolchain)', () {
-    late Directory pkgRoot;
+    late String pkgRoot;
 
     setUpAll(() {
-      pkgRoot = Directory(Directory.current.path);
+      pkgRoot = Directory.current.path;
     });
 
     test('every desktopBundleHosts entry has a committed pear-end.bundle',
         () {
       for (final host in desktopBundleHosts) {
-        final bundle =
-            File('${pkgRoot.path}/${desktopBundleAssetDir(host)}/pear-end.bundle');
+        final bundle = File(
+            '${desktopBundleAssetDir(pkgRoot, host)}/pear-end.bundle');
         expect(bundle.existsSync(), isTrue,
             reason: '${bundle.path} should exist once :pack has run');
         expect(bundle.lengthSync(), greaterThan(0),
@@ -38,8 +77,8 @@ void main() {
         'every offloaded addon under each host has an ACTUAL .bare prebuild '
         'file, not just an empty directory', () {
       for (final host in desktopBundleHosts) {
-        final nodeModulesDir = Directory(
-            '${pkgRoot.path}/${desktopBundleAssetDir(host)}/node_modules');
+        final nodeModulesDir =
+            Directory('${desktopBundleAssetDir(pkgRoot, host)}/node_modules');
         expect(nodeModulesDir.existsSync(), isTrue,
             reason: '${nodeModulesDir.path} should exist once :pack has run');
         final addonDirs =
@@ -60,183 +99,88 @@ void main() {
     });
 
     test(
-        'pubspec.yaml\'s auto-generated desktop asset list names EXACTLY '
-        'the addon directories actually committed on disk -- catches the '
-        'flutter_pear-6yz regression this test group guards (Flutter\'s '
-        'directory-form assets are NOT recursive; an addon present on disk '
-        'but missing from this list would be silently dropped from a real '
-        'built app, exactly as observed and fixed during this task)', () {
-      final pubspecText =
-          File('${pkgRoot.path}/pubspec.yaml').readAsStringSync();
-      final beginIdx = pubspecText.indexOf(desktopAssetsBeginMarker);
-      final endIdx = pubspecText.indexOf(desktopAssetsEndMarker);
-      expect(beginIdx, isNot(-1),
-          reason: 'pubspec.yaml is missing $desktopAssetsBeginMarker');
-      expect(endIdx, greaterThan(beginIdx));
-      final block = pubspecText.substring(beginIdx, endIdx);
-
-      final expectedDirs = <String>{};
-      for (final host in desktopBundleHosts) {
-        final nodeModulesDir = Directory(
-            '${pkgRoot.path}/${desktopBundleAssetDir(host)}/node_modules');
-        for (final addonDir
-            in nodeModulesDir.listSync().whereType<Directory>()) {
-          final name =
-              addonDir.uri.pathSegments.where((s) => s.isNotEmpty).last;
-          expectedDirs.add(
-              '${desktopBundleAssetDir(host)}/node_modules/$name/prebuilds/$host/');
-        }
-      }
-
-      for (final dir in expectedDirs) {
-        expect(block, contains(dir),
-            reason: 'pubspec.yaml\'s desktop asset list is missing $dir -- '
-                'run `dart run flutter_pear:pack` to regenerate');
-      }
-    });
-
-    test(
-        'pubspec.yaml\'s auto-generated desktop asset list also names EACH '
-        'host\'s own top-level directory (covers that host\'s '
-        'pear-end.bundle FILE, distinct from its addon subdirectories) -- '
-        'this line was ONCE hand-maintained outside the marker block and '
-        'silently missed when linux-x64 was added (flutter_pear-65g); it is '
-        'now generated by updateDesktopAssetList like everything else in '
-        'this block', () {
-      final pubspecText =
-          File('${pkgRoot.path}/pubspec.yaml').readAsStringSync();
-      final beginIdx = pubspecText.indexOf(desktopAssetsBeginMarker);
-      final endIdx = pubspecText.indexOf(desktopAssetsEndMarker);
-      final block = pubspecText.substring(beginIdx, endIdx);
-
-      for (final host in desktopBundleHosts) {
-        expect(block, contains('- ${desktopBundleAssetDir(host)}/\n'),
-            reason: 'pubspec.yaml\'s desktop asset list is missing the '
-                'top-level ${desktopBundleAssetDir(host)}/ entry -- run '
-                '`dart run flutter_pear:pack` to regenerate');
-      }
+        'both darwin hosts land under the SAME macOS resources directory '
+        '(one shared resource bundle, not two separate ones) -- catches a '
+        'routing regression that scattered them', () {
+      final arm64 = Directory(desktopBundleAssetDir(pkgRoot, 'darwin-arm64'));
+      final x64 = Directory(desktopBundleAssetDir(pkgRoot, 'darwin-x64'));
+      expect(arm64.parent.path, x64.parent.path,
+          reason: 'both darwin-arm64/ and darwin-x64/ should be siblings '
+              'under Resources/desktop/');
     });
   });
 
-  group('updateDesktopAssetList (pure function, a fixture pubspec.yaml -- '
-      'no bare-pack invocation)', () {
-    late Directory tmp;
-    late String pkgRoot;
-
-    setUp(() {
-      tmp = Directory.systemTemp.createTempSync('fp_pack_desktop_assets');
-      pkgRoot = tmp.path;
+  group("flutter_pear's own pubspec.yaml never re-acquires a desktop asset "
+      '(regression guard for flutter_pear-9ng itself: this is the exact '
+      'shape of bug the fix removed -- a universal Flutter asset every '
+      'consuming app bundles regardless of its own target platform)', () {
+    test('no assets/desktop/ entry anywhere in the flutter: assets: list',
+        () {
+      final pubspecText =
+          File('${Directory.current.path}/pubspec.yaml').readAsStringSync();
+      expect(pubspecText, isNot(contains('assets/desktop')),
+          reason: 'flutter_pear/pubspec.yaml must not declare any desktop '
+              'host as a Flutter asset -- every consuming app on every '
+              'platform would bundle it (flutter_pear-9ng)');
     });
 
-    tearDown(() => tmp.deleteSync(recursive: true));
+    test('the old universal assets/desktop/ directory is gone from '
+        "flutter_pear's own package tree", () {
+      final oldDir = Directory('${Directory.current.path}/assets/desktop');
+      expect(oldDir.existsSync(), isFalse,
+          reason: '${oldDir.path} should have been removed once its '
+              'contents moved into flutter_pear_bare\'s own platform '
+              'folders');
+    });
+  });
 
-    void writeFixturePubspec({String extraBody = ''}) {
-      File('$pkgRoot/pubspec.yaml').writeAsStringSync('''
-name: flutter_pear
-flutter:
-  assets:
-    - assets/pear-end.bundle
-    $desktopAssetsBeginMarker
-$extraBody    $desktopAssetsEndMarker
-''');
-    }
+  group('each desktop platform\'s own native build declares the bundling '
+      '(flutter_pear-9ng: this is what makes the asset arrive at build '
+      "time; the committed FILES alone prove nothing about whether a "
+      "platform's build system actually packages them)", () {
+    late String bareRoot;
 
-    void writeFixtureAddon(String host, String addonName) {
-      Directory(
-              '$pkgRoot/${desktopBundleAssetDir(host)}/node_modules/$addonName/prebuilds/$host')
-          .createSync(recursive: true);
-    }
-
-    test('rewrites the marked block with one top-level host directory entry '
-        'plus one entry per addon per host, sorted, leaving everything '
-        'outside the markers untouched', () {
-      writeFixturePubspec();
-      writeFixtureAddon('darwin-arm64', 'zzz-addon');
-      writeFixtureAddon('darwin-arm64', 'aaa-addon');
-      writeFixtureAddon('darwin-x64', 'aaa-addon');
-
-      updateDesktopAssetList(pkgRoot);
-
-      final text = File('$pkgRoot/pubspec.yaml').readAsStringSync();
-      expect(text, contains('- assets/pear-end.bundle'),
-          reason: 'content before the markers must survive untouched');
-      expect(
-        text,
-        contains('    - assets/desktop/darwin-arm64/\n'
-            '    - assets/desktop/darwin-arm64/node_modules/'
-            'aaa-addon/prebuilds/darwin-arm64/\n'
-            '    - assets/desktop/darwin-arm64/node_modules/'
-            'zzz-addon/prebuilds/darwin-arm64/\n'),
-        reason: 'the top-level host entry should come first, followed by '
-            'darwin-arm64\'s addon entries sorted (aaa before zzz)',
-      );
-      expect(
-        text,
-        contains('    - assets/desktop/darwin-x64/\n'
-            '    - assets/desktop/darwin-x64/node_modules/'
-            'aaa-addon/prebuilds/darwin-x64/\n'),
-      );
+    setUpAll(() {
+      bareRoot = '${Directory.current.path}/../flutter_pear_bare';
     });
 
-    test('re-running on an already-populated block replaces it rather than '
-        'duplicating entries (idempotent)', () {
-      writeFixturePubspec();
-      writeFixtureAddon('darwin-arm64', 'only-addon');
-
-      updateDesktopAssetList(pkgRoot);
-      updateDesktopAssetList(pkgRoot);
-
-      final text = File('$pkgRoot/pubspec.yaml').readAsStringSync();
-      final occurrences =
-          'only-addon'.allMatches(text).length;
-      expect(occurrences, 1,
-          reason: 'a second run must replace, not duplicate, the block');
+    test('macOS Package.swift declares the desktop Resources', () {
+      final text =
+          File('$bareRoot/macos/flutter_pear_bare/Package.swift')
+              .readAsStringSync();
+      expect(text, contains('.copy("Resources/desktop")'),
+          reason: 'the SPM target must declare its desktop resources, or '
+              'Bundle.module will never find them at runtime');
     });
 
-    test('a host whose directory does not exist at all contributes zero '
-        'entries, not a crash', () {
-      writeFixturePubspec();
-      // Neither host directory exists at all.
-      updateDesktopAssetList(pkgRoot);
-
-      final text = File('$pkgRoot/pubspec.yaml').readAsStringSync();
-      final beginIdx = text.indexOf(desktopAssetsBeginMarker);
-      final endIdx = text.indexOf(desktopAssetsEndMarker);
-      final block = text.substring(
-          beginIdx + desktopAssetsBeginMarker.length, endIdx);
-      expect(block.trim(), isEmpty);
+    test('macOS podspec declares the desktop resource_bundles (CocoaPods '
+        'compat path)', () {
+      final text = File('$bareRoot/macos/flutter_pear_bare.podspec')
+          .readAsStringSync();
+      expect(text, contains('resource_bundles'));
+      expect(text, contains('flutter_pear_bare_desktop'));
+      expect(text, contains('Resources/desktop'));
     });
 
-    test('a host whose directory exists (its pear-end.bundle was written) '
-        'but has no offloaded addons yet (node_modules missing) '
-        'contributes ONLY its top-level entry, not a crash', () {
-      writeFixturePubspec();
-      Directory('$pkgRoot/${desktopBundleAssetDir('darwin-arm64')}')
-          .createSync(recursive: true);
-      // No node_modules under it, and the other host's directory is
-      // entirely absent.
-
-      updateDesktopAssetList(pkgRoot);
-
-      final text = File('$pkgRoot/pubspec.yaml').readAsStringSync();
-      final beginIdx = text.indexOf(desktopAssetsBeginMarker);
-      final endIdx = text.indexOf(desktopAssetsEndMarker);
-      final block = text.substring(
-          beginIdx + desktopAssetsBeginMarker.length, endIdx);
-      expect(block.trim(), '- assets/desktop/darwin-arm64/');
+    test('Linux CMakeLists.txt declares an install(DIRECTORY ...) for '
+        'linux-x64, preserving nested structure (install(FILES ...) via '
+        'flutter_pear_bare_bundled_libraries would flatten it and break '
+        "bare's own require() resolution)", () {
+      final text = File('$bareRoot/linux/CMakeLists.txt').readAsStringSync();
+      expect(text, contains('install(DIRECTORY'));
+      expect(text, contains('assets/desktop/linux-x64'));
+      expect(text, contains('flutter_pear_bare_desktop'));
     });
 
-    test('throws a clear error when the markers are missing, instead of '
-        'silently corrupting pubspec.yaml', () {
-      File('$pkgRoot/pubspec.yaml').writeAsStringSync('''
-name: flutter_pear
-flutter:
-  assets:
-    - assets/pear-end.bundle
-''');
-      writeFixtureAddon('darwin-arm64', 'some-addon');
-
-      expect(() => updateDesktopAssetList(pkgRoot), throwsStateError);
+    test('Windows CMakeLists.txt declares an install(CODE "file(INSTALL '
+        '...)") for win32-x64 -- a bare install(DIRECTORY ...) fails under '
+        "Visual Studio's multi-config generator", () {
+      final text =
+          File('$bareRoot/windows/CMakeLists.txt').readAsStringSync();
+      expect(text, contains('install(CODE'));
+      expect(text, contains('file(INSTALL'));
+      expect(text, contains('assets/desktop/win32-x64'));
+      expect(text, contains('flutter_pear_bare_desktop'));
     });
   });
 }

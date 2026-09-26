@@ -35,6 +35,7 @@ class DoctorLinuxContext {
   const DoctorLinuxContext({
     required this.consumerRoot,
     required this.flutterPearRoot,
+    required this.flutterPearBareRoot,
     this.isLinux = true,
     this.processRunner = _realProcessRunner,
   });
@@ -43,9 +44,13 @@ class DoctorLinuxContext {
   /// `pubspec.yaml`, ...) -- `Directory.current.path` in production.
   final String consumerRoot;
 
-  /// The resolved `flutter_pear` package's own root directory -- where the
-  /// committed `assets/desktop/<host>/pear-end.bundle` files live.
+  /// The resolved `flutter_pear` package's own root directory.
   final String flutterPearRoot;
+
+  /// The resolved `flutter_pear_bare` package's own root directory -- where
+  /// the committed `linux/assets/desktop/linux-x64/pear-end.bundle` files
+  /// live (flutter_pear-9ng).
+  final String flutterPearBareRoot;
 
   /// Whether this run is on Linux -- `Platform.isLinux` in production.
   /// Every Linux check needs the real, local build toolchain (clang, cmake,
@@ -180,12 +185,13 @@ Future<DoctorCheckResult> _checkPkgConfigGtk(DoctorLinuxContext ctx) async {
 
 Future<DoctorCheckResult> _checkCommittedDesktopBundle(
     DoctorLinuxContext ctx) async {
-  final bundle = File(
-      '${ctx.flutterPearRoot}/assets/desktop/linux-x64/pear-end.bundle');
+  final bundle = File('${ctx.flutterPearBareRoot}/linux/assets/desktop/'
+      'linux-x64/pear-end.bundle');
   if (!bundle.existsSync() || bundle.lengthSync() == 0) {
     return DoctorCheckResult(
       DoctorCheckStatus.fail,
-      'flutter_pear/assets/desktop/linux-x64/pear-end.bundle is missing',
+      'flutter_pear_bare/linux/assets/desktop/linux-x64/pear-end.bundle '
+          'is missing',
       remediation: _maintainerOnlyRemediation,
     );
   }

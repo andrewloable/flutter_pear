@@ -88,12 +88,14 @@ class DoctorMacosContext {
   /// `pubspec.yaml`, ...) -- `Directory.current.path` in production.
   final String consumerRoot;
 
-  /// The resolved `flutter_pear` package's own root directory -- where the
-  /// committed `assets/desktop/<host>/pear-end.bundle` files live.
+  /// The resolved `flutter_pear` package's own root directory.
   final String flutterPearRoot;
 
   /// The resolved `flutter_pear_bare` package's own root directory -- where
-  /// `macos/flutter_pear_bare/Package.swift` lives.
+  /// `macos/flutter_pear_bare/Package.swift` and the committed
+  /// per-host `pear-end.bundle` files under
+  /// `macos/flutter_pear_bare/Sources/flutter_pear_bare/Resources/desktop/`
+  /// live (flutter_pear-9ng).
   final String flutterPearBareRoot;
 
   /// Whether this run is on macOS -- `Platform.isMacOS` in production.
@@ -524,10 +526,13 @@ const _maintainerOnlyRemediation = 'This indicates a corrupted install of '
 Future<DoctorCheckResult> _checkCommittedDesktopBundle(
     DoctorMacosContext ctx) async {
   const hosts = ['darwin-arm64', 'darwin-x64'];
+  const resourcesDir = 'flutter_pear_bare/macos/flutter_pear_bare/Sources/'
+      'flutter_pear_bare/Resources/desktop';
   final missing = <String>[];
   for (final host in hosts) {
-    final bundle =
-        File('${ctx.flutterPearRoot}/assets/desktop/$host/pear-end.bundle');
+    final bundle = File(
+        '${ctx.flutterPearBareRoot}/macos/flutter_pear_bare/Sources/'
+        'flutter_pear_bare/Resources/desktop/$host/pear-end.bundle');
     if (!bundle.existsSync() || bundle.lengthSync() == 0) {
       missing.add(host);
     }
@@ -535,7 +540,7 @@ Future<DoctorCheckResult> _checkCommittedDesktopBundle(
   if (missing.isNotEmpty) {
     return DoctorCheckResult(
       DoctorCheckStatus.fail,
-      'flutter_pear/assets/desktop/ is missing a pear-end.bundle for: '
+      '$resourcesDir/ is missing a pear-end.bundle for: '
           '${missing.join(', ')}',
       remediation: _maintainerOnlyRemediation,
     );

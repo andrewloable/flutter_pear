@@ -478,6 +478,7 @@ void main() {
     Directory buildFixturePkgRoot({
       Map<String, String>? pin,
       List<String> addonDirNames = const ['sodium-native.5.1.0.xcframework', 'udx-native.1.20.7.xcframework'],
+      String? podspecIosFloor = '15.0',
     }) {
       final tmp = Directory.systemTemp.createTempSync('fp_pack_swift_gen');
       final pkgRoot = Directory('${tmp.path}/flutter_pear')..createSync();
@@ -486,6 +487,10 @@ void main() {
         File('${bareRoot.path}/barekit-pin.json').writeAsStringSync(jsonEncode(pin));
       }
       final addonsDir = Directory('${bareRoot.path}/ios/addons')..createSync(recursive: true);
+      if (podspecIosFloor != null) {
+        File('${bareRoot.path}/ios/flutter_pear_bare.podspec')
+            .writeAsStringSync("  s.platform         = :ios, '$podspecIosFloor'\n");
+      }
       for (final name in addonDirNames) {
         Directory('${addonsDir.path}/$name').createSync(recursive: true);
       }
@@ -551,6 +556,32 @@ void main() {
     test('fails (nonzero, writes nothing) when ios/addons has no '
         'xcframeworks', () async {
       final pkgRoot = buildFixturePkgRoot(pin: fixturePin(), addonDirNames: const []);
+      addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
+
+      expect(await generatePackageSwift(pkgRoot.path), isNot(0));
+      expect(
+          File('${pkgRoot.path}/../flutter_pear_bare/$packageSwiftRelativePath')
+              .existsSync(),
+          isFalse);
+    });
+
+    test('the iOS floor comes from the podspec, not a literal in the '
+        'generator (flutter_pear-pqd)', () async {
+      final pkgRoot =
+          buildFixturePkgRoot(pin: fixturePin(), podspecIosFloor: '17.0');
+      addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
+
+      expect(await generatePackageSwift(pkgRoot.path), 0);
+      final manifest =
+          File('${pkgRoot.path}/../flutter_pear_bare/$packageSwiftRelativePath')
+              .readAsStringSync();
+      expect(manifest, contains('platforms: [.iOS(.v17)],'));
+    });
+
+    test('fails (nonzero, writes nothing) when the podspec has no iOS floor',
+        () async {
+      final pkgRoot =
+          buildFixturePkgRoot(pin: fixturePin(), podspecIosFloor: null);
       addTearDown(() => pkgRoot.parent.deleteSync(recursive: true));
 
       expect(await generatePackageSwift(pkgRoot.path), isNot(0));
