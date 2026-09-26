@@ -1,4 +1,4 @@
-## Unreleased
+## 0.4.6
 
 **Added: an opt-in persistent swarm identity for long-lived peers.** No
 breaking change; without the option every worklet start still draws a fresh
@@ -43,6 +43,13 @@ No API change. `flutter build ios`/`android` need nothing from app
 developers; a Linux or Windows consumer whose own build tooling somehow
 referenced the old `assets/desktop/<host>/` path directly (nothing in this
 repo did) would need to update it.
+
+**Changed: `flutter_pear` now requires `flutter_pear_bare` 0.4.6
+(`>=0.4.6 <0.4.7`), not `^0.4.1`.** The desktop bundle now ships inside `flutter_pear_bare`, and
+`Pear.start()` checks the bundle's version hash for an exact match, so any other
+`flutter_pear_bare` version fails on desktop with `bundleVersionMismatch` (or,
+before 0.4.6, has no desktop bundle at all). Pub resolves this for you; the
+two packages have always been released together anyway.
 
 ## 0.4.5
 

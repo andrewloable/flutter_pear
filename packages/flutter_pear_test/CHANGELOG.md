@@ -1,3 +1,11 @@
+## 0.4.6
+
+No code or behaviour change to this package. Version bump to stay in
+lockstep with `flutter_pear` and `flutter_pear_bare` 0.4.6. Their changes are an
+opt-in persistent swarm identity inside `pear-end`, desktop bundles moving
+into `flutter_pear_bare`, and a Windows `terminate()` hang fix. None of them
+touches the in-memory fake.
+
 ## 0.4.5
 
 The in-memory hub honours `join(announce:, acceptUnannounced:)`: two worklets

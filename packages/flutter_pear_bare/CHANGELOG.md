@@ -1,4 +1,4 @@
-## Unreleased
+## 0.4.6
 
 **Fixed: `BareWorklet.terminate()` hung forever on Windows**, freezing the
 app's UI thread with it. It also hung on window close. The Windows host closed
