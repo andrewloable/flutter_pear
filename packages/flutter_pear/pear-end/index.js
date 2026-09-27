@@ -205,6 +205,8 @@ function sendState (topicHex, state, reason) {
 swarm.on('connection', (conn, info) => {
   const peer = info.publicKey.toString('hex')
   connections.set(peer, conn)
+  const openedAt = Date.now()
+  let lastError = null // set by conn.on('error') below, which fires before 'close'
 
   // Messages that arrived before this connection was tagged with any joined
   // topic (base64, oldest first) -- see tagInboundConnection below. Released
@@ -285,23 +287,70 @@ swarm.on('connection', (conn, info) => {
     connections.delete(peer)
     connectionChannels.delete(peer)
     replicationStreams.delete(peer) // E5.2: the chained replicate() stream dies with its connection
+    const stats = closeStats(conn, openedAt, lastError)
     for (const topicBuf of info.topics) {
       const topicHex = topicBuf.toString('hex')
       const t = topics.get(topicHex)
       if (!t || !t.connectedPeers.has(peer)) continue
       t.connectedPeers.delete(peer)
-      send({ ev: EventName.CONNECTION_CLOSE, p: { topic: topicHex, peer } })
+      send({ ev: EventName.CONNECTION_CLOSE, p: { topic: topicHex, peer, stats } })
       if (t.connectedPeers.size === 0) sendState(topicHex, SwarmState.RECONNECTING)
     }
   })
   // 'close' fires after 'error' regardless; nothing more to do here beyond
   // surfacing it as a diagnostic per associated topic.
   conn.on('error', (err) => {
+    lastError = err
     for (const topicBuf of info.topics) {
-      send({ ev: EventName.SWARM_LIFECYCLE, p: { topic: topicBuf.toString('hex'), event: 'connection-error', message: String(err) } })
+      send({ ev: EventName.SWARM_LIFECYCLE, p: { topic: topicBuf.toString('hex'), event: 'connection-error', message: scrub(String(err)) } })
     }
   })
 })
+
+// Why a connection closed, carried on its CONNECTION_CLOSE (found by BladeWatch, rdtj.34: drops
+// over mobile data could not be told apart -- UDX timeouts under load, or a carrier NAT mapping
+// expiring). One object per close, nothing per packet; the host decides whether to log it.
+// Counts and codes only: never an address or a key, since a host's log may leave the device.
+// `error` is null for a clean close by either side. UDX's own counters, sampled as the stream
+// ends: rtt is its smoothed RTT, rtoCount its retransmission timeouts. No `relayed` field:
+// pear-end configures no blind relay (relayThrough), so no connection is relayed.
+function closeStats (conn, openedAt, err) {
+  const raw = conn.rawStream
+  const read = (f) => {
+    try {
+      const v = raw ? f(raw) : null
+      return v === undefined ? null : v
+    } catch (_) {
+      return null // a raw stream without UDX's counters
+    }
+  }
+  return {
+    error: err ? errorOf(err) : null,
+    ageMs: Date.now() - openedAt,
+    bytesIn: read((r) => r.bytesReceived),
+    bytesOut: read((r) => r.bytesTransmitted),
+    rtt: read((r) => r.rtt),
+    rtoCount: read((r) => r.rtoCount),
+    retransmits: read((r) => r.retransmits),
+    ipv6: read((r) => (r.remoteFamily ? r.remoteFamily === 6 : null))
+  }
+}
+
+// An error's code, or else its scrubbed message.
+function errorOf (err) {
+  if (err && typeof err.code === 'string' && err.code) return err.code
+  return scrub(String((err && err.message) || err))
+}
+
+// Masks anything address- or key-shaped: some error messages embed one (udx-native: "<host> is
+// not a valid IP address").
+function scrub (text) {
+  return text
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '<ip>')
+    .replace(/(?:[0-9a-f]{0,4}:){2,}[0-9a-f]{0,4}/gi, '<ip>') // IPv6, '::1' included
+    .replace(/\b[0-9a-f]{16,}\b/gi, '<key>')
+    .slice(0, 160)
+}
 
 // Hyperswarm tags a connection with a topic (`info.topics`, which gates every
 // event above) only when THIS side's own discovery query finds the peer

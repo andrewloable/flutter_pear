@@ -14,6 +14,37 @@ import 'schema.dart';
 /// just a bare code string, matching every other typed failure in this API.
 typedef PearSwarmStatus = ({PearSwarmState state, PearException? error});
 
+/// Why a [PearConnection] closed (pear-end's `connection.close` stats): counts and codes only,
+/// never an address or a key. [error] is null for a clean close by either side, else the error's
+/// code (`ETIMEDOUT`) or its message with anything address- or key-shaped masked. [rtt] is UDX's
+/// smoothed round-trip time and [rtoCount] its retransmission timeouts, both sampled as the
+/// stream ended; [ipv6] is the remote address family. Any field a pear-end could not read is null.
+typedef PearCloseStats = ({
+  String? error,
+  int? ageMs,
+  int? bytesIn,
+  int? bytesOut,
+  int? rtt,
+  int? rtoCount,
+  int? retransmits,
+  bool? ipv6,
+});
+
+PearCloseStats? _closeStatsFrom(Object? raw) {
+  if (raw is! Map) return null;
+  int? n(String k) => raw[k] is num ? (raw[k] as num).toInt() : null;
+  return (
+    error: raw['error'] is String ? raw['error'] as String : null,
+    ageMs: n('ageMs'),
+    bytesIn: n('bytesIn'),
+    bytesOut: n('bytesOut'),
+    rtt: n('rtt'),
+    rtoCount: n('rtoCount'),
+    retransmits: n('retransmits'),
+    ipv6: raw['ipv6'] is bool ? raw['ipv6'] as bool : null,
+  );
+}
+
 /// One peer connection: a duplex byte pipe, Noise/secret-stream encrypted inside
 /// the worklet.
 ///
@@ -37,6 +68,11 @@ class PearConnection {
   final StreamController<Uint8List> _data =
       StreamController<Uint8List>.broadcast();
   bool _closed = false;
+
+  /// Why this connection closed, once [data] is done; null while it is open, or when the
+  /// worklet's pear-end predates close stats.
+  PearCloseStats? get closeStats => _closeStats;
+  PearCloseStats? _closeStats;
 
   /// Bytes received from the peer. Closes when this connection drops — see
   /// this class's own doc for why that's never silently recovered.
@@ -69,8 +105,9 @@ class PearConnection {
     });
   }
 
-  Future<void> _close() {
+  Future<void> _close([PearCloseStats? stats]) {
     _closed = true;
+    _closeStats = stats;
     return _data.close();
   }
 }
@@ -244,7 +281,7 @@ class PearSwarm {
         case PearEventName.connectionData:
           _byKey[p['peer']]?._add(base64Decode(p['data'] as String));
         case PearEventName.connectionClose:
-          _byKey.remove(p['peer'])?._close();
+          _byKey.remove(p['peer'])?._close(_closeStatsFrom(p['stats']));
         case PearEventName.swarmLifecycle:
           _applyLifecycle(p);
       }

@@ -338,6 +338,57 @@ void main() {
     );
   });
 
+  test('closeStats says why a connection closed; null before, and from an older pear-end',
+      () async {
+    final swarm = await joinSwarm();
+    final a = PearCrypto.unsafeTopicFromString('peer-a');
+    final b = PearCrypto.unsafeTopicFromString('peer-b');
+    for (final k in [a, b]) {
+      worklet.sendJsonFrame({
+        'ev': PearEventName.swarmConnection,
+        'p': {'topic': topic.hex, 'peer': k.hex},
+      });
+    }
+    await Future<void>.delayed(Duration.zero);
+    final conns = swarm.establishedConnections;
+    expect(conns.first.closeStats, isNull, reason: 'still open');
+
+    worklet.sendJsonFrame({
+      'ev': PearEventName.connectionClose,
+      'p': {
+        'topic': topic.hex,
+        'peer': a.hex,
+        'stats': {
+          'error': 'ETIMEDOUT',
+          'ageMs': 125000,
+          'bytesIn': 900,
+          'bytesOut': 7340032,
+          'rtt': 180,
+          'rtoCount': 3,
+          'retransmits': 41,
+          'ipv6': false,
+        },
+      },
+    });
+    worklet.sendJsonFrame({
+      'ev': PearEventName.connectionClose,
+      'p': {'topic': topic.hex, 'peer': b.hex},
+    });
+    await Future<void>.delayed(Duration.zero);
+
+    expect(conns.first.closeStats, (
+      error: 'ETIMEDOUT',
+      ageMs: 125000,
+      bytesIn: 900,
+      bytesOut: 7340032,
+      rtt: 180,
+      rtoCount: 3,
+      retransmits: 41,
+      ipv6: false,
+    ));
+    expect(conns.last.closeStats, isNull, reason: 'a close with no stats');
+  });
+
   test(
       'establishedConnections captures a connection that arrived before '
       'any .connections subscription -- the same late-subscriber race '

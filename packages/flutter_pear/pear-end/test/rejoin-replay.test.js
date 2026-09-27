@@ -303,3 +303,42 @@ test('DHT_STATUS reports whether the DHT is reachable', async (t) => {
   assert.equal(res.ok.online, true, 'online once bootstrapped onto the DHT')
   assert.equal(typeof res.ok.firewalled, 'boolean')
 })
+
+// BladeWatch-rdtj.34: every CONNECTION_CLOSE says why, in counts and codes -- never an address or
+// a key, even when the error that ended the connection named one.
+test('CONNECTION_CLOSE carries close stats with no address or key in them', async (t) => {
+  const testnet = await createTestnet(3)
+  currentBootstrap = testnet.bootstrap
+  t.after(() => testnet.destroy())
+
+  const device = bootWorklet()
+  const dialer = bootWorklet()
+  const topicHex = 'cc'.repeat(32)
+
+  const deviceData = device.onEvent((msg) => msg.ev === EventName.CONNECTION_DATA && msg.p.topic === topicHex, 15000)
+  const dialerConnected = dialer.onEvent((msg) => msg.ev === EventName.SWARM_CONNECTION && msg.p.topic === topicHex)
+  await device.call(Method.SWARM_JOIN, { topic: topicHex, acceptUnannounced: true })
+  await device.swarm.flush()
+  await dialer.call(Method.SWARM_JOIN, { topic: topicHex, server: false })
+  const toDevice = await dialerConnected
+  await dialer.call(Method.CONNECTION_WRITE, { peer: toDevice.p.peer, data: Buffer.from('x'.repeat(4096)).toString('base64') })
+  await deviceData
+
+  const dialerClosed = dialer.onEvent((msg) => msg.ev === EventName.CONNECTION_CLOSE && msg.p.topic === topicHex)
+  const deviceClosed = device.onEvent((msg) => msg.ev === EventName.CONNECTION_CLOSE && msg.p.topic === topicHex)
+  const key = 'ab'.repeat(32)
+  const [conn] = dialer.swarm.connections
+  conn.destroy(new Error('gave up on 10.1.2.3 and fe80::1 for ' + key))
+
+  const mine = (await dialerClosed).p.stats
+  assert.equal(mine.error, 'gave up on <ip> and <ip> for <key>')
+  assert.ok(mine.ageMs >= 0)
+  assert.ok(mine.bytesOut > 4096, 'what was sent is counted')
+  assert.equal(mine.ipv6, false, 'the testnet is IPv4 loopback')
+  for (const field of ['bytesIn', 'rtt', 'rtoCount', 'retransmits']) assert.equal(typeof mine[field], 'number', field)
+
+  const theirs = (await deviceClosed).p.stats
+  assert.ok(theirs.bytesIn > 4096, 'the other end counts it in')
+  const wire = JSON.stringify([mine, theirs])
+  assert.ok(!wire.includes('127.0.0.1') && !wire.includes(key) && !wire.includes(toDevice.p.peer), wire)
+})

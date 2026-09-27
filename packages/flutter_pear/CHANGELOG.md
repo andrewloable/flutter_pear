@@ -1,3 +1,22 @@
+## 0.4.7
+
+**Added: why a connection closed.** No breaking change. `pear-end`'s
+`connection.close` event now carries `stats`, and `PearConnection.closeStats`
+exposes them once the connection's `data` stream is done:
+
+- `error` -- null for a clean close by either side, else the error's code
+  (`ETIMEDOUT`) or its message with anything address- or key-shaped masked;
+- `ageMs`, `bytesIn`, `bytesOut`;
+- `rtt` and `rtoCount` -- UDX's smoothed round-trip time and retransmission
+  timeouts, sampled as the stream ended -- and `retransmits`;
+- `ipv6` -- the remote address family, never the address.
+
+One object per close and nothing per packet, so it is always on; whether to
+log it is the host's call. The `connection-error` diagnostic's message is
+masked the same way. Found by BladeWatch (rdtj.34): Pear drops over mobile
+data could not be told apart -- UDX timeouts under load, or a carrier NAT
+mapping expiring. `closeStats` is null from an older `pear-end`.
+
 ## 0.4.6
 
 **Added: an opt-in persistent swarm identity for long-lived peers.** No

@@ -1,3 +1,11 @@
+## 0.4.7
+
+No code or behaviour change to this package. Version bump to stay in
+lockstep with `flutter_pear` and `flutter_pear_bare` 0.4.7. `flutter_pear`
+adds `PearConnection.closeStats`, reporting why a connection closed (error,
+age, bytes, RTT) -- entirely inside `pear-end` and the real `PearConnection`
+wrapper, so the in-memory fake this package provides is untouched.
+
 ## 0.4.6
 
 No code or behaviour change to this package. Version bump to stay in

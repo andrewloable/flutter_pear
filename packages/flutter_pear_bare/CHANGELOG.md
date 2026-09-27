@@ -1,3 +1,11 @@
+## 0.4.7
+
+No code or behaviour change to this package. Version bump to stay in
+lockstep with `flutter_pear` 0.4.7, which adds `PearConnection.closeStats`
+entirely inside `pear-end/index.js` and its bundle -- the committed desktop
+bundle copies in this package are regenerated for that same reason, but
+`flutter_pear_bare`'s own native plugin code was not touched.
+
 ## 0.4.6
 
 **Fixed: `BareWorklet.terminate()` hung forever on Windows**, freezing the
