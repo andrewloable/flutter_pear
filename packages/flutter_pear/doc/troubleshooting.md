@@ -100,28 +100,35 @@ response; use the `bareKitDownloadUrlOverride` mirror path from
 
 ```
 flutter_pear_bare failed to load its native binaries (<UnsatisfiedLinkError/LinkageError message>).
-flutter_pear_bare only ships native code for arm64-v8a/x86_64 -- this
-usually means the installed app/split is missing them (e.g. an
-armeabi-v7a split from `flutter build apk --split-per-abi`, which ships
-by default alongside the arm64-v8a/x86_64 ones, or a device whose
-supported ABIs (...) flutter_pear_bare doesn't cover). Reinstall the
-arm64-v8a or x86_64 variant.
+flutter_pear_bare ships native code for arm64-v8a, armeabi-v7a and
+x86_64 -- this usually means the installed app/split is missing them
+(e.g. the app's own abiFilters leave out this device's ABI, or a 32-bit
+x86 device, which flutter_pear_bare doesn't cover; this device supports
+...). Install a build that includes one of those ABIs.
 ```
 
 This surfaces at worklet-start time (not build time) as a clear,
 actionable error instead of a cryptic native-loader crash. It means the
 APK/app-bundle variant actually installed on this device doesn't contain
 `flutter_pear_bare`'s native libraries for that device's CPU.
-`flutter_pear_bare` deliberately ships **only** `arm64-v8a` and `x86_64` —
-there's no supported 32-bit (`armeabi-v7a`/`x86`) build, because Bare
-Kit's own prebuild requires API 31+ hardware, which has no meaningful
-32-bit-only population.
+`flutter_pear_bare` ships `arm64-v8a`, `armeabi-v7a` (32-bit ARM, since
+0.4.8, for Android TVs and set-top boxes that run a 32-bit-only userspace)
+and `x86_64`. 32-bit `x86` is not shipped.
 
-**Fix:** `flutter build apk --split-per-abi` produces a separate
-`armeabi-v7a` APK alongside the `arm64-v8a`/`x86_64` ones by default — make
-sure you're installing one of the latter two, not the 32-bit split. An app
-bundle (`flutter build appbundle`) handles this correctly on its own via
-per-device delivery; nothing to change there.
+**Fix:** install a variant that contains this device's ABI. Every split
+`flutter build apk --split-per-abi` produces carries the plugin's
+libraries, a plain `flutter build apk` packs all three ABIs into one APK
+(Flutter's own default ABI list is exactly these three), and an app bundle
+(`flutter build appbundle`) delivers the right one per device on its own.
+If you hit this anyway, check your app's own ABI configuration: an app that
+sets the Gradle property `disable-abi-filtering=true` (Flutter then stops
+applying its default ABI list) must list `armeabi-v7a` in its own
+`ndk.abiFilters` to ship it — leave it out and 32-bit-only devices such as
+Android TVs fail to install (`INSTALL_FAILED_NO_MATCHING_ABIS`).
+
+On a flutter_pear older than 0.4.8, the `armeabi-v7a` split exists but has
+no flutter_pear libraries in it; upgrade, or install the `arm64-v8a`/
+`x86_64` variant on devices that have one.
 
 <a id="manifest-merge"></a>
 ## Manifest merger failed: `android:fullBackupContent` / `android:dataExtractionRules` already present

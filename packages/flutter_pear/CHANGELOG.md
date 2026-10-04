@@ -1,3 +1,20 @@
+## 0.4.8
+
+**Added: Android TVs and other 32-bit ARM (`armeabi-v7a`) devices.** No
+breaking change and no API change. A flutter_pear app now installs and runs
+on devices whose userspace is 32-bit only, such as many Android TVs and
+set-top boxes. Up to 0.4.7 it either failed to install there
+(`INSTALL_FAILED_NO_MATCHING_ABIS`) or failed at worklet start. The native
+libraries live in `flutter_pear_bare` 0.4.8; see its changelog for the
+device this was found on, the API 29 check, and the APK size cost.
+
+`pear-end.bundle` is byte-for-byte unchanged: it resolves its native addons
+per platform (`android`), not per CPU architecture, so the same bundle
+loads the 32-bit addons. `dart run flutter_pear:pack` now also links
+`pear-end`'s addons for `armeabi-v7a`.
+
+Requires `flutter_pear_bare` 0.4.8 (`>=0.4.8 <0.4.9`).
+
 ## 0.4.7
 
 **Added: why a connection closed.** No breaking change. `pear-end`'s

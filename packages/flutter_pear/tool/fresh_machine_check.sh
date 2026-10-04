@@ -37,7 +37,35 @@ cd fresh_machine_probe
 # pre-build) and the human TTHW definition (device already ready).
 START=$(date +%s)
 
+# flutter_pear_bare from this checkout too, not just flutter_pear: the
+# release candidate is both packages together. flutter_pear pins
+# flutter_pear_bare to its own release (>=X.Y.Z <X.Y.Z+1, see its pubspec),
+# so before that version is on pub.dev a hosted flutter_pear_bare cannot
+# resolve at all -- and before that pin existed, a caret constraint silently
+# resolved the PUBLISHED flutter_pear_bare, so a flutter_pear_bare-only change
+# (native code, ABIs) was never exercised here. Written before `pub add`,
+# which runs the first resolution.
+cat >> pubspec.yaml <<YAMLEOF
+
+dependency_overrides:
+  flutter_pear_bare:
+    path: "${REPO_ROOT}/packages/flutter_pear_bare"
+YAMLEOF
+
 flutter pub add flutter_pear --path "${REPO_ROOT}/packages/flutter_pear" >/dev/null
+
+# The README's one Android build-wiring step, done exactly as a consumer is
+# told to: `minSdk = 29` (flutter_pear_bare's floor since 0.4.0) in place of
+# the template's `flutter.minSdkVersion` (24). Without it the build fails at
+# manifest merge -- which this probe did on every run from 0.4.0 until this
+# line was added (flutter_pear-iza).
+APP_GRADLE=android/app/build.gradle.kts
+sed -i.bak 's/minSdk = flutter\.minSdkVersion/minSdk = 29/' "$APP_GRADLE"
+rm -f "$APP_GRADLE.bak"
+if ! grep -q 'minSdk = 29' "$APP_GRADLE"; then
+  echo "::error:: could not set minSdk = 29 in $APP_GRADLE -- the flutter create template changed shape; update this sed" >&2
+  exit 1
+fi
 
 cat > lib/main.dart <<'DARTEOF'
 import 'package:flutter/material.dart';

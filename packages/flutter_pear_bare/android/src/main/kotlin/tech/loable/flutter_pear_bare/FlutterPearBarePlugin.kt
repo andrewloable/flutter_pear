@@ -215,13 +215,13 @@ class FlutterPearBarePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             // its cause, is the only reliable signal.
             throw UnsupportedOperationException(
                 "flutter_pear_bare failed to load its native binaries (${e.message}). " +
-                    "flutter_pear_bare only ships native code for arm64-v8a/x86_64 -- this " +
-                    "usually means the installed app/split is missing them (e.g. an " +
-                    "armeabi-v7a split from `flutter build apk --split-per-abi`, which ships " +
-                    "by default alongside the arm64-v8a/x86_64 ones, or a device whose " +
-                    "supported ABIs (${android.os.Build.SUPPORTED_ABIS.joinToString(", ")}) " +
-                    "flutter_pear_bare doesn't cover). Reinstall the arm64-v8a or x86_64 " +
-                    "variant. See packages/flutter_pear/doc/troubleshooting.md#abi-mismatch.", e)
+                    "flutter_pear_bare ships native code for arm64-v8a, armeabi-v7a and " +
+                    "x86_64 -- this usually means the installed app/split is missing them " +
+                    "(e.g. the app's own abiFilters leave out this device's ABI, or a " +
+                    "32-bit x86 device, which flutter_pear_bare doesn't cover; this " +
+                    "device supports ${android.os.Build.SUPPORTED_ABIS.joinToString(", ")}). " +
+                    "Install a build that includes one of those ABIs. See " +
+                    "packages/flutter_pear/doc/troubleshooting.md#abi-mismatch.", e)
         }
         // argv[0] = this app's private files directory (E4.4): bare-os's
         // cwd() resolves to "/" in this sandbox (confirmed on-device, not

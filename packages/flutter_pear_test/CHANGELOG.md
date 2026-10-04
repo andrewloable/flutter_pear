@@ -1,3 +1,10 @@
+## 0.4.8
+
+No code or behaviour change to this package. Version bump to stay in
+lockstep with `flutter_pear` and `flutter_pear_bare` 0.4.8, which add 32-bit
+ARM (`armeabi-v7a`) Android support for Android TVs -- native libraries only,
+which the in-memory fake this package provides never loads.
+
 ## 0.4.7
 
 No code or behaviour change to this package. Version bump to stay in

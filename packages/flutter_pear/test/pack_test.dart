@@ -7,14 +7,22 @@ import '../bin/pack.dart';
 
 void main() {
   test(
-      'bundleHosts is exactly the 64-bit Android ABIs plus both iOS hosts -- '
-      'no 32-bit hosts, no --preset shortcut (flutter_pear-ovt.2.1)', () {
+      'bundleHosts is exactly the shipped Android ABIs (including 32-bit '
+      'android-arm since flutter_pear-iza, never android-ia32) plus both iOS '
+      'hosts -- no --preset shortcut (flutter_pear-ovt.2.1)', () {
     expect(bundleHosts, [
+      'android-arm',
       'android-arm64',
       'android-x64',
       'ios-arm64',
       'ios-arm64-simulator',
     ]);
+  });
+
+  test(
+      'every nativeAddonAbis host is also a bundleHosts host, so bare-pack '
+      'and bare-link can never drift apart', () {
+    expect(bundleHosts, containsAll(nativeAddonAbis.values));
   });
 
   test('buildBundle packs pear-end/index.js to the documented asset path',
@@ -109,7 +117,9 @@ void main() {
 
     expect(await linkNativeAddons(pkgRoot.path), 0);
 
-    for (final abi in ['arm64-v8a', 'x86_64']) {
+    // Every shipped ABI, not a hardcoded pair -- a hardcoded list silently
+    // stopped checking armeabi-v7a the day flutter_pear-iza added it.
+    for (final abi in nativeAddonAbis.keys) {
       final abiDir = Directory('${jniLibsRoot.path}/$abi');
       expect(abiDir.existsSync(), isTrue, reason: '$abi dir should exist');
       final soFiles = abiDir
@@ -157,10 +167,14 @@ void main() {
     final jniLibsRoot =
         Directory('${parent.path}/flutter_pear_bare/android/src/main/jniLibs')
           ..createSync(recursive: true);
-    // A stale ABI this repo no longer ships (e.g. dropped 32-bit) --
+    // A stale ABI this repo does not ship (32-bit x86 -- armeabi-v7a is
+    // shipped since flutter_pear-iza, so it can no longer stand in here) --
     // linkNativeAddons must remove it, not just leave it alongside the
-    // current arm64-v8a/x86_64 output.
-    final staleAbiDir = Directory('${jniLibsRoot.path}/armeabi-v7a')
+    // current output.
+    expect(nativeAddonAbis.containsKey('x86'), isFalse,
+        reason: 'this test needs an ABI that is NOT shipped; pick another '
+            'if x86 is ever added');
+    final staleAbiDir = Directory('${jniLibsRoot.path}/x86')
       ..createSync(recursive: true);
     File('${staleAbiDir.path}/libstale-addon.so').writeAsStringSync('stale');
 

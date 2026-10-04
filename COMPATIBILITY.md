@@ -47,6 +47,7 @@ other column.
 | 0.4.5 | 2.5.5 | 7.28.2 | 4.8.1 | 3.1.2 | 2.3.1 | 2.10.1 | 3.5.0 | 7.12.5 | 2.27.3 | 3.7.0 | 13.3.4 | 4.17.2 | 2.2.1 | 1.14.2 | 3.12.0 | 2.28.1 |
 | 0.4.6 | 2.5.5 | 7.28.2 | 4.8.1 | 3.1.2 | 2.3.1 | 2.10.1 | 3.5.0 | 7.12.5 | 2.27.3 | 3.7.0 | 13.3.4 | 4.17.2 | 2.2.1 | 1.14.2 | 3.12.0 | 2.28.1 |
 | 0.4.7 | 2.5.5 | 7.28.2 | 4.8.1 | 3.1.2 | 2.3.1 | 2.10.1 | 3.5.0 | 7.12.5 | 2.27.3 | 3.7.0 | 13.3.4 | 4.17.2 | 2.2.1 | 1.14.2 | 3.12.0 | 2.28.1 |
+| 0.4.8 | 2.5.5 | 7.28.2 | 4.8.1 | 3.1.2 | 2.3.1 | 2.10.1 | 3.5.0 | 7.12.5 | 2.27.3 | 3.7.0 | 13.3.4 | 4.17.2 | 2.2.1 | 1.14.2 | 3.12.0 | 2.28.1 |
 
 ## Toolchain
 
@@ -77,6 +78,7 @@ own root `CLAUDE.md` Toolchain table (JDK); the `:pack`-generated
 | 0.4.5 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 29 | not pinned | arm64-v8a, x86_64 | 17 | 15 | >=15.0 |
 | 0.4.6 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 29 | not pinned | arm64-v8a, x86_64 | 17 | 15 | >=15.0 |
 | 0.4.7 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 29 | not pinned | arm64-v8a, x86_64 | 17 | 15 | >=15.0 |
+| 0.4.8 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 29 | not pinned | arm64-v8a, x86_64, armeabi-v7a | 17 | 15 | >=15.0 |
 
 ### Reading this table honestly (judgment calls made here)
 
@@ -124,9 +126,11 @@ own root `CLAUDE.md` Toolchain table (JDK); the `:pack`-generated
   declared floor, not a guarantee of exactly what that global activation
   resolves to on a given machine — tightening that gap is a separate concern
   from this ticket's scope.
-- **Supported ABIs** (`arm64-v8a, x86_64`) mirrors
-  `flutter_pear_bare/android/build.gradle`'s `bareKitAbis` — 32-bit ABIs are
-  a deliberate exclusion, documented at length in that file itself.
+- **Supported ABIs** (`arm64-v8a, x86_64, armeabi-v7a` since 0.4.8) mirrors
+  `flutter_pear_bare/android/build.gradle`'s `bareKitAbis`. 32-bit ARM
+  (`armeabi-v7a`) was excluded through 0.4.7 and added in 0.4.8 for Android
+  TVs and set-top boxes with a 32-bit-only userspace (flutter_pear-iza);
+  32-bit `x86` is still excluded. The reasoning is in that file itself.
   `packages/flutter_pear/test/pack_test.dart` separately guards that
   `bin/pack.dart`'s native-addon ABI list (`nativeAddonAbis`) stays in sync
   with this same `bareKitAbis` list; this table's row is a third, independent

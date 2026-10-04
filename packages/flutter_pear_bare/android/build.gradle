@@ -66,24 +66,33 @@ def bareKitSha256 = "fc68740347c8532ba49d45bf61fae9ca1f1040dc7d6c99f2f92dc30c40e
 // Bump this ONLY to republish an asset for an unchanged bareKitVersion.
 // A bareKitVersion bump resets it to 0 (or just delete the line).
 def bareKitAssetRevision = 1
-// arm64-v8a (physical devices) + x86_64 (desktop-class emulators, including
-// both Apple Silicon's native-arm64 emulator images and Intel/CI x86_64
-// ones). armeabi-v7a/x86 (32-bit) are a deliberate EXCLUSION, not an
-// oversight: Bare Kit 2.5.5 does ship both, but 64-bit was already
-// universal on Android 10-era hardware -- which is our floor, since minSdk
-// is 29 -- regardless of distribution channel (sideloaded, enterprise/MDM
-// or Play alike). Shipping them grows every consuming APK for devices that
-// effectively do not exist.
+// arm64-v8a (phones and tablets) + x86_64 (desktop-class emulators,
+// including both Apple Silicon's native-arm64 emulator images and Intel/CI
+// x86_64 ones) + armeabi-v7a (32-bit ARM: Android TVs and set-top boxes).
 //
-// Flipping this is also not a one-line change: pear-end's own linked native
-// addons under src/main/jniLibs/ are emitted by `dart run flutter_pear:pack`
-// for arm64-v8a and x86_64 only, and a bare-kit ABI present without its
-// matching addon ABI fails at dlopen on-device rather than at build time.
-// Add both sides together or neither.
+// armeabi-v7a was excluded until 0.4.8, on the premise that 64-bit was
+// universal on Android 10-era hardware (our floor, since minSdk is 29). That
+// holds for phones, not for TV: cheap 32-bit-userspace TVs and boxes ship
+// Android 10+ with no 64-bit ABI at all. flutter_pear-b4u kept the exclusion
+// until "a real user demonstrates a 32-bit-only device that must run
+// flutter_pear"; flutter_pear-iza reversed it on exactly that: a Sony BRAVIA
+// 4K VH21 (Android TV 12, API 31) reports ro.product.cpu.abilist =
+// armeabi-v7a,armeabi with an empty abilist64, and a 0.4.7 app failed to
+// install on it with INSTALL_FAILED_NO_MATCHING_ABIS. The armeabi-v7a
+// libbare-kit.so in this same pinned 2.5.5 zip is built against API 29
+// (.note.android.ident), and every non-weak symbol it imports resolves
+// against the NDK's API 29 stubs, so `minSdk = 29` below holds for it too.
 //
-// Weighed and kept in flutter_pear-b4u (closed). Revisit only if a real user
-// demonstrates a 32-bit-only device that must run flutter_pear.
-def bareKitAbis = ["arm64-v8a", "x86_64"]
+// 32-bit x86 stays out: Bare Kit ships it, but Flutter's own Gradle plugin
+// builds only armeabi-v7a, arm64-v8a and x86_64 (x86 was removed in
+// flutter/flutter#169884), so this list now matches Flutter's exactly.
+//
+// Every ABI here needs both sides: pear-end's own linked native addons under
+// src/main/jniLibs/<abi>/ are emitted by `dart run flutter_pear:pack` for
+// exactly bin/pack.dart's nativeAddonAbis (pack_test.dart keeps that list
+// equal to this one), and a bare-kit ABI present without its matching addon
+// ABI fails at dlopen on-device rather than at build time.
+def bareKitAbis = ["arm64-v8a", "x86_64", "armeabi-v7a"]
 // Version-scoped path: bumping bareKitVersion must invalidate the old cache
 // rather than silently keep serving a stale binary from build/bare-kit/.
 def bareKitDir = layout.buildDirectory.dir("bare-kit/${bareKitVersion}").get().asFile

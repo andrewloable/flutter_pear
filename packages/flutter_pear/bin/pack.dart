@@ -69,14 +69,16 @@ Future<void> main(List<String> args) async {
 
 /// ABIs this repo ships native addons for, mapped to the `bare-link`
 /// `--host` value that produces each one -- keep the ABI names in sync
-/// with `flutter_pear_bare/android/build.gradle`'s `bareKitAbis` (same
-/// deliberate arm64-v8a/x86_64-only exclusion of 32-bit documented there;
-/// enforced by a test in pack_test.dart, not just this comment). Explicit
-/// hosts, not `--preset android`, which also links (and wastes time
-/// linking) `armeabi-v7a`/`x86` -- output this repo has never shipped.
+/// with `flutter_pear_bare/android/build.gradle`'s `bareKitAbis` (enforced
+/// by a test in pack_test.dart, not just this comment). `armeabi-v7a` was
+/// added in 0.4.8 for 32-bit-only Android TVs and boxes (flutter_pear-iza;
+/// the device and the reasoning are documented on `bareKitAbis`). 32-bit
+/// `x86` is still not shipped. Explicit hosts, not `--preset android`,
+/// which also links (and wastes time linking) `x86`.
 const nativeAddonAbis = {
   'arm64-v8a': 'android-arm64',
   'x86_64': 'android-x64',
+  'armeabi-v7a': 'android-arm',
 };
 
 /// Runs `bare-link` against pear-end's resolved `node_modules` and commits
@@ -1188,14 +1190,23 @@ _SpdxVerdict _classifySpdx(String license) {
 
 enum _SpdxVerdict { allowed, denied, unknown }
 
-/// `bare-pack --host` values [buildBundle] targets -- exactly the 64-bit
-/// hosts [nativeAddonAbis] links addons for (2 Android ABIs) plus both iOS
-/// hosts, so bare-pack's asked-for hosts and bare-link's actually-linked
-/// ABIs can never silently drift apart (32-bit `android-arm`/`android-ia32`
-/// deliberately excluded -- same decision documented on [nativeAddonAbis]).
+/// `bare-pack --host` values [buildBundle] targets -- exactly the hosts
+/// [nativeAddonAbis] links addons for (3 Android ABIs) plus both iOS hosts,
+/// so bare-pack's asked-for hosts and bare-link's actually-linked ABIs can
+/// never silently drift apart (32-bit `android-ia32` excluded -- same
+/// decision documented on [nativeAddonAbis]).
+///
+/// Adding `android-arm` in 0.4.8 left `assets/pear-end.bundle`
+/// byte-identical (verified by building both ways): the bundle keys linked
+/// addons by platform (`"android": "linked:libbare-fs.<ver>.so"`), not by
+/// architecture, and the dynamic loader picks each `.so` from the APK's own
+/// `lib/<abi>/`. It is listed anyway so this invariant stays true if an
+/// addon ever adds an architecture-specific condition.
+///
 /// A documented top-level const, not inlined in [buildBundle], so tests can
 /// assert it without running bare-pack.
 const bundleHosts = [
+  'android-arm',
   'android-arm64',
   'android-x64',
   'ios-arm64',
@@ -1214,9 +1225,9 @@ const bundleHosts = [
 /// shorthand for `--linked --host android-arm --host android-arm64 --host
 /// android-ia32 --host android-x64`, mirroring the invocation
 /// `holepunchto/bare-android` uses in its own Gradle `packApp` task, and
-/// which also links -- wasting time -- the 32-bit `armeabi-v7a`/`x86`
-/// output this repo has never shipped): no preset covers android+ios
-/// together, so [bundleHosts] spells out exactly the hosts this repo needs.
+/// which also links -- wasting time -- the 32-bit `x86` output this repo
+/// does not ship): no preset covers android+ios together, so
+/// [bundleHosts] spells out exactly the hosts this repo needs.
 /// Returns bare-pack's exit code (0 on success) instead of throwing, so
 /// callers can propagate the real failure reason.
 Future<int> buildBundle(String pkgRoot) async {
