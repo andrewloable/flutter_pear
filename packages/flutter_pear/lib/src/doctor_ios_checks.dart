@@ -94,13 +94,6 @@ Future<int> _realHttpHeadChecker(Uri url, Duration timeout) async {
 /// so this constant, not that file, is the real runtime source of truth).
 const _minXcodeVersion = (major: 15, minor: 0);
 
-/// Minimum Flutter SDK version for Flutter's SwiftPM-default plugin
-/// resolution path (the v0.2 iOS spike's own PREREQ-EVIDENCE finding).
-/// Below this, `flutter pub add flutter_pear` still works, but iOS plugin
-/// resolution falls back to a path this plugin has not been validated
-/// against.
-const _Version _minFlutterVersionForSpm = (3, 44, 0);
-
 const _plistRemediationBlock = '''
 Add this to ios/Runner/Info.plist:
   <key>NSLocalNetworkUsageDescription</key>
@@ -173,7 +166,7 @@ Future<List<DoctorCheckResult>> runDoctorIosChecks(
   return [
     await _checkXcodePresent(ctx),
     await _checkSimulatorRuntime(ctx),
-    ...await _checkPackagingPathAndFlutterVersion(ctx),
+    _checkPackagingPath(ctx),
     await _checkInfoPlist(ctx),
     await _checkBarekitPinJson(ctx),
     ...await _checkPinUrlsReachable(ctx),
@@ -279,93 +272,14 @@ Future<DoctorCheckResult> _checkSimulatorRuntime(DoctorIosContext ctx) async {
       DoctorCheckStatus.pass, 'iOS Simulator runtime(s) available: $names');
 }
 
-typedef _Version = (int major, int minor, int patch);
-
-_Version? _parseVersion(String s) {
-  final match = RegExp(r'^(\d+)\.(\d+)\.(\d+)').firstMatch(s);
-  if (match == null) return null;
-  return (
-    int.parse(match.group(1)!),
-    int.parse(match.group(2)!),
-    int.parse(match.group(3)!),
-  );
-}
-
-bool _versionLessThan(_Version a, _Version b) {
-  if (a.$1 != b.$1) return a.$1 < b.$1;
-  if (a.$2 != b.$2) return a.$2 < b.$2;
-  return a.$3 < b.$3;
-}
-
-Future<List<DoctorCheckResult>> _checkPackagingPathAndFlutterVersion(
-    DoctorIosContext ctx) async {
-  final usesCocoaPods = File('${ctx.consumerRoot}/ios/Podfile').existsSync();
-  final pathInfo = DoctorCheckResult(
-    DoctorCheckStatus.info,
-    usesCocoaPods
-        ? 'CocoaPods compat path detected (ios/Podfile present)'
-        : 'SwiftPM path detected (default -- no ios/Podfile)',
-  );
-
-  final ProcessResult result;
-  try {
-    result = await ctx.processRunner('flutter', ['--version', '--machine']);
-  } on ProcessException {
-    return [
-      pathInfo,
-      const DoctorCheckResult(
-        DoctorCheckStatus.fail,
-        'Could not run flutter --version --machine',
-        remediation: 'Confirm flutter is on PATH.',
-      ),
-    ];
-  }
-  if (result.exitCode != 0) {
-    return [
-      pathInfo,
-      DoctorCheckResult(DoctorCheckStatus.fail,
-          'flutter --version --machine exited ${result.exitCode}'),
-    ];
-  }
-  final Map<String, dynamic> json;
-  try {
-    json = jsonDecode('${result.stdout}') as Map<String, dynamic>;
-  } catch (e) {
-    return [
-      pathInfo,
-      DoctorCheckResult(DoctorCheckStatus.fail,
-          'Could not parse flutter --version --machine output: $e'),
-    ];
-  }
-  final versionStr = json['frameworkVersion'] as String?;
-  final parsed = versionStr == null ? null : _parseVersion(versionStr);
-  if (parsed == null) {
-    return [
-      pathInfo,
-      DoctorCheckResult(DoctorCheckStatus.fail,
-          'Could not parse a Flutter framework version from: $versionStr'),
-    ];
-  }
-  if (!usesCocoaPods && _versionLessThan(parsed, _minFlutterVersionForSpm)) {
-    return [
-      pathInfo,
-      DoctorCheckResult(
-        DoctorCheckStatus.fail,
-        'Flutter $versionStr found, but SwiftPM plugin resolution needs '
-            '>=${_minFlutterVersionForSpm.$1}.'
-            '${_minFlutterVersionForSpm.$2}.'
-            '${_minFlutterVersionForSpm.$3}',
-        remediation: 'Upgrade Flutter (flutter upgrade), or add an '
-            'ios/Podfile to use the CocoaPods compat path instead.',
-      ),
-    ];
-  }
-  return [
-    pathInfo,
-    DoctorCheckResult(DoctorCheckStatus.pass,
-        'Flutter $versionStr is compatible with the detected packaging path'),
-  ];
-}
+// flutter_pear-36m: info only. The Flutter-version-for-SwiftPM check that
+// used to live here can't fire: every package requires Flutter >=3.44.0.
+DoctorCheckResult _checkPackagingPath(DoctorIosContext ctx) =>
+    File('${ctx.consumerRoot}/ios/Podfile').existsSync()
+        ? const DoctorCheckResult(DoctorCheckStatus.info,
+            'CocoaPods compat path detected (ios/Podfile present)')
+        : const DoctorCheckResult(DoctorCheckStatus.info,
+            'SwiftPM path detected (default -- no ios/Podfile)');
 
 Future<DoctorCheckResult> _checkInfoPlist(DoctorIosContext ctx) async {
   final plist = File('${ctx.consumerRoot}/ios/Runner/Info.plist');

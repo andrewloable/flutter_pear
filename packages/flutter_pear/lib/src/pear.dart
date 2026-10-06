@@ -319,6 +319,45 @@ class Pear {
   Future<PearSwarm> join(PearKey topic, {bool announce = true, bool acceptUnannounced = false}) =>
       PearSwarm.join(_rpc, topic, announce: announce, acceptUnannounced: acceptUnannounced);
 
+  /// Lets this peer reach others through its owner's relay when no direct
+  /// connection is possible: both peers behind randomizing NATs, such as a
+  /// device on carrier CGNAT and a phone on mobile data, which hole punching
+  /// cannot connect at all.
+  ///
+  /// [relayKey] is the 12-digit key the relay was set up with (spaces and
+  /// dashes ignored, see [normalizeRelayKey]); null stops relaying. Set the
+  /// SAME key on BOTH peers: the relay accepts only peers that derived its
+  /// member key from it, so a peer without the key is refused.
+  ///
+  /// The worklet derives the relay's keys with Argon2id at 64 MiB, so the
+  /// call can take around a second on a slow device. WHEN to relay stays
+  /// Hyperswarm's decision: only while this peer's NAT randomizes, or after a
+  /// hole punch failed. Connections that work directly are never relayed.
+  /// The key never leaves the worklet and is never logged.
+  ///
+  /// Returns the relay's public key (64 hex characters) while on, and null
+  /// when off. It is not secret: it is how the relay is found, and the
+  /// relay's own log prints it, so an owner can compare the two. Throws
+  /// [ArgumentError] for a malformed [relayKey] before anything is sent; the
+  /// previous setting then stays in effect.
+  Future<String?> setRelayKey(String? relayKey) async {
+    final digits = relayKey == null ? null : normalizeRelayKey(relayKey);
+    final result = await _rpc.call(PearMethod.relaySet, {'key': digits});
+    return result is Map ? result['relayPublicKey'] as String? : null;
+  }
+
+  /// [relayKey] as its bare 12 digits, with spaces and dashes removed.
+  /// Throws [ArgumentError] unless exactly 12 ASCII digits remain -- the
+  /// check [setRelayKey] makes, for validating input before calling it.
+  static String normalizeRelayKey(String relayKey) {
+    final digits = relayKey.replaceAll(RegExp(r'[\s-]'), '');
+    if (!RegExp(r'^[0-9]{12}$').hasMatch(digits)) {
+      throw ArgumentError.value(
+          '(hidden)', 'relayKey', 'a relay key is 12 digits (spaces and dashes are ignored)');
+    }
+    return digits;
+  }
+
   /// The Corestore-backed store for append-only [PearCore] logs (E5.2).
   PearStore get store => PearStore(_rpc);
 

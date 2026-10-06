@@ -1,3 +1,16 @@
+## 0.4.9
+
+**Migrated to Flutter's built-in Kotlin; requires Flutter 3.44 / Dart 3.12**
+(was 3.24 / 3.5). The Android build no longer applies the Kotlin Gradle
+Plugin itself, which silences Flutter's "plugins that apply KGP" warning
+(future Flutter fails the build instead). Flutter 3.44+ applies Kotlin to
+plugins itself, so an app's Gradle files need no change. pub keeps apps on
+older Flutter on 0.4.8. No native or runtime change.
+
+Also in lockstep with `flutter_pear` 0.4.9, which adds the owner relay
+(`Pear.setRelayKey`); the desktop `pear-end.bundle` copies shipped here are
+rebuilt with it.
+
 ## 0.4.8
 
 **Added: 32-bit ARM (`armeabi-v7a`) on Android, for Android TVs and set-top

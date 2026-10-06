@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_pear/src/doctor_ios_checks.dart'
@@ -92,9 +91,6 @@ let package = Package(
       String executable, List<String> args) async {
     if (executable == 'xcodebuild') {
       return _ok('Xcode 26.6\nBuild version 17F113');
-    }
-    if (executable == 'flutter') {
-      return _ok(jsonEncode({'frameworkVersion': '3.44.4'}));
     }
     if (executable == 'bare') {
       return _ok('1.16.0');
@@ -366,7 +362,7 @@ let package = Package(
     });
   });
 
-  group('packaging path + Flutter version', () {
+  group('packaging path', () {
     test('SwiftPM path detected when no macos/Podfile', () async {
       final results = await runDoctorMacosChecks(buildContext());
       final pathResult =
@@ -383,36 +379,6 @@ let package = Package(
       expect(pathResult.status, DoctorCheckStatus.info);
     });
 
-    test('a too-old Flutter on the SwiftPM path FAILs', () async {
-      final results = await runDoctorMacosChecks(buildContext(
-        processRunner: (exe, args) async {
-          if (exe == 'flutter') {
-            return _ok(jsonEncode({'frameworkVersion': '3.10.0'}));
-          }
-          return passingProcessRunner(exe, args);
-        },
-      ));
-      final versionResult =
-          results.firstWhere((r) => r.message.contains('3.10.0'));
-      expect(versionResult.status, DoctorCheckStatus.fail);
-      expect(versionResult.remediation, contains('macos/Podfile'));
-    });
-
-    test('the same too-old Flutter on the CocoaPods path passes (SwiftPM '
-        'minimum does not apply)', () async {
-      File('$consumerRoot/macos/Podfile').writeAsStringSync('');
-      final results = await runDoctorMacosChecks(buildContext(
-        processRunner: (exe, args) async {
-          if (exe == 'flutter') {
-            return _ok(jsonEncode({'frameworkVersion': '3.10.0'}));
-          }
-          return passingProcessRunner(exe, args);
-        },
-      ));
-      final versionResult =
-          results.firstWhere((r) => r.message.contains('3.10.0'));
-      expect(versionResult.status, DoctorCheckStatus.pass);
-    });
   });
 
   group('bare runtime (flutter_pear-bhv)', () {

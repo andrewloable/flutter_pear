@@ -195,9 +195,8 @@ further. The errors below are grouped accordingly: preflight failures
 happen only **on CocoaPods** (the branded messages just below); raw SwiftPM
 errors happen only **on SPM** (see ["SwiftPM raw
 errors"](#ios-spm-errors) further down). SwiftPM is the default as of
-Flutter 3.44+ (`flutter_pear-ovt.1`'s own PREREQ-EVIDENCE finding) -- below
-that floor, plugin resolution falls back to a path this plugin hasn't been
-validated against; `flutter_pear:doctor` flags this too.
+Flutter 3.44+ (`flutter_pear-ovt.1`'s own PREREQ-EVIDENCE finding), which
+since 0.4.9 is also flutter_pear's minimum Flutter version.
 
 <a id="ios-addon-missing"></a>
 ### `<addon>.xcframework is missing from .../addons`

@@ -12,10 +12,10 @@
 #   tool/release_gate.sh --only <gate>  # run exactly one gate
 #
 # RELEASE_GATE_ADB_SERIAL=<serial> tool/release_gate.sh   # fresh-machine
-#   gate targets exactly this adb serial, instead of whichever attached
-#   device `adb devices` happens to list first -- useful when a known-bad
-#   device (flutter_pear-1wx: this repo's own dev machine has a permanently
-#   attached, unrelated-project BYD head unit) is also attached.
+#   gate targets exactly this adb serial. Required whenever more than one
+#   device is attached -- the gate fails rather than guess (flutter_pear-9ho:
+#   this repo's own dev machine has a permanently attached, unrelated-project
+#   BYD head unit).
 #
 # Contract: any gate failure = nonzero exit + the summary names exactly
 # which gate(s) failed. Gates never stop the run early -- every gate always
@@ -124,6 +124,16 @@ gate_pins() {
   fi
 }
 
+# pub_dev_status <package> <version> -> prints "published", else the latest
+# published version; prints nothing if pub.dev can't be read.
+pub_dev_status() {
+  curl -fsS "https://pub.dev/api/packages/$1" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+print('published' if '$2' in [v['version'] for v in d['versions']] else d['latest']['version'])
+" 2>/dev/null
+}
+
 gate_pana() {
   if ! dart pub global list 2>/dev/null | grep -q "^pana "; then
     echo "pana not found -- activating (dart pub global activate pana)"
@@ -134,8 +144,54 @@ gate_pana() {
   local causes=""
   for pkg in flutter_pear flutter_pear_bare flutter_pear_test; do
     echo "== pana: $pkg =="
+    local pkg_dir="$REPO_ROOT/packages/$pkg" scratch=""
+    if [ "$pkg" = flutter_pear ]; then
+      # flutter_pear-mib: flutter_pear pins flutter_pear_bare to its own
+      # release, and pana resolves against pub.dev -- before that release is
+      # published it can't solve and loses most of its points. Score a
+      # scratch copy relaxed to the latest published caret instead. The real
+      # pubspec is never touched; its pin is what keeps desktop users off
+      # bundleVersionMismatch.
+      local bare_ver latest
+      bare_ver="$(awk '/^version:/{print $2; exit}' "$FLUTTER_PEAR_BARE/pubspec.yaml")"
+      latest="$(pub_dev_status flutter_pear_bare "$bare_ver")"
+      if [ -z "$latest" ]; then
+        ok=0
+        causes="$causes $pkg(could not read flutter_pear_bare's versions from pub.dev)"
+        continue
+      fi
+      if [ "$latest" != published ]; then
+        echo "flutter_pear_bare $bare_ver is not on pub.dev yet -- scoring a scratch copy with flutter_pear_bare: ^$latest (real pubspec unchanged)"
+        scratch="$(mktemp -d)"
+        pkg_dir="$scratch/flutter_pear"
+        rsync -a --exclude build --exclude node_modules --exclude .dart_tool "$FLUTTER_PEAR/" "$pkg_dir/"
+        sed -i.bak "s/^  flutter_pear_bare: .*/  flutter_pear_bare: ^$latest/" "$pkg_dir/pubspec.yaml"
+        rm -f "$pkg_dir/pubspec.yaml.bak"
+      fi
+    fi
+    if [ "$pkg" = flutter_pear_test ]; then
+      # flutter_pear-601: the fake tracks flutter_pear's newest API, so its
+      # flutter_pear lower bound is often the release being cut. pana can't
+      # resolve that before it's published, and relaxing it the way the
+      # flutter_pear branch above does would only score real compile errors.
+      local need status
+      need="$(awk '/^  flutter_pear: \^/{print substr($2, 2); exit}' "$FLUTTER_PEAR_TEST/pubspec.yaml")"
+      if [ -n "$need" ]; then
+        status="$(pub_dev_status flutter_pear "$need")"
+        if [ -z "$status" ]; then
+          ok=0
+          causes="$causes $pkg(could not read flutter_pear's versions from pub.dev)"
+          continue
+        elif [ "$status" != published ]; then
+          ok=0
+          causes="$causes $pkg(needs flutter_pear $need, not on pub.dev yet -- re-run --only pana after it publishes)"
+          continue
+        fi
+      fi
+    fi
     local json_out
-    json_out="$(cd "$REPO_ROOT/packages/$pkg" && dart pub global run pana --no-warning --json 2>/dev/null)"
+    json_out="$(cd "$pkg_dir" && dart pub global run pana --no-warning --json 2>/dev/null)"
+    [ -n "$scratch" ] && rm -rf "$scratch"
     if [ -z "$json_out" ]; then
       ok=0
       causes="$causes $pkg(pana produced no output)"
@@ -158,7 +214,7 @@ gate_pana() {
   if [ "$ok" = "1" ]; then
     record pana PASS
   else
-    record pana FAIL "pana score(s) below 130:$causes"
+    record pana FAIL "${causes# }"
   fi
 }
 
@@ -221,7 +277,9 @@ gate_fresh-machine() {
   # on THIS machine the BYD is permanently attached and, being connected
   # long before any emulator this gate boots, reliably wins that race,
   # deterministically failing the gate on a device it was never meant to
-  # exercise. Falls back to the previous first-match behavior when unset.
+  # exercise. When unset, exactly one attached device is used as-is; with
+  # several, the gate refuses to guess (flutter_pear-9ho: an unpinned run
+  # once installed the probe app on the car head unit).
   local target
   if [ -n "${RELEASE_GATE_ADB_SERIAL:-}" ]; then
     if adb devices | awk '$2=="device"{print $1}' | grep -qx "$RELEASE_GATE_ADB_SERIAL"; then
@@ -231,7 +289,13 @@ gate_fresh-machine() {
       return
     fi
   else
-    target="$(adb devices | awk '$2=="device"{print $1; exit}')"
+    local attached
+    attached="$(adb devices | awk '$2=="device"{print $1}')"
+    if [ "$(echo "$attached" | grep -c .)" -gt 1 ]; then
+      record fresh-machine FAIL "several devices attached ($(echo $attached)) and RELEASE_GATE_ADB_SERIAL is unset -- set it to the one to target"
+      return
+    fi
+    target="$attached"
   fi
   if [ -z "$target" ]; then
     record fresh-machine FAIL "no device/emulator reached the 'device' state in time"

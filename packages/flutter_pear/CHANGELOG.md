@@ -1,3 +1,49 @@
+## 0.4.9
+
+**Added: an owner relay, for two peers that hole punching cannot connect.** No
+breaking change; nothing changes unless an app calls the new method.
+`Pear.setRelayKey(relayKey)` routes this peer's connections through a blind
+relay (holepunchto/blind-relay) that its owner runs on a public server, when
+no direct connection is possible: both peers behind randomizing NATs, such as
+a device on carrier CGNAT and a phone on mobile data. hyperdht does not even
+try to punch between two randomizing NATs (`HOLEPUNCH_DOUBLE_RANDOMIZED_NATS`).
+
+- **One key, set on both peers and on the relay.** The relay key is 12
+  digits; spaces and dashes are ignored (`Pear.normalizeRelayKey` validates
+  input). The relay accepts only peers that derived its member key from it,
+  so a peer without the key is refused. `setRelayKey(null)` turns it off.
+  It returns the relay's public key while on (not secret: the relay's own
+  log prints it, so an owner can compare), and null when off.
+- **The derivation is a protocol.** salt = BLAKE2b-128 of
+  `flutter_pear relay v1 salt`; root = Argon2id13 of the 12 digits, opslimit
+  2, memlimit 64 MiB, 32 bytes; seed(role) = BLAKE2b-256 of
+  `flutter_pear relay v1 <role>` followed by root; Ed25519 key pairs for
+  `server` (the relay) and `member` (every peer). Test vector: key
+  `4821-0937-5562` gives server `7d040c71...2a027d` and member
+  `9c84075c...278e82b` (full keys in `pear-end/test/relay-key.test.js`).
+- **Where it applies.** hyperdht opens relay connections with the DHT's
+  `defaultKeyPair`, so that is what the member key pair replaces; the swarm's
+  own key pair, `--persistent-identity` included, never changes. WHEN to relay
+  stays Hyperswarm's policy: only while this peer's NAT randomizes, or after a
+  hole punch failed. Direct connections are never relayed.
+- New RPC `relay.set` (`PearMethod.relaySet`) and error code
+  `INVALID_RELAY_KEY` (`PearErrorCode.invalidRelayKey`); a malformed key
+  changes nothing. The key is never logged, echoed or stored by pear-end.
+- Argon2id runs through sodium's async call, off the worklet's event loop.
+  `pear-end` now requires `sodium-universal` directly, pinned at 5.0.1 (the
+  version it already bundled).
+
+Found by BladeWatch (BladeWatch-a7mu): a car on its built-in SIM could not be
+reached from a phone on mobile data at all. BladeWatch's `relay/` folder holds
+the reference relay server.
+
+Requires `flutter_pear_bare` 0.4.9 (`>=0.4.9 <0.4.10`).
+
+**Requires Flutter 3.44 / Dart 3.12** (was 3.24 / 3.5), because
+`flutter_pear_bare` moved to Flutter's built-in Kotlin. pub keeps apps on
+older Flutter on 0.4.8. `flutter_pear:doctor` drops its iOS/macOS
+"Flutter too old for SwiftPM" check, which that floor makes unreachable.
+
 ## 0.4.8
 
 **Added: Android TVs and other 32-bit ARM (`armeabi-v7a`) devices.** No

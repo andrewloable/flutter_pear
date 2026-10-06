@@ -296,6 +296,18 @@ from the source drive may not have been written:
 - **Fix:** Don't call methods on a `PearBase` after closing it — re-open
   via `PearBase.open()` if you need it again.
 
+## Owner relay
+
+<a id="INVALID_RELAY_KEY"></a>
+### INVALID_RELAY_KEY
+
+- **Problem:** `Pear.setRelayKey` was given a relay key that is not 12 digits.
+- **Cause:** A typo, a missing group, or letters or non-ASCII digits in the
+  key. Spaces and dashes are ignored; nothing else is.
+- **Fix:** Enter the exact 12 digits the relay was set up with, e.g.
+  `4821-0937-5562`. Validate input first with `Pear.normalizeRelayKey`. The
+  previous relay setting stays in effect until a valid key arrives.
+
 ## Pairing (blind pairing / invites)
 
 <a id="INVALID_INVITE"></a>

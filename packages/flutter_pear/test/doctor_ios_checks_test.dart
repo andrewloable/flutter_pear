@@ -69,9 +69,6 @@ let package = Package(
         ],
       }));
     }
-    if (executable == 'flutter') {
-      return _ok(jsonEncode({'frameworkVersion': '3.44.4'}));
-    }
     throw StateError('unexpected executable: $executable');
   }
 
@@ -311,22 +308,7 @@ let package = Package(
     });
   });
 
-  group('packaging path + Flutter version', () {
-    test('SwiftPM path with a too-old Flutter FAILs', () async {
-      final results = await runDoctorIosChecks(buildContext(
-        processRunner: (executable, args) async {
-          if (executable == 'flutter') {
-            return _ok(jsonEncode({'frameworkVersion': '3.19.0'}));
-          }
-          return passingProcessRunner(executable, args);
-        },
-      ));
-      final flutterResult =
-          results.firstWhere((r) => r.message.contains('Flutter 3.19.0'));
-      expect(flutterResult.status, DoctorCheckStatus.fail);
-      expect(flutterResult.remediation, contains('flutter upgrade'));
-    });
-
+  group('packaging path', () {
     test('CocoaPods path (ios/Podfile present) is detected and named',
         () async {
       File('$consumerRoot/ios/Podfile').writeAsStringSync('''

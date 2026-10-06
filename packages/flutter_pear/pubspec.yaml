@@ -1,6 +1,6 @@
 name: flutter_pear
 description: Dart-idiomatic Flutter API for the Pear P2P stack (Hyperswarm, Hypercore, Hyperbee, Hyperdrive, Autobase, blind pairing) over a bundled Bare worklet.
-version: 0.4.8
+version: 0.4.9
 # E9.7/E9.8: publish_to: none removed for real -- flutter_pear_bare is live
 # on pub.dev, confirmed resolvable from a scratch project before this flip.
 # This package is being published for real right after this.
@@ -12,8 +12,8 @@ homepage: https://github.com/andrewloable/flutter_pear
 repository: https://github.com/andrewloable/flutter_pear
 
 environment:
-  sdk: '>=3.5.0 <4.0.0'
-  flutter: '>=3.24.0'
+  sdk: '>=3.12.0 <4.0.0'
+  flutter: '>=3.44.0'
 
 dependencies:
   flutter:
@@ -25,7 +25,7 @@ dependencies:
   # other flutter_pear_bare release fails on desktop with
   # bundleVersionMismatch (or, below 0.4.6, has no desktop bundle at all).
   # A range rather than a bare `0.4.6`: pub warns on single-version pins.
-  flutter_pear_bare: '>=0.4.8 <0.4.9'
+  flutter_pear_bare: '>=0.4.9 <0.4.10'
   # ponytail: SHA-256 for deterministic topics until the worklet's
   # hypercore-crypto is the source of truth. Already-common dep, not custom code.
   crypto: ^3.0.0

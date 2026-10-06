@@ -155,6 +155,13 @@ class FakeBareWorklet implements WorkletIpc {
   final String _sessionNonce;
 
   final Set<String> _joinedTopics = {};
+
+  /// The owner relay key the last successful [PearMethod.relaySet] applied, as
+  /// its bare 12 digits, or null while relaying is off -- so an app's tests
+  /// can assert what `Pear.setRelayKey` sent. The fake never relays anything:
+  /// every fake peer already reaches every other directly.
+  String? get relayKey => _relayKey;
+  String? _relayKey;
   final Map<String, FakeBareWorklet> _connections = {}; // peer hex -> other
   final Map<String, Set<String>> _connectionTopics = {}; // peer hex -> topics
   // Topics that have reached PearSwarmState.connected at least once --
@@ -277,6 +284,21 @@ class FakeBareWorklet implements WorkletIpc {
 
   Future<Object?> _handle(String? method, Map params) async {
     switch (method) {
+      case PearMethod.relaySet:
+        // Same validation as pear-end's setRelay: a malformed key changes nothing.
+        final key = params['key'];
+        if (key == null) {
+          _relayKey = null;
+          return <String, Object?>{};
+        }
+        final digits = key is String ? key.replaceAll(RegExp(r'[\s-]'), '') : '';
+        if (!RegExp(r'^[0-9]{12}$').hasMatch(digits)) {
+          throw FakeRpcError('a relay key is 12 digits (spaces and dashes are ignored)',
+              PearErrorCode.invalidRelayKey);
+        }
+        _relayKey = digits;
+        // No real derivation in the fake: a fixed, obviously fake public key.
+        return {'relayPublicKey': '00' * 32};
       case PearMethod.dhtStatus:
         // An in-memory hub is always reachable, and every fake peer can dial
         // every other directly.

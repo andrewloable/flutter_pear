@@ -2,9 +2,9 @@
 
 The full [Pear](https://pears.com/) peer-to-peer stack as a Dart-idiomatic Flutter plugin. Build serverless, end-to-end-encrypted P2P apps — discovery, encrypted connections, append-only logs, key/value stores, file drives, and multi-writer sync — without writing a line of Kotlin, Swift, or JavaScript.
 
-> **Platforms:** Android (stable, published) · iOS (**SIMULATOR-VALIDATED** — see [iOS platform notes](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/ios.md) before shipping) · macOS/Linux/Windows desktop (new in 0.3.0 — a real Hyperswarm join, reaching `connected`, is confirmed on real hardware for all three; see [Desktop dev setup](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/desktop-dev.md) and each platform's own notes for exactly what's covered). Requires Flutter SDK ≥ 3.24 (bundles Dart ≥ 3.5) and, on Android, **`minSdk` 29**.
+> **Platforms:** Android (stable, published) · iOS (**SIMULATOR-VALIDATED** — see [iOS platform notes](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/ios.md) before shipping) · macOS/Linux/Windows desktop (new in 0.3.0 — a real Hyperswarm join, reaching `connected`, is confirmed on real hardware for all three; see [Desktop dev setup](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/desktop-dev.md) and each platform's own notes for exactly what's covered). Requires Flutter SDK ≥ 3.44 (bundles Dart ≥ 3.12) and, on Android, **`minSdk` 29**.
 >
-> **Status: pre-1.0, published on pub.dev (v0.4.0).** The Bare Kit worklet is real (not a stand-in), and every data-structure wrapper (Corestore/Hypercore, Hyperbee, Hyperdrive, Autobase, blind pairing) is implemented and fake-tested end-to-end, with real-worklet validation on a real Android emulator, the iOS Simulator, and real macOS/Linux/Windows desktop hardware. Physical two-device mobile hardware validation is a documented follow-up, not a release gate. See the [full repository README](https://github.com/andrewloable/flutter_pear#readme) for the complete API coverage table.
+> **Status: pre-1.0, published on pub.dev (v0.4.9).** The Bare Kit worklet is real (not a stand-in), and every data-structure wrapper (Corestore/Hypercore, Hyperbee, Hyperdrive, Autobase, blind pairing) is implemented and fake-tested end-to-end, with real-worklet validation on a real Android emulator, the iOS Simulator, and real macOS/Linux/Windows desktop hardware. Physical two-device mobile hardware validation is a documented follow-up, not a release gate. See the [full repository README](https://github.com/andrewloable/flutter_pear#readme) for the complete API coverage table.
 >
 > Something stuck? Check [Troubleshooting](https://github.com/andrewloable/flutter_pear/blob/main/packages/flutter_pear/doc/troubleshooting.md). Still stuck? [Open an issue](https://github.com/andrewloable/flutter_pear/issues).
 >
@@ -87,7 +87,7 @@ Android-only today? Four steps get you to iOS:
 3. `flutter run` on an iOS Simulator.
 4. Exchange your first message with an Android peer — same `Pear.start()`/`join()` code as above, no platform branching required for the happy path.
 
-Coming from an older release? Pin the new version explicitly (`flutter pub add flutter_pear:^0.4.0`) rather than a bare `flutter pub upgrade` — that can't cross a caret boundary between pre-1.0 minors on its own. If `pub add` reports a stale lock conflict, delete `pubspec.lock` and re-resolve.
+Coming from an older release? Pin the new version explicitly (`flutter pub add flutter_pear:^0.4.9`) rather than a bare `flutter pub upgrade` — that can't cross a caret boundary between pre-1.0 minors on its own. If `pub add` reports a stale lock conflict, delete `pubspec.lock` and re-resolve. **0.4.9 needs Flutter 3.44 or newer**; on older Flutter, pub stops at 0.4.8.
 
 ## Desktop
 

@@ -4,9 +4,9 @@ The full [Pear](https://pears.com/) peer-to-peer stack as a Dart-idiomatic Flutt
 
 ![Chat demo: an Android emulator joins a room, connects to a desktop peer, and exchanges messages both ways](docs/chat-demo.gif)
 
-> **Platforms — all five:** Android · iOS (**SIMULATOR-VALIDATED** — see [iOS platform notes](packages/flutter_pear/doc/ios.md) before shipping) · macOS · Linux · Windows (desktop is new in 0.3.0 — see [Desktop](#desktop-new-in-030)). Requires Flutter SDK ≥ 3.24 (bundles Dart ≥ 3.5) and, on Android, **`minSdk` 29**.
+> **Platforms — all five:** Android · iOS (**SIMULATOR-VALIDATED** — see [iOS platform notes](packages/flutter_pear/doc/ios.md) before shipping) · macOS · Linux · Windows (desktop is new in 0.3.0 — see [Desktop](#desktop-new-in-030)). Requires Flutter SDK ≥ 3.44 (bundles Dart ≥ 3.12) and, on Android, **`minSdk` 29**.
 >
-> **Status: pre-1.0, published on pub.dev (v0.4.0).** Read [What works today](#what-works-today) below before assuming anything here is vaporware — the worklet is real, not a stand-in, and every capability in the coverage table is implemented and tested.
+> **Status: pre-1.0, published on pub.dev (v0.4.9).** Read [What works today](#what-works-today) below before assuming anything here is vaporware — the worklet is real, not a stand-in, and every capability in the coverage table is implemented and tested.
 >
 > Something stuck? Check [Troubleshooting](packages/flutter_pear/doc/troubleshooting.md) — install-time failures (slow/silent downloads, blocked fetches, checksum/ABI mismatches, manifest-merge conflicts) all have a symptom-first fix there. Still stuck? [Open an issue](https://github.com/andrewloable/flutter_pear/issues).
 >
@@ -30,7 +30,7 @@ flutter_pear is under active, incremental development — here's the honest brea
 - **Every capability in the table below has a complete Dart wrapper and a complete, real `pear-end` JS implementation** — no stubs. Each is exhaustively unit/e2e-tested against `flutter_pear_test`'s in-memory fake (every happy path and every typed error path), plus real-worklet validation on real hardware.
 - **The honest remaining gap:** each *data-structure* wrapper's own "does two-device replication actually converge on real hardware" question (`PearBee`, `PearDrive`, `PearBase`, `PearPairing`) was answered against the in-memory fake and the real worklet, not against two physically separate devices per wrapper. Swarm/connection/worklet-lifecycle — the layer everything else rides on — *is* real-hardware confirmed across all five platforms. See [project_plan.md](project_plan.md) for the full milestone breakdown.
 - **iOS is simulator-validated**, by standing decision (sim-tier validation ships). The worklet boots and runs on the iOS Simulator against the real committed `pear-end` bundle, verified with a live cross-platform round trip (simulator-iOS ↔ physical Android). Physical-iPhone validation is a documented follow-up, not a release gate. See [iOS platform notes](packages/flutter_pear/doc/ios.md) for what's genuinely different on iOS: background execution, the Local Network permission (the single biggest sim-invisible risk), and storage roots.
-- **Published on pub.dev.** `flutter_pear`, `flutter_pear_bare`, and `flutter_pear_test` are all live at **v0.4.0**.
+- **Published on pub.dev.** `flutter_pear`, `flutter_pear_bare`, and `flutter_pear_test` are all live at **v0.4.9**.
 
 ## Install
 
@@ -121,7 +121,7 @@ Android-only today? Four steps get you to iOS:
 3. `flutter run` on an iOS Simulator.
 4. Exchange your first message with an Android peer — same `Pear.start()`/`join()` code as above, no platform branching required for the happy path.
 
-Coming from an older release? Pin the new version explicitly (`flutter pub add flutter_pear:^0.4.0`) rather than a bare `flutter pub upgrade` — that can't cross a caret boundary between pre-1.0 minors on its own. If `pub add` reports a stale lock conflict, delete `pubspec.lock` and re-resolve. **Upgrading to 0.4.0 also requires raising your app's `minSdk` to 29** (see [Install](#install)); leaving it lower fails the Android build at manifest merge.
+Coming from an older release? Pin the new version explicitly (`flutter pub add flutter_pear:^0.4.9`) rather than a bare `flutter pub upgrade` — that can't cross a caret boundary between pre-1.0 minors on its own. If `pub add` reports a stale lock conflict, delete `pubspec.lock` and re-resolve. **Upgrading to 0.4.0 also requires raising your app's `minSdk` to 29** (see [Install](#install)); leaving it lower fails the Android build at manifest merge. **0.4.9 needs Flutter 3.44 or newer**; on older Flutter, pub stops at 0.4.8.
 
 **Received-file locations** (if your app uses `PearDrive`/file transfer) differ by platform, matching what `flutter_pear_example`'s own file-drop demo does: **iOS** saves into a `Documents` subtree (`path_provider`'s `getApplicationDocumentsDirectory()`), visible in the Files app; **Android** saves into the app's private files directory (`Context.getFilesDir()/received/`), not independently visible — open or share it through your app's own affordance (a `FileProvider` content URI + `ACTION_VIEW`, in the example app's case). Neither location is where the worklet's own protocol storage lives — see [Storage roots](packages/flutter_pear/doc/ios.md#storage-roots-deliberately-non-configurable) for that.
 
@@ -203,7 +203,7 @@ App lifecycle (suspend/resume) is auto-wired to `AppLifecycleState` and overrida
 
 This is a [melos](https://melos.invertase.dev/) monorepo. To work on it you need:
 
-- **Flutter SDK ≥ 3.24** (bundles Dart ≥ 3.5)
+- **Flutter SDK ≥ 3.44** (bundles Dart ≥ 3.12)
 - **Melos ≥ 6** — `dart pub global activate melos`
 - **JDK 17 + Android SDK/NDK** to build the plugin and Android example
 - **Xcode + CocoaPods** to build the plugin and the iOS/macOS examples (see [iOS](packages/flutter_pear/doc/ios.md) / [macOS](packages/flutter_pear/doc/macos.md) notes)

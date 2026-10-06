@@ -34,6 +34,7 @@ const BlindPairing = require('blind-pairing')
 const Protomux = require('protomux')
 const c = require('compact-encoding')
 const crypto = require('hypercore-crypto')
+const sodium = require('sodium-universal')
 const fs = require('bare-fs')
 const path = require('bare-path')
 const { pipelinePromise, Writable } = require('streamx')
@@ -177,6 +178,77 @@ function loadOrCreateIdentitySeed () {
 const swarm = new Hyperswarm(
   Bare.argv.includes(PERSISTENT_IDENTITY_FLAG) ? { seed: loadOrCreateIdentitySeed() } : {}
 )
+
+// Opt-in OWNER relay (Method.RELAY_SET, flutter_pear 0.4.9). Hole punching cannot
+// connect two peers that are both behind randomizing NATs: hyperdht aborts with
+// HOLEPUNCH_DOUBLE_RANDOMIZED_NATS without trying, and a phone on mobile data
+// dialing a device on carrier CGNAT is exactly that. A blind relay
+// (holepunchto/blind-relay) on a public host forwards such connections; it moves
+// the Noise-encrypted stream and cannot read it.
+//
+// The relay belongs to whoever runs it. They pick one 12-digit relay key and set
+// it on the relay and on every peer. Each side derives two key pairs from it:
+// the relay listens under SERVER, peers open relay connections under MEMBER, and
+// the relay's firewall refuses every other key. The derivation is a protocol:
+// the relay (BladeWatch's relay/relay.js is the reference) and every peer must
+// agree byte for byte, so the labels and Argon2id costs below never change.
+//
+// hyperdht opens relay connections with the DHT's defaultKeyPair -- both
+// lib/connect.js and lib/server.js call dht.connect(relayPublicKey) with no key
+// pair -- so that is what MEMBER replaces. Hyperswarm connects and listens with
+// swarm.keyPair, so this peer's identity (--persistent-identity included) is
+// untouched. WHEN to relay stays Hyperswarm's own policy (its toRelayFunction):
+// only while this peer's NAT randomizes, or when forced after a failed punch.
+const RELAY_LABEL = 'flutter_pear relay v1 '
+const RELAY_KEY_DIGITS = /^[0-9]{12}$/
+const RELAY_ARGON2_OPSLIMIT = 2
+const RELAY_ARGON2_MEMLIMIT = 64 * 1024 * 1024
+const ORIGINAL_DHT_KEY_PAIR = swarm.dht.defaultKeyPair
+let relayQueue = Promise.resolve() // relay.set calls apply in the order they arrive
+
+function relayKeyDigits (key) {
+  const digits = typeof key === 'string' ? key.replace(/[\s-]/g, '') : ''
+  if (!RELAY_KEY_DIGITS.test(digits)) {
+    const err = new Error('a relay key is 12 digits (spaces and dashes are ignored)')
+    err.code = ErrorCode.INVALID_RELAY_KEY
+    throw err
+  }
+  return digits
+}
+
+async function deriveRelayKeyPairs (digits) {
+  const salt = Buffer.alloc(sodium.crypto_pwhash_SALTBYTES)
+  sodium.crypto_generichash(salt, Buffer.from(RELAY_LABEL + 'salt'))
+  const root = Buffer.alloc(32)
+  // Async: Argon2id at 64 MiB takes real time on a phone or head unit, and the
+  // worklet's event loop carries every live connection meanwhile.
+  await sodium.crypto_pwhash_async(root, Buffer.from(digits), salt,
+    RELAY_ARGON2_OPSLIMIT, RELAY_ARGON2_MEMLIMIT, sodium.crypto_pwhash_ALG_ARGON2ID13)
+  const derive = (role) => {
+    const seed = Buffer.alloc(32)
+    sodium.crypto_generichash(seed, Buffer.concat([Buffer.from(RELAY_LABEL + role), root]))
+    return crypto.keyPair(seed)
+  }
+  return { server: derive('server'), member: derive('member') }
+}
+
+// key null turns relaying off. A malformed key throws before anything changes.
+function setRelay (key) {
+  const digits = key == null ? null : relayKeyDigits(key)
+  const applied = relayQueue.then(async () => {
+    if (digits === null) {
+      swarm.dht.defaultKeyPair = ORIGINAL_DHT_KEY_PAIR
+      swarm.relayThrough = null
+      return {}
+    }
+    const { server, member } = await deriveRelayKeyPairs(digits)
+    swarm.dht.defaultKeyPair = member
+    swarm.relayThrough = (force, s) => (force || s.dht.randomized ? server.publicKey : null)
+    return { relayPublicKey: server.publicKey.toString('hex') }
+  })
+  relayQueue = applied.catch(() => {})
+  return applied
+}
 const connections = new Map() // peer public key (hex) -> connection, shared across topics
 // peer hex -> Protomux message sender for Method.CONNECTION_WRITE -- see the
 // Protomux.from(conn) comment in swarm.on('connection', ...) below for why
@@ -801,6 +873,11 @@ async function handle ({ m, p }) {
     // checks; `firewalled` says whether peers can dial it directly.
     case Method.DHT_STATUS: {
       return { online: swarm.dht.online === true, firewalled: swarm.dht.firewalled === true }
+    }
+    // The owner relay (see setRelay): p.key is the 12-digit relay key, or null
+    // to stop relaying. Replies {relayPublicKey} -- never the key itself.
+    case Method.RELAY_SET: {
+      return setRelay(p ? p.key : null)
     }
     case Method.ATTACH_INFO: {
       return {

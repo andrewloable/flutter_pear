@@ -21,7 +21,10 @@ rootProject.allprojects {
 }
 
 apply plugin: "com.android.library"
-apply plugin: "kotlin-android"
+// No kotlin-android here (flutter_pear-rlz): Flutter >=3.44 applies it to
+// plugins itself when built-in Kotlin is off, and AGP 9 compiles Kotlin
+// natively when it is on. Applying it ourselves draws Flutter's "plugins
+// that apply KGP" warning, which future Flutter turns into a build failure.
 
 // Bare Kit wiring: fetch the pinned prebuild release (checksum-verified) and
 // extract classes.jar + the supported ABIs' .so files to boot a worklet.
@@ -281,10 +284,6 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
 
-    kotlinOptions {
-        jvmTarget = "1.8"
-    }
-
     sourceSets {
         main.java.srcDirs += "src/main/kotlin"
         main.jniLibs.srcDirs += bareKitJniDir
@@ -319,6 +318,12 @@ android {
         // required: libbare-kit.so calls back into Java by unobfuscated
         // JNI method names).
         consumerProguardFiles "consumer-rules.pro"
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8
     }
 }
 
