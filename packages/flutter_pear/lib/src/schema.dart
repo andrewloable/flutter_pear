@@ -61,6 +61,12 @@ abstract final class PearMethod {
   /// now" -- `online` can. Polled; there is no event for it.
   static const dhtStatus = 'dht.status';
 
+  /// Sets (`p.key`, the owner's 12-digit relay key) or clears (`p.key` null)
+  /// the owner relay -- see `Pear.setRelayKey`. Replies `{relayPublicKey}`
+  /// while on and `{}` when off; never the key itself. A malformed key fails
+  /// with [PearErrorCode.invalidRelayKey] and changes nothing.
+  static const relaySet = 'relay.set';
+
   /// Writes `p.data` (whole-payload base64, NOT chunked/streamed) to a new
   /// file inside the worklet's own storage and returns `{path}` — the
   /// file-path bulk seam (E4.4, codex #4 LOCKED): a primitive for moving
@@ -622,6 +628,10 @@ abstract final class PearErrorCode {
   /// (E5.8) — analogous to [beeClosed].
   static const baseClosed = 'BASE_CLOSED';
 
+  /// [PearMethod.relaySet]'s key is not 12 digits (spaces and dashes are
+  /// ignored). Nothing changed: the previous relay setting still applies.
+  static const invalidRelayKey = 'INVALID_RELAY_KEY';
+
   /// The explicit err.code -> exception-category registry (LOCKED: entries
   /// only, no prefix/substring heuristics). A code not listed here —
   /// including one this version of the schema simply doesn't know about
@@ -650,6 +660,7 @@ abstract final class PearErrorCode {
     unknownRecipe: PearErrorCategory.storage,
     unknownBase: PearErrorCategory.storage,
     baseClosed: PearErrorCategory.storage,
+    invalidRelayKey: PearErrorCategory.connection,
   };
 }
 

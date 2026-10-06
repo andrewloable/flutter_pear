@@ -1,3 +1,18 @@
+## 0.4.9
+
+**Added: the owner relay in the fake.** `FakeBareWorklet` answers
+`PearMethod.relaySet` with the same validation as `pear-end` (12 digits,
+spaces and dashes ignored, `PearErrorCode.invalidRelayKey` otherwise, a
+malformed key changes nothing), and `FakeBareWorklet.relayKey` exposes the key
+the last successful call applied, or null while off, so app tests can assert
+what `Pear.setRelayKey` sent. The fake relays nothing: every fake peer already
+reaches every other directly.
+
+**Requires `flutter_pear` 0.4.9.** The constraint was still `^0.4.1`, which
+let pub pick `flutter_pear` 0.4.8 (no `relaySet`) and fail to compile.
+Also requires Flutter 3.44 / Dart 3.12 (was 3.24 / 3.5), with
+`flutter_pear_bare`'s move to built-in Kotlin.
+
 ## 0.4.8
 
 No code or behaviour change to this package. Version bump to stay in

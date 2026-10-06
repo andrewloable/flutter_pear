@@ -27,6 +27,9 @@ const Method = {
   // already-running worklet.
   ATTACH_INFO: 'attach.info',
   DHT_STATUS: 'dht.status',
+  // Sets (p.key, 12 digits) or clears (p.key null) the owner relay -- see
+  // index.js's setRelay and schema.dart's PearMethod.relaySet.
+  RELAY_SET: 'relay.set',
   // File-path bulk seam (E4.4, codex #4 LOCKED): writes p.data (whole
   // payload, base64, NOT chunked/streamed) to a new file in this worklet's
   // storage and returns {path}. See schema.dart's PearMethod.bulkWriteFile.
@@ -145,7 +148,9 @@ const ErrorCode = {
   // E5.8 -- Autobase wrapper error codes.
   UNKNOWN_RECIPE: 'UNKNOWN_RECIPE',
   UNKNOWN_BASE: 'UNKNOWN_BASE',
-  BASE_CLOSED: 'BASE_CLOSED'
+  BASE_CLOSED: 'BASE_CLOSED',
+  // RELAY_SET's key is not 12 digits.
+  INVALID_RELAY_KEY: 'INVALID_RELAY_KEY'
 }
 
 // Which built-in Autobase merge recipe a PearBase.open call (E5.8) picks --

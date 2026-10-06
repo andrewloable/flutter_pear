@@ -13,6 +13,7 @@ void main() {
     expect(PearMethod.debugEcho, 'debug.echo');
     expect(PearMethod.attachInfo, 'attach.info');
     expect(PearMethod.dhtStatus, 'dht.status');
+    expect(PearMethod.relaySet, 'relay.set');
     expect(PearMethod.bulkWriteFile, 'bulk.writeFile');
     expect(PearMethod.storeGet, 'store.get');
     expect(PearMethod.coreAppend, 'core.append');
@@ -85,6 +86,7 @@ void main() {
     expect(PearErrorCode.unknownRecipe, 'UNKNOWN_RECIPE');
     expect(PearErrorCode.unknownBase, 'UNKNOWN_BASE');
     expect(PearErrorCode.baseClosed, 'BASE_CLOSED');
+    expect(PearErrorCode.invalidRelayKey, 'INVALID_RELAY_KEY');
 
     expect(PearSwarmState.discovering.name, 'discovering');
     expect(PearSwarmState.connecting.name, 'connecting');
@@ -134,6 +136,7 @@ void main() {
     expect(jsValue('DEBUG_ECHO'), PearMethod.debugEcho);
     expect(jsValue('ATTACH_INFO'), PearMethod.attachInfo);
     expect(jsValue('DHT_STATUS'), PearMethod.dhtStatus);
+    expect(jsValue('RELAY_SET'), PearMethod.relaySet);
     expect(jsValue('BULK_WRITE_FILE'), PearMethod.bulkWriteFile);
     expect(jsValue('STORE_GET'), PearMethod.storeGet);
     expect(jsValue('CORE_APPEND'), PearMethod.coreAppend);
@@ -207,6 +210,7 @@ void main() {
     expect(jsValue('UNKNOWN_RECIPE'), PearErrorCode.unknownRecipe);
     expect(jsValue('UNKNOWN_BASE'), PearErrorCode.unknownBase);
     expect(jsValue('BASE_CLOSED'), PearErrorCode.baseClosed);
+    expect(jsValue('INVALID_RELAY_KEY'), PearErrorCode.invalidRelayKey);
 
     expect(jsValue('LWW'), PearRecipe.lww.name);
     expect(jsValue('ORDERED_LOG'), PearRecipe.orderedLog.name);

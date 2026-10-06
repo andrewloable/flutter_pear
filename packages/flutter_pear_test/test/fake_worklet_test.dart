@@ -28,6 +28,25 @@ void main() {
     return rpc;
   }
 
+  test('relay.set validates like pear-end and records the key for app tests', () async {
+    final worklet = FakeBareWorklet(hub: hub);
+    final rpc = await connectedRpc(worklet);
+    expect(worklet.relayKey, isNull, reason: 'off by default');
+
+    expect(await rpc.call(PearMethod.relaySet, {'key': '4821-0937-5562'}),
+        {'relayPublicKey': '00' * 32});
+    expect(worklet.relayKey, '482109375562');
+
+    await expectLater(
+      rpc.call(PearMethod.relaySet, {'key': '4821-0937'}),
+      throwsA(isA<PearException>().having((e) => e.code, 'code', PearErrorCode.invalidRelayKey)),
+    );
+    expect(worklet.relayKey, '482109375562', reason: 'a malformed key changes nothing');
+
+    expect(await rpc.call(PearMethod.relaySet, {'key': null}), <String, Object?>{});
+    expect(worklet.relayKey, isNull);
+  });
+
   test('dht.status answers like pear-end: an in-memory hub is always reachable', () async {
     final rpc = await connectedRpc(FakeBareWorklet(hub: hub));
     expect(await rpc.call(PearMethod.dhtStatus), {'online': true, 'firewalled': false});

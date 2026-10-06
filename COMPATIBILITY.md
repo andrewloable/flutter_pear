@@ -48,6 +48,7 @@ other column.
 | 0.4.6 | 2.5.5 | 7.28.2 | 4.8.1 | 3.1.2 | 2.3.1 | 2.10.1 | 3.5.0 | 7.12.5 | 2.27.3 | 3.7.0 | 13.3.4 | 4.17.2 | 2.2.1 | 1.14.2 | 3.12.0 | 2.28.1 |
 | 0.4.7 | 2.5.5 | 7.28.2 | 4.8.1 | 3.1.2 | 2.3.1 | 2.10.1 | 3.5.0 | 7.12.5 | 2.27.3 | 3.7.0 | 13.3.4 | 4.17.2 | 2.2.1 | 1.14.2 | 3.12.0 | 2.28.1 |
 | 0.4.8 | 2.5.5 | 7.28.2 | 4.8.1 | 3.1.2 | 2.3.1 | 2.10.1 | 3.5.0 | 7.12.5 | 2.27.3 | 3.7.0 | 13.3.4 | 4.17.2 | 2.2.1 | 1.14.2 | 3.12.0 | 2.28.1 |
+| 0.4.9 | 2.5.5 | 7.28.2 | 4.8.1 | 3.1.2 | 2.3.1 | 2.10.1 | 3.5.0 | 7.12.5 | 2.27.3 | 3.7.0 | 13.3.4 | 4.17.2 | 2.2.1 | 1.14.2 | 3.12.0 | 2.28.1 |
 
 ## Toolchain
 
@@ -79,6 +80,7 @@ own root `CLAUDE.md` Toolchain table (JDK); the `:pack`-generated
 | 0.4.6 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 29 | not pinned | arm64-v8a, x86_64 | 17 | 15 | >=15.0 |
 | 0.4.7 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 29 | not pinned | arm64-v8a, x86_64 | 17 | 15 | >=15.0 |
 | 0.4.8 | >=3.24.0 | >=3.5.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 29 | not pinned | arm64-v8a, x86_64, armeabi-v7a | 17 | 15 | >=15.0 |
+| 0.4.9 | >=3.44.0 | >=3.12.0 <4.0.0 | ^6.3.2 | 8.3.0 | 1.9.24 | 9.1.0 | 34 | 29 | not pinned | arm64-v8a, x86_64, armeabi-v7a | 17 | 15 | >=15.0 |
 
 ### Reading this table honestly (judgment calls made here)
 
@@ -145,7 +147,7 @@ own root `CLAUDE.md` Toolchain table (JDK); the `:pack`-generated
   drifting — from each other, or from this row — is caught. There is
   currently no SEPARATE "Flutter SDK, iOS SPM path" row: this repo hasn't
   found or hit a real Flutter-version floor for SPM plugin support higher
-  than the existing "Flutter SDK" row's `>=3.24.0` (every AUTO-VALIDATION
+  than the "Flutter SDK" column's `>=3.44.0` (every AUTO-VALIDATION
   build in this epic ran against Flutter 3.44.4) — if a genuinely higher
   SPM-specific floor is ever discovered, add a dedicated column then rather
   than guessing one now.

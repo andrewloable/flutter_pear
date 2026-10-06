@@ -61,6 +61,8 @@ void main() {
   // matching real native behavior (nothing is "already running" once
   // BareWorklet.terminate() has run).
   late bool firstStartReattached;
+  // Every RPC request Pear sent this test, decoded ({id, m, p}).
+  late List<Map<Object?, Object?>> sentRequests;
 
   setUp(() {
     attachInfoVersion = (_) => kPearEndBundleVersion;
@@ -68,6 +70,7 @@ void main() {
     attachInfoCallCount = 0;
     controlCalls = [];
     firstStartReattached = true;
+    sentRequests = [];
     var startCallCount = 0;
     messenger.setMockMethodCallHandler(control, (call) async {
       controlCalls.add(call.method);
@@ -84,6 +87,7 @@ void main() {
       final decoded = jsonDecode(utf8.decode(frame.sublist(1))) as Map;
       final id = decoded['id'] as int;
       final method = decoded['m'] as String;
+      sentRequests.add(decoded);
       if (method == PearMethod.attachInfo) {
         attachInfoCallCount++;
         final callNumber = attachInfoCallCount;
@@ -109,11 +113,16 @@ void main() {
       // return value -- matches how BareWorklet actually receives RPC
       // responses (see bare_worklet.dart's own doc), and the microtask
       // scheduling keeps this genuinely asynchronous.
+      // relay.set answers like pear-end: the relay's public key while on.
+      final relayOn = method == PearMethod.relaySet && (decoded['p'] as Map)['key'] != null;
       scheduleMicrotask(() {
         messenger.handlePlatformMessage(
           ipcChannel,
-          codec.encodeMessage(_lengthPrefixed(
-              _jsonFrame({'id': id, 'ok': <String, Object?>{}, 'n': nonce}))),
+          codec.encodeMessage(_lengthPrefixed(_jsonFrame({
+            'id': id,
+            'ok': relayOn ? <String, Object?>{'relayPublicKey': 'ab' * 32} : <String, Object?>{},
+            'n': nonce,
+          }))),
           (_) {},
         );
       });
@@ -493,5 +502,47 @@ void main() {
           .having((e) => e.code, 'code', PearErrorCode.bareRuntimeMissing)
           .having((e) => e.message, 'message', contains('npm i -g bare'))),
     );
+  });
+
+  group('owner relay (flutter_pear 0.4.9)', () {
+    Map<Object?, Object?> lastRelaySet() =>
+        sentRequests.lastWhere((r) => r['m'] == PearMethod.relaySet);
+
+    test('setRelayKey sends the bare 12 digits, whichever way they were typed', () async {
+      final pear = await Pear.start();
+      expect(await pear.setRelayKey('4821-0937-5562'), 'ab' * 32, reason: "the relay's public key");
+      expect(lastRelaySet()['p'], {'key': '482109375562'});
+      await pear.setRelayKey(' 4821 0937 5562 ');
+      expect(lastRelaySet()['p'], {'key': '482109375562'});
+      await pear.dispose();
+    });
+
+    test('setRelayKey(null) turns the relay off', () async {
+      final pear = await Pear.start();
+      expect(await pear.setRelayKey(null), isNull);
+      expect(lastRelaySet()['p'], {'key': null});
+      await pear.dispose();
+    });
+
+    test('a malformed key throws before anything is sent, without echoing the key', () async {
+      final pear = await Pear.start();
+      for (final bad in ['', '482109', '4821093755621', '4821-0937-556x', '\u0664821-0937-5562']) {
+        final sentBefore = sentRequests.length;
+        expect(
+          () => pear.setRelayKey(bad),
+          throwsA(isA<ArgumentError>().having((e) => e.toString(), 'message', isNot(contains('4821')))),
+          reason: bad,
+        );
+        expect(sentRequests.length, sentBefore, reason: 'nothing sent for "$bad"');
+      }
+      await pear.dispose();
+    });
+
+    test('normalizeRelayKey is the same check, for validating input first', () {
+      expect(Pear.normalizeRelayKey('4821-0937-5562'), '482109375562');
+      expect(Pear.normalizeRelayKey('482109375562'), '482109375562');
+      expect(() => Pear.normalizeRelayKey('4821-0937'), throwsArgumentError);
+      expect(() => Pear.normalizeRelayKey('abcd-0937-5562'), throwsArgumentError);
+    });
   });
 }
