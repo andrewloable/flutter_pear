@@ -166,8 +166,9 @@ jobs:
   # re-check the ticket explicitly asked for, not a re-implementation of
   # CI.
   # ---------------------------------------------------------------------
+  # test and dry-run-publish need nothing from each other or from the environment check, so
+  # all three run at once; only the real publishes wait for all of them (see below).
   test:
-    needs: verify-release-environment
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -186,7 +187,9 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.47.5' # pinned: newer stable deprecates package:flutter/material.dart (analyze fails the release)
           channel: stable
+          cache: true
 
       - name: Activate melos
         run: dart pub global activate melos
@@ -254,7 +257,6 @@ jobs:
   # crashed before validation ever started -- reproduced and fixed.
   # ---------------------------------------------------------------------
   dry-run-publish:
-    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -262,7 +264,9 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.47.5' # pinned: newer stable deprecates package:flutter/material.dart (analyze fails the release)
           channel: stable
+          cache: true
 
       - name: Activate melos
         run: dart pub global activate melos
@@ -384,7 +388,7 @@ jobs:
   #     only gets the permissions its caller job explicitly grants).
   # ---------------------------------------------------------------------
   publish-flutter-pear-bare:
-    needs: dry-run-publish
+    needs: [verify-release-environment, test, dry-run-publish]
     permissions:
       id-token: write
       contents: read
