@@ -162,8 +162,17 @@ class FakeBareWorklet implements WorkletIpc {
   /// every fake peer already reaches every other directly.
   String? get relayKey => _relayKey;
   String? _relayKey;
+
+  /// The relay public key (lower-case hex) the last successful
+  /// [PearMethod.relaySetKeys] applied, or null while off or while a 12-digit
+  /// [relayKey] is set instead -- so tests can assert what `Pear.setRelay`
+  /// sent. Setting either kind of relay clears the other's getter.
+  String? get relayPublicKey => _relayPublicKey;
+  String? _relayPublicKey;
   final Map<String, FakeBareWorklet> _connections = {}; // peer hex -> other
   final Map<String, Set<String>> _connectionTopics = {}; // peer hex -> topics
+  final Set<String> _relayedPeers =
+      {}; // peers whose connection is marked relayed
   // Topics that have reached PearSwarmState.connected at least once --
   // mirrors pear-end/index.js's per-topic `everConnected` flag, needed for
   // the idempotent-rejoin replay below to pick RECONNECTING over
@@ -289,6 +298,7 @@ class FakeBareWorklet implements WorkletIpc {
         final key = params['key'];
         if (key == null) {
           _relayKey = null;
+          _relayPublicKey = null;
           return <String, Object?>{};
         }
         final digits = key is String ? key.replaceAll(RegExp(r'[\s-]'), '') : '';
@@ -297,8 +307,29 @@ class FakeBareWorklet implements WorkletIpc {
               PearErrorCode.invalidRelayKey);
         }
         _relayKey = digits;
+        _relayPublicKey = null;
         // No real derivation in the fake: a fixed, obviously fake public key.
         return {'relayPublicKey': '00' * 32};
+      case PearMethod.relaySetKeys:
+        // Same validation as pear-end's setRelayKeys: malformed changes nothing.
+        final hex32 = RegExp(r'^[0-9a-fA-F]{64}$');
+        final pub = params['publicKey'];
+        final seed = params['memberSeed'];
+        if (pub is! String ||
+            !hex32.hasMatch(pub) ||
+            seed is! String ||
+            !hex32.hasMatch(seed)) {
+          throw FakeRpcError(
+            'a relay public key and member seed are each 64 hex characters',
+            PearErrorCode.invalidRelayKey,
+          );
+        }
+        _relayPublicKey = pub.toLowerCase();
+        _relayKey = null;
+        // The fake does no Ed25519: a fixed, obviously fake member public key.
+        return {'memberPublicKey': 'ff' * 32};
+      case PearMethod.swarmPublicKey:
+        return {'publicKey': peerKey};
       case PearMethod.dhtStatus:
         // An in-memory hub is always reachable, and every fake peer can dial
         // every other directly.
@@ -332,8 +363,11 @@ class FakeBareWorklet implements WorkletIpc {
               .toList();
           if (connectedPeers.isNotEmpty) {
             for (final peerHex in connectedPeers) {
-              _emitEvent(PearEventName.swarmConnection,
-                  {'topic': topicHex, 'peer': peerHex});
+              _emitEvent(PearEventName.swarmConnection, {
+                'topic': topicHex,
+                'peer': peerHex,
+                'relayed': _relayedPeers.contains(peerHex),
+              });
             }
             _sendState(topicHex, PearSwarmState.connected);
           } else if (_everConnectedTopics.contains(topicHex)) {
@@ -1228,9 +1262,35 @@ class FakeBareWorklet implements WorkletIpc {
     _connections[peerHex] = other;
     if (isNew) {
       _everConnectedTopics.add(topicHex);
-      _emitEvent(
-          PearEventName.swarmConnection, {'topic': topicHex, 'peer': peerHex});
+      _emitEvent(PearEventName.swarmConnection, {
+        'topic': topicHex,
+        'peer': peerHex,
+        'relayed': _relayedPeers.contains(peerHex),
+      });
       _sendState(topicHex, PearSwarmState.connected);
+    }
+  }
+
+  /// Marks this worklet's connection to [other] as relayed (or direct again)
+  /// and emits [PearEventName.connectionPath] on every shared joined topic, so
+  /// app tests can drive a "Relayed" badge. Every fake connection starts
+  /// direct (`relayed: false`). Does nothing if the two are not connected.
+  void setRelayed(FakeBareWorklet other, bool relayed) {
+    final peerHex = other.peerKey;
+    final topics = _connectionTopics[peerHex];
+    if (topics == null) return;
+    if (relayed) {
+      _relayedPeers.add(peerHex);
+    } else {
+      _relayedPeers.remove(peerHex);
+    }
+    for (final topicHex in topics) {
+      if (!_joinedTopics.contains(topicHex)) continue;
+      _emitEvent(PearEventName.connectionPath, {
+        'topic': topicHex,
+        'peer': peerHex,
+        'relayed': relayed,
+      });
     }
   }
 
@@ -1251,6 +1311,7 @@ class FakeBareWorklet implements WorkletIpc {
   void disconnectFrom(FakeBareWorklet other) {
     final peerHex = other.peerKey;
     if (_connections.remove(peerHex) == null) return;
+    _relayedPeers.remove(peerHex);
     final topics = _connectionTopics.remove(peerHex) ?? const <String>{};
     for (final topicHex in topics) {
       // Both the event AND the reconnecting state gate on the SAME

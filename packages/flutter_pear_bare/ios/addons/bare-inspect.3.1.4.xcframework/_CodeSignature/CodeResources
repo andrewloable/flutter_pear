@@ -6,27 +6,27 @@
 	<dict>
 		<key>ios-arm64-simulator/bare-inspect.3.1.4.framework/Info.plist</key>
 		<data>
-		829QnievoPH/f5sQ344wypnxFuE=
+		kjDpvfCr2sX21yVxNiHFksPqUZQ=
 		</data>
 		<key>ios-arm64-simulator/bare-inspect.3.1.4.framework/_CodeSignature/CodeResources</key>
 		<data>
-		eI+KrDv7EAIuyDZyA6NYb3v+tJ4=
+		SSY0aUlreL0wlEEZ/JF4yKzV8M4=
 		</data>
 		<key>ios-arm64-simulator/bare-inspect.3.1.4.framework/bare-inspect.3.1.4</key>
 		<data>
-		+IbrlWmT5X6wKw/oThidsPXI6D8=
+		s9i06PcMu2CXVJsK8I3Mu1p4R6M=
 		</data>
 		<key>ios-arm64/bare-inspect.3.1.4.framework/Info.plist</key>
 		<data>
-		829QnievoPH/f5sQ344wypnxFuE=
+		kjDpvfCr2sX21yVxNiHFksPqUZQ=
 		</data>
 		<key>ios-arm64/bare-inspect.3.1.4.framework/_CodeSignature/CodeResources</key>
 		<data>
-		eI+KrDv7EAIuyDZyA6NYb3v+tJ4=
+		SSY0aUlreL0wlEEZ/JF4yKzV8M4=
 		</data>
 		<key>ios-arm64/bare-inspect.3.1.4.framework/bare-inspect.3.1.4</key>
 		<data>
-		eSocZv4GTXe18rlJLbtXEBe4n/I=
+		WwQHanB9C5LatPqPtztmNI4UXX8=
 		</data>
 	</dict>
 	<key>files2</key>
@@ -35,42 +35,42 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			aeshmLu3GTQ9ysyulo22Rf6oLGrB+fMWby8Vi5c4uwQ=
+			CgKxd/uE5MtPdPmE5OH+U2JbdTexFd58IN19TjJX4Ag=
 			</data>
 		</dict>
 		<key>ios-arm64-simulator/bare-inspect.3.1.4.framework/_CodeSignature/CodeResources</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			r+N1hzchaKuyDdG4piTGBtSsf4rWbPmcVWX8vo3tqQo=
+			ETcdSU+6dXbVWqHCxlQvL1X7LqV46WThxpM/fRnuQqE=
 			</data>
 		</dict>
 		<key>ios-arm64-simulator/bare-inspect.3.1.4.framework/bare-inspect.3.1.4</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			ta8TYKSiZ8NdaRz4wtIsab/MEDmcbkeATy118gHszVk=
+			KgvYP9b68yxnUrue6SDlvxcCJpSiG2dqkl523PJLaMQ=
 			</data>
 		</dict>
 		<key>ios-arm64/bare-inspect.3.1.4.framework/Info.plist</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			aeshmLu3GTQ9ysyulo22Rf6oLGrB+fMWby8Vi5c4uwQ=
+			CgKxd/uE5MtPdPmE5OH+U2JbdTexFd58IN19TjJX4Ag=
 			</data>
 		</dict>
 		<key>ios-arm64/bare-inspect.3.1.4.framework/_CodeSignature/CodeResources</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			r+N1hzchaKuyDdG4piTGBtSsf4rWbPmcVWX8vo3tqQo=
+			ETcdSU+6dXbVWqHCxlQvL1X7LqV46WThxpM/fRnuQqE=
 			</data>
 		</dict>
 		<key>ios-arm64/bare-inspect.3.1.4.framework/bare-inspect.3.1.4</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			nZnf+rvfOWoLJTmPJeNGkHR26xJQi74dcwod26xnumg=
+			DhpA93ayAQHOyaL8Ji/1bcRP6mMgDjn4vDpOoQJS+e0=
 			</data>
 		</dict>
 	</dict>

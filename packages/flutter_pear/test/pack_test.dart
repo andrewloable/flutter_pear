@@ -107,9 +107,20 @@ void main() {
     // attempt at this test with only node_modules present had bare-link
     // exit 0 having linked nothing at all (this test caught that, hence
     // this explicit copy).
-    for (final name in ['package.json', 'package-lock.json']) {
-      File('${realPearEnd.path}/$name')
-          .copySync('${pkgRoot.path}/pear-end/$name');
+    // bare-link >=4 traverses from the entry (./index.js), so the pear-end
+    // sources are needed too.
+    for (final name in [
+      'package.json',
+      'package-lock.json',
+      'index.js',
+      'desktop-ipc.js',
+      'autobase-recipes.js',
+      'schema.js',
+      'version.js',
+    ]) {
+      File(
+        '${realPearEnd.path}/$name',
+      ).copySync('${pkgRoot.path}/pear-end/$name');
     }
     final jniLibsRoot =
         Directory('${parent.path}/flutter_pear_bare/android/src/main/jniLibs')
@@ -158,11 +169,23 @@ void main() {
     addTearDown(() => parent.deleteSync(recursive: true));
     final pkgRoot = Directory('${parent.path}/flutter_pear')..createSync();
     Directory('${pkgRoot.path}/pear-end').createSync();
-    Link('${pkgRoot.path}/pear-end/node_modules')
-        .createSync(realNodeModules.path);
-    for (final name in ['package.json', 'package-lock.json']) {
-      File('${realPearEnd.path}/$name')
-          .copySync('${pkgRoot.path}/pear-end/$name');
+    Link(
+      '${pkgRoot.path}/pear-end/node_modules',
+    ).createSync(realNodeModules.path);
+    // bare-link >=4 traverses from the entry (./index.js), so the pear-end
+    // sources are needed too.
+    for (final name in [
+      'package.json',
+      'package-lock.json',
+      'index.js',
+      'desktop-ipc.js',
+      'autobase-recipes.js',
+      'schema.js',
+      'version.js',
+    ]) {
+      File(
+        '${realPearEnd.path}/$name',
+      ).copySync('${pkgRoot.path}/pear-end/$name');
     }
     final jniLibsRoot =
         Directory('${parent.path}/flutter_pear_bare/android/src/main/jniLibs')

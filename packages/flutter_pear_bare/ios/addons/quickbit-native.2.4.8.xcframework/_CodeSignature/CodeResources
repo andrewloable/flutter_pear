@@ -6,27 +6,27 @@
 	<dict>
 		<key>ios-arm64-simulator/quickbit-native.2.4.8.framework/Info.plist</key>
 		<data>
-		VfW2qpqgPcqnDX+NpR/KBmw0R9c=
+		WmNrEiYxSEu2ZgBicFQ4w+cCRe4=
 		</data>
 		<key>ios-arm64-simulator/quickbit-native.2.4.8.framework/_CodeSignature/CodeResources</key>
 		<data>
-		eRS72LUEu76boX4TBzl7DcJGXn4=
+		8N3inyyzPTeMhrxZ5TbpRHv1r98=
 		</data>
 		<key>ios-arm64-simulator/quickbit-native.2.4.8.framework/quickbit-native.2.4.8</key>
 		<data>
-		T/c2oekel5NRwBmj/1UmsxAXo2M=
+		MAstgdgGANL4Xlp+sH2QeuN96X0=
 		</data>
 		<key>ios-arm64/quickbit-native.2.4.8.framework/Info.plist</key>
 		<data>
-		VfW2qpqgPcqnDX+NpR/KBmw0R9c=
+		WmNrEiYxSEu2ZgBicFQ4w+cCRe4=
 		</data>
 		<key>ios-arm64/quickbit-native.2.4.8.framework/_CodeSignature/CodeResources</key>
 		<data>
-		eRS72LUEu76boX4TBzl7DcJGXn4=
+		8N3inyyzPTeMhrxZ5TbpRHv1r98=
 		</data>
 		<key>ios-arm64/quickbit-native.2.4.8.framework/quickbit-native.2.4.8</key>
 		<data>
-		sd0DWC7ReUYf3WTO3pt2oHEF0BI=
+		BmgIfytWSU4MKcszTtUYYnBpsMU=
 		</data>
 	</dict>
 	<key>files2</key>
@@ -35,42 +35,42 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			XFEwYPcger8zCeSVAo6peu5/2ZUCYllECkxZpnFiKZ8=
+			KDHpj18vJRbgk19SRbGptJdIRQYor4rJHiMH6yPHzeQ=
 			</data>
 		</dict>
 		<key>ios-arm64-simulator/quickbit-native.2.4.8.framework/_CodeSignature/CodeResources</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			L/Oj6ssfjlErNcCSksGZO2I+7x8KdpkNvW5DS393GKs=
+			ky2tr5YHU3BgmCaQtaB0jKkjCy+O4D9IFxmBKp3B2Ag=
 			</data>
 		</dict>
 		<key>ios-arm64-simulator/quickbit-native.2.4.8.framework/quickbit-native.2.4.8</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			JE6l1b3WRjKn13SUEeIeZTMTJHXqxBESeMxg7KxEE/c=
+			1VakPa0fMBnxvi8qHpsL7pYDrc9lK9i4s7hWvLLAo/c=
 			</data>
 		</dict>
 		<key>ios-arm64/quickbit-native.2.4.8.framework/Info.plist</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			XFEwYPcger8zCeSVAo6peu5/2ZUCYllECkxZpnFiKZ8=
+			KDHpj18vJRbgk19SRbGptJdIRQYor4rJHiMH6yPHzeQ=
 			</data>
 		</dict>
 		<key>ios-arm64/quickbit-native.2.4.8.framework/_CodeSignature/CodeResources</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			L/Oj6ssfjlErNcCSksGZO2I+7x8KdpkNvW5DS393GKs=
+			ky2tr5YHU3BgmCaQtaB0jKkjCy+O4D9IFxmBKp3B2Ag=
 			</data>
 		</dict>
 		<key>ios-arm64/quickbit-native.2.4.8.framework/quickbit-native.2.4.8</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			L2MlWcw8V6R4mxEFaJv3s9wLZhqjFw+lAg6dn1MJAKk=
+			6Zg0oy2LmMgWy+PwOqpXHebdnlXjqCCZqCOy7Dzbkb8=
 			</data>
 		</dict>
 	</dict>

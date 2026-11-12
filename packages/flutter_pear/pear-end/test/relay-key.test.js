@@ -27,7 +27,7 @@ const DHT = require('hyperdht')
 const createTestnet = require('hyperdht/testnet')
 const { Server: BlindRelayServer } = require('blind-relay')
 const sodium = require('sodium-universal')
-const { Method, FrameType, ErrorCode } = require('../schema')
+const { Method, EventName, FrameType, ErrorCode } = require('../schema')
 
 const INDEX_PATH = require.resolve('../index.js')
 
@@ -96,6 +96,17 @@ function bootWorklet () {
   delete require.cache[INDEX_PATH]
   require(INDEX_PATH)
   const swarm = swarmInstances[before]
+  const isRelayed = require(INDEX_PATH).isRelayed
+
+  // Every event frame the worklet sends, in order.
+  const events = []
+  writeListeners.add((buf) => {
+    if (buf.length < 5 || buf[4] !== FrameType.JSON) return
+    try {
+      const msg = JSON.parse(buf.subarray(5, 4 + buf.readUInt32BE(0)).toString())
+      if (msg.ev) events.push(msg)
+    } catch {}
+  })
 
   let nextId = 1
   function call (method, params) {
@@ -118,7 +129,7 @@ function bootWorklet () {
     ipc.emit('data', Buffer.concat([lengthPrefix, frame]))
     return response
   }
-  return { swarm, call }
+  return { swarm, call, isRelayed, events }
 }
 
 // Hyperswarm reads the NAT type from its DHT when it decides; pin it per case.
@@ -196,12 +207,12 @@ function referenceServerKeyPair () {
 
 // The reference relay's behaviour (BladeWatch relay/relay.js createRelay): a blind
 // relay listening under the server key pair that accepts only the member key.
-async function startRelay () {
+async function startRelay (serverKeyPair = referenceServerKeyPair(), memberPublicKey = Buffer.from(VECTOR.member, 'hex')) {
+  const members = [].concat(memberPublicKey)
   const dht = new DHT({ bootstrap: testnet.bootstrap })
   const relay = new BlindRelayServer({ createStream: (opts) => dht.createRawStream({ ...opts, framed: true }) })
-  const member = Buffer.from(VECTOR.member, 'hex')
   const server = dht.createServer(
-    { firewall: (remotePublicKey) => !remotePublicKey.equals(member) },
+    { firewall: (remotePublicKey) => !members.some((m) => remotePublicKey.equals(m)) },
     // As in the reference relay: a member that vanishes resets its stream, which
     // must not throw. Unhandled, it would crash the relay process.
     (socket) => {
@@ -215,7 +226,7 @@ async function startRelay () {
     await relay.close()
     await dht.destroy()
   })
-  await server.listen(referenceServerKeyPair())
+  await server.listen(serverKeyPair)
   return relay
 }
 
@@ -257,4 +268,228 @@ test('a worklet without the relay key is refused by the owner relay', async () =
 
   assert.match(await relayedEcho(a, b), /^error /)
   assert.equal(relay.stats.pairings.matched, 0)
+})
+
+// relay.setKeys (flutter_pear 0.4.10): the relay's key pair is generated on the
+// relay host and never given to peers; they hold only its public key and a
+// member seed, so no member can compute the relay's secret key.
+const crypto = require('node:crypto')
+
+test('relay.setKeys applies the member key pair from the seed and the given relay public key', async () => {
+  const { swarm, call } = bootWorklet()
+  const identity = swarm.keyPair.publicKey.toString('hex')
+  const seed = crypto.randomBytes(32)
+  const relayPub = DHT.keyPair().publicKey
+
+  const res = await call(Method.RELAY_SET_KEYS, { publicKey: relayPub.toString('hex'), memberSeed: seed.toString('hex') })
+  assert.equal(res.err, undefined)
+  const member = DHT.keyPair(seed).publicKey.toString('hex')
+  assert.equal(res.ok.memberPublicKey, member)
+  assert.equal(swarm.dht.defaultKeyPair.publicKey.toString('hex'), member)
+  assert.deepEqual(swarm.relayThrough(true, swarm), relayPub)
+  assert.equal(swarm.keyPair.publicKey.toString('hex'), identity, 'the swarm identity never changes')
+  assert.equal(JSON.stringify(res).includes(seed.toString('hex')), false, 'the reply never carries the seed')
+})
+
+test('two worklets with the same relay keys connect through a relay whose key pair no member can derive', async () => {
+  const seed = crypto.randomBytes(32)
+  const serverKp = DHT.keyPair() // never given to the worklets
+  const relay = await startRelay(serverKp, DHT.keyPair(seed).publicKey)
+  const a = bootWorklet()
+  const b = bootWorklet()
+  const keys = { publicKey: serverKp.publicKey.toString('hex'), memberSeed: seed.toString('hex') }
+  assert.equal((await a.call(Method.RELAY_SET_KEYS, keys)).err, undefined)
+  assert.equal((await b.call(Method.RELAY_SET_KEYS, keys)).err, undefined)
+
+  assert.equal(await relayedEcho(a, b), 'ping')
+  assert.equal(relay.stats.pairings.matched, 1)
+})
+
+test('a worklet with a different member seed is refused', async () => {
+  const seed = crypto.randomBytes(32)
+  const serverKp = DHT.keyPair()
+  const relay = await startRelay(serverKp, DHT.keyPair(seed).publicKey)
+  const a = bootWorklet()
+  const b = bootWorklet()
+  const pub = serverKp.publicKey.toString('hex')
+  await a.call(Method.RELAY_SET_KEYS, { publicKey: pub, memberSeed: seed.toString('hex') })
+  await b.call(Method.RELAY_SET_KEYS, { publicKey: pub, memberSeed: crypto.randomBytes(32).toString('hex') })
+
+  assert.match(await relayedEcho(a, b), /^error /)
+  assert.equal(relay.stats.pairings.matched, 0)
+})
+
+test('relay.setKeys refuses malformed input and changes nothing', async () => {
+  const { swarm, call } = bootWorklet()
+  const good = { publicKey: 'ab'.repeat(32), memberSeed: 'cd'.repeat(32) }
+  await call(Method.RELAY_SET_KEYS, good)
+  const applied = swarm.dht.defaultKeyPair
+  const policy = swarm.relayThrough
+
+  const bads = [
+    { memberSeed: good.memberSeed },
+    { publicKey: good.publicKey },
+    { ...good, publicKey: 'ab'.repeat(32).slice(1) },
+    { ...good, memberSeed: good.memberSeed + 'c' },
+    { ...good, memberSeed: 'zz' + good.memberSeed.slice(2) },
+    { ...good, publicKey: 12345 },
+    null
+  ]
+  for (const bad of bads) {
+    const res = await call(Method.RELAY_SET_KEYS, bad)
+    assert.equal(res.err && res.err.code, ErrorCode.INVALID_RELAY_KEY, JSON.stringify(bad))
+    assert.equal(swarm.dht.defaultKeyPair, applied, 'state unchanged after ' + JSON.stringify(bad))
+    assert.equal(swarm.relayThrough, policy)
+  }
+})
+
+test('relay.set null turns a relay.setKeys relay off', async () => {
+  const { swarm, call } = bootWorklet()
+  const original = swarm.dht.defaultKeyPair
+  await call(Method.RELAY_SET_KEYS, { publicKey: 'ab'.repeat(32), memberSeed: 'cd'.repeat(32) })
+  assert.notEqual(swarm.relayThrough, null)
+  await call(Method.RELAY_SET, { key: null })
+  assert.equal(swarm.dht.defaultKeyPair, original)
+  assert.equal(swarm.relayThrough, null)
+})
+
+test('swarm.publicKey returns the key peers see', async () => {
+  const { swarm, call } = bootWorklet()
+  const res = await call(Method.SWARM_PUBLIC_KEY)
+  assert.equal(res.err, undefined)
+  assert.equal(res.ok.publicKey, swarm.keyPair.publicKey.toString('hex'))
+})
+
+test('a relay setting does not change swarm.publicKey', async () => {
+  const { swarm, call } = bootWorklet()
+  const before = (await call(Method.SWARM_PUBLIC_KEY)).ok.publicKey
+  await call(Method.RELAY_SET, { key: VECTOR.key })
+  const after = (await call(Method.SWARM_PUBLIC_KEY)).ok.publicKey
+  assert.equal(after, before)
+  assert.notEqual(after, swarm.dht.defaultKeyPair.publicKey.toString('hex'), 'the relay member key is a different key')
+})
+
+// ---- which connections are relayed (isRelayed, SWARM_CONNECTION.relayed, CONNECTION_PATH) ----
+
+// A server on a's DHT reachable only through the relay, dialed from b's DHT (as relayedEcho),
+// keeping both ends: { client, server }.
+async function relayedPair (a, b) {
+  let serverSocket
+  const accepted = new Promise((resolve) => {
+    const server = a.swarm.dht.createServer(
+      { holepunch: false, shareLocalAddress: false, relayThrough: () => a.swarm.relayThrough(true, a.swarm) },
+      (socket) => { socket.on('error', () => {}); serverSocket = socket; resolve() }
+    )
+    cleanup.push(() => server.close())
+    a.server = server
+  })
+  await a.server.listen(DHT.keyPair())
+  const client = b.swarm.dht.connect(a.server.publicKey, { localConnection: false, fastOpen: false })
+  client.on('error', () => {})
+  await new Promise((resolve, reject) => { client.once('open', resolve); client.once('error', reject) })
+  await accepted
+  cleanup.push(async () => { client.destroy(); serverSocket.destroy() })
+  return { client, server: serverSocket }
+}
+
+// Both worklets join one topic; resolves with each side's Hyperswarm connection.
+async function swarmPair (a, b) {
+  const topic = crypto.randomBytes(32).toString('hex')
+  const conns = [new Promise((resolve) => a.swarm.once('connection', resolve)), new Promise((resolve) => b.swarm.once('connection', resolve))]
+  // Staggered joins plus one more discovery pass for the first joiner: simultaneous joins on
+  // this local testnet never converge (see rejoin-replay.test.js's joinWorkletAndWait).
+  for (const w of [a, b]) {
+    await w.call(Method.SWARM_JOIN, { topic })
+    await w.swarm.flush()
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+  await a.swarm.join(Buffer.from(topic, 'hex'), { server: true, client: true }).flushed()
+  const [connA, connB] = await Promise.all(conns)
+  return { topic, connA, connB }
+}
+
+test('a connection made through the relay reports relayed on both ends', async () => {
+  await startRelay()
+  const a = bootWorklet()
+  const b = bootWorklet()
+  await a.call(Method.RELAY_SET, { key: VECTOR.key })
+  await b.call(Method.RELAY_SET, { key: VECTOR.key })
+
+  const { client, server } = await relayedPair(a, b)
+  assert.equal(b.isRelayed(client), true, 'the dialing end')
+  assert.equal(a.isRelayed(server), true, 'the accepting end')
+})
+
+test('a relayed connection is reported relayed even when this side has no relay configured', async () => {
+  // The remote side picks the relay (payload.relayThrough); this worklet never set one.
+  const a = bootWorklet()
+  const b = bootWorklet()
+  const seed = crypto.randomBytes(32)
+  const serverKp = DHT.keyPair()
+  // The relay admits a's member key and b's ordinary key (b never configures anything).
+  await startRelay(serverKp, [DHT.keyPair(seed).publicKey, b.swarm.dht.defaultKeyPair.publicKey])
+  await a.call(Method.RELAY_SET_KEYS, { publicKey: serverKp.publicKey.toString('hex'), memberSeed: seed.toString('hex') })
+
+  const { client } = await relayedPair(a, b)
+  assert.equal(b.swarm.relayThrough, null)
+  assert.equal(b.isRelayed(client), true)
+})
+
+test('a direct connection with a relay configured reports not relayed', async () => {
+  const a = bootWorklet()
+  const b = bootWorklet()
+  await a.call(Method.RELAY_SET, { key: VECTOR.key })
+  await b.call(Method.RELAY_SET, { key: VECTOR.key })
+
+  const { connA, connB } = await swarmPair(a, b)
+  assert.equal(a.isRelayed(connA), false)
+  assert.equal(b.isRelayed(connB), false)
+})
+
+test('with no relay configured, nothing is relayed', async () => {
+  const a = bootWorklet()
+  const b = bootWorklet()
+  const { connA, connB } = await swarmPair(a, b)
+  assert.equal(a.isRelayed(connA), false)
+  assert.equal(b.isRelayed(connB), false)
+})
+
+test('an unreadable address counts as relayed', () => {
+  const { isRelayed } = bootWorklet()
+  assert.equal(isRelayed({ rawStream: {} }), true)
+  assert.equal(isRelayed(null), true)
+})
+
+test('swarm.connection carries relayed, on the first connection and on the re-join replay', async () => {
+  const a = bootWorklet()
+  const b = bootWorklet()
+  const { topic } = await swarmPair(a, b)
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  const conns = () => a.events.filter((e) => e.ev === EventName.SWARM_CONNECTION)
+  assert.equal(conns().length, 1)
+  assert.equal(typeof conns()[0].p.relayed, 'boolean')
+
+  await a.call(Method.SWARM_JOIN, { topic }) // replays the already-connected peer
+  assert.equal(conns().length, 2)
+  assert.equal(typeof conns()[1].p.relayed, 'boolean')
+})
+
+test('connection.path is sent only when the value changes', async () => {
+  const a = bootWorklet()
+  const b = bootWorklet()
+  const { connA } = await swarmPair(a, b)
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  const paths = () => a.events.filter((e) => e.ev === EventName.CONNECTION_PATH)
+
+  connA.rawStream.emit('remote-changed') // same address: still direct
+  assert.equal(paths().length, 0)
+
+  // The address becomes unreadable: the worklet cannot show it is direct, so it says relayed.
+  Object.defineProperty(connA.rawStream, 'remoteHost', { get: () => null, configurable: true })
+  connA.rawStream.emit('remote-changed')
+  assert.equal(paths().length, 1)
+  assert.equal(paths()[0].p.relayed, true)
+
+  connA.rawStream.emit('remote-changed') // still relayed
+  assert.equal(paths().length, 1)
 })

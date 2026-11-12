@@ -18,7 +18,8 @@ typedef PearSwarmStatus = ({PearSwarmState state, PearException? error});
 /// never an address or a key. [error] is null for a clean close by either side, else the error's
 /// code (`ETIMEDOUT`) or its message with anything address- or key-shaped masked. [rtt] is UDX's
 /// smoothed round-trip time and [rtoCount] its retransmission timeouts, both sampled as the
-/// stream ended; [ipv6] is the remote address family. Any field a pear-end could not read is null.
+/// stream ended; [ipv6] is the remote address family. [relayed] is [PearConnection.relayed] as
+/// of the close (false when the worklet predates it). Any other field a pear-end could not read is null.
 typedef PearCloseStats = ({
   String? error,
   int? ageMs,
@@ -28,6 +29,7 @@ typedef PearCloseStats = ({
   int? rtoCount,
   int? retransmits,
   bool? ipv6,
+  bool relayed,
 });
 
 PearCloseStats? _closeStatsFrom(Object? raw) {
@@ -42,6 +44,7 @@ PearCloseStats? _closeStatsFrom(Object? raw) {
     rtoCount: n('rtoCount'),
     retransmits: n('retransmits'),
     ipv6: raw['ipv6'] is bool ? raw['ipv6'] as bool : null,
+    relayed: raw['relayed'] == true,
   );
 }
 
@@ -58,7 +61,7 @@ PearCloseStats? _closeStatsFrom(Object? raw) {
 /// needing delivery/ordering guarantees across a reconnect needs a
 /// Hypercore/Autobase-backed structure (E5.2–E5.8), not raw [write]/[data].
 class PearConnection {
-  PearConnection._(this._rpc, this.remotePublicKey);
+  PearConnection._(this._rpc, this.remotePublicKey, [this._relayed = false]);
 
   final PearRpc _rpc;
 
@@ -67,7 +70,33 @@ class PearConnection {
 
   final StreamController<Uint8List> _data =
       StreamController<Uint8List>.broadcast();
+  final StreamController<bool> _relayedChanges =
+      StreamController<bool>.broadcast();
   bool _closed = false;
+  bool _relayed;
+
+  /// Whether this connection currently goes through a relay (see
+  /// `Pear.setRelay`), as this device sees it. A relay operator sees both
+  /// devices' IP addresses, connection times and data volume, so show this to
+  /// the user before sending anything sensitive.
+  ///
+  /// The guarantee is one-sided: it may say relayed for a connection that is
+  /// in fact direct, but it never says direct for a relayed one. When the
+  /// worklet cannot tell, it reports relayed. A worklet that predates this
+  /// field reports nothing, which reads as `false`, so require a matching
+  /// `flutter_pear` bundle before trusting a `false`.
+  bool get relayed => _relayed;
+
+  /// The new value each time [relayed] changes (a relayed connection becoming
+  /// direct, or the reverse); never repeats the current value. Closes with the
+  /// connection.
+  Stream<bool> get relayedChanges => _relayedChanges.stream;
+
+  void _setRelayed(bool value) {
+    if (value == _relayed) return;
+    _relayed = value;
+    _relayedChanges.add(value);
+  }
 
   /// Why this connection closed, once [data] is done; null while it is open, or when the
   /// worklet's pear-end predates close stats.
@@ -108,6 +137,7 @@ class PearConnection {
   Future<void> _close([PearCloseStats? stats]) {
     _closed = true;
     _closeStats = stats;
+    _relayedChanges.close();
     return _data.close();
   }
 }
@@ -274,10 +304,12 @@ class PearSwarm {
       switch (e.name) {
         case PearEventName.swarmConnection:
           final key = PearKey.fromHex(p['peer'] as String);
-          final conn = PearConnection._(_rpc, key);
+          final conn = PearConnection._(_rpc, key, p['relayed'] == true);
           _byKey[key.hex] = conn;
           _established.add(conn);
           _connections.add(conn);
+        case PearEventName.connectionPath:
+          _byKey[p['peer']]?._setRelayed(p['relayed'] == true);
         case PearEventName.connectionData:
           _byKey[p['peer']]?._add(base64Decode(p['data'] as String));
         case PearEventName.connectionClose:

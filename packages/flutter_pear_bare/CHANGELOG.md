@@ -1,3 +1,9 @@
+## 0.4.10
+
+**Rebuilt the bundled pear-end** (including the desktop bundle copies) for
+`relay.setKeys`, which `flutter_pear` adds. No native addon, Bare Kit or
+platform change.
+
 ## 0.4.9
 
 **Migrated to Flutter's built-in Kotlin; requires Flutter 3.44 / Dart 3.12**

@@ -301,12 +301,16 @@ from the source drive may not have been written:
 <a id="INVALID_RELAY_KEY"></a>
 ### INVALID_RELAY_KEY
 
-- **Problem:** `Pear.setRelayKey` was given a relay key that is not 12 digits.
+- **Problem:** `Pear.setRelayKey` was given a relay key that is not 12 digits,
+  or `Pear.setRelay` was given a relay public key or member seed that is not
+  32 bytes.
 - **Cause:** A typo, a missing group, or letters or non-ASCII digits in the
-  key. Spaces and dashes are ignored; nothing else is.
+  12-digit key (spaces and dashes are ignored; nothing else is), or a public
+  key or member seed of the wrong length.
 - **Fix:** Enter the exact 12 digits the relay was set up with, e.g.
-  `4821-0937-5562`. Validate input first with `Pear.normalizeRelayKey`. The
-  previous relay setting stays in effect until a valid key arrives.
+  `4821-0937-5562`. Validate input first with `Pear.normalizeRelayKey`. For
+  `Pear.setRelay`, pass a 32-byte public key and a 32-byte member seed. The
+  previous relay setting stays in effect until a valid one arrives.
 
 ## Pairing (blind pairing / invites)
 

@@ -1,3 +1,18 @@
+## 0.4.10
+
+**Added: `swarm.publicKey` and `relayed` in the fake.** `FakeBareWorklet` answers
+`PearMethod.swarmPublicKey` with its `peerKey`, reports `relayed: false` on every
+connection, and `setRelayed(other, bool)` flips it and emits `connection.path` on
+every shared topic, so app tests can drive a "Relayed" badge.
+
+
+**Added: `relay.setKeys` in the fake.** `FakeBareWorklet` answers
+`PearMethod.relaySetKeys` with pear-end's validation (64 hex characters each,
+`PearErrorCode.invalidRelayKey` otherwise), records the relay's public key in
+the new `FakeBareWorklet.relayPublicKey`, and replies a fixed fake member key.
+Setting either kind of relay clears the other's getter; `relay.set` with a null
+key clears both.
+
 ## 0.4.9
 
 **Added: the owner relay in the fake.** `FakeBareWorklet` answers

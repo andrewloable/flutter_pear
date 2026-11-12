@@ -6,27 +6,27 @@
 	<dict>
 		<key>ios-arm64-simulator/sodium-native.5.1.0.framework/Info.plist</key>
 		<data>
-		CZnZ6NEA5svoB9esiaQa/bzWmz8=
+		gYVtM4mbbSqtt4cFFYVKgr/hVck=
 		</data>
 		<key>ios-arm64-simulator/sodium-native.5.1.0.framework/_CodeSignature/CodeResources</key>
 		<data>
-		e/IX1rJPC6bHoCNLa0lqYq8XOJE=
+		HKrXB4SbWTBOIKhczxKd75kPthc=
 		</data>
 		<key>ios-arm64-simulator/sodium-native.5.1.0.framework/sodium-native.5.1.0</key>
 		<data>
-		gxXLJp1mf1ZJozCKD87JZuKgPRQ=
+		Pxz9z1ZSZOGSvIyX3kL48PMqkFc=
 		</data>
 		<key>ios-arm64/sodium-native.5.1.0.framework/Info.plist</key>
 		<data>
-		CZnZ6NEA5svoB9esiaQa/bzWmz8=
+		gYVtM4mbbSqtt4cFFYVKgr/hVck=
 		</data>
 		<key>ios-arm64/sodium-native.5.1.0.framework/_CodeSignature/CodeResources</key>
 		<data>
-		e/IX1rJPC6bHoCNLa0lqYq8XOJE=
+		HKrXB4SbWTBOIKhczxKd75kPthc=
 		</data>
 		<key>ios-arm64/sodium-native.5.1.0.framework/sodium-native.5.1.0</key>
 		<data>
-		BIIjvktftZQWO+Tk8OnpR3ztdEc=
+		6alYVex7mI/bMk31YQSuSKZonEE=
 		</data>
 	</dict>
 	<key>files2</key>
@@ -35,42 +35,42 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			0GDo0AVTz/ezF68NC6UknKfNco8HEPgHdC6yZthS+1I=
+			JsVdhSB5B1poU49SgP9I7wrGKzQe/iZgR24mwM2ES8I=
 			</data>
 		</dict>
 		<key>ios-arm64-simulator/sodium-native.5.1.0.framework/_CodeSignature/CodeResources</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			XGlE9rr0Z1BjgHw+Pxp8MOOu7z+fhn3qgHhNYlfvp8k=
+			Lxs4Nl7gZIz1HlxbDdjsiPjivsYYnNRbdDH2HJ0z7M0=
 			</data>
 		</dict>
 		<key>ios-arm64-simulator/sodium-native.5.1.0.framework/sodium-native.5.1.0</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			/eoJ7EokPWlGjyDdz/yAWMV2rp1FJMxVigQsy+r3N2c=
+			iW4Vd9Eg49bcXit0kaGGkL7XQxZ+JWPnyOuhBC5P7ro=
 			</data>
 		</dict>
 		<key>ios-arm64/sodium-native.5.1.0.framework/Info.plist</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			0GDo0AVTz/ezF68NC6UknKfNco8HEPgHdC6yZthS+1I=
+			JsVdhSB5B1poU49SgP9I7wrGKzQe/iZgR24mwM2ES8I=
 			</data>
 		</dict>
 		<key>ios-arm64/sodium-native.5.1.0.framework/_CodeSignature/CodeResources</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			XGlE9rr0Z1BjgHw+Pxp8MOOu7z+fhn3qgHhNYlfvp8k=
+			Lxs4Nl7gZIz1HlxbDdjsiPjivsYYnNRbdDH2HJ0z7M0=
 			</data>
 		</dict>
 		<key>ios-arm64/sodium-native.5.1.0.framework/sodium-native.5.1.0</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			OLfzjepuViIagad25BQPP1rECAz/9IlTPdsbvvB08Sc=
+			3GMnbPv0bQqcPRMol/uthtlaOQUebamyeV87Ji/tsCw=
 			</data>
 		</dict>
 	</dict>

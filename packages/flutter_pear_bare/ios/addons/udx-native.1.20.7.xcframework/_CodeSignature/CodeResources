@@ -6,27 +6,27 @@
 	<dict>
 		<key>ios-arm64-simulator/udx-native.1.20.7.framework/Info.plist</key>
 		<data>
-		AI921IqlPtj+0piTLYBm7lamGdU=
+		HVVBi1gGGzAU7GSNhx/YJVedhXg=
 		</data>
 		<key>ios-arm64-simulator/udx-native.1.20.7.framework/_CodeSignature/CodeResources</key>
 		<data>
-		02wLL57ngRmQDqWAPcLJyJz3Q/o=
+		9i+gdqYlPPerDUdJvBeZADwV4tU=
 		</data>
 		<key>ios-arm64-simulator/udx-native.1.20.7.framework/udx-native.1.20.7</key>
 		<data>
-		PHBKqU67PZhrnu+e/iSxS0J1S4Q=
+		V8BCnAz8HHF9HHPAU5ZloTaIaoc=
 		</data>
 		<key>ios-arm64/udx-native.1.20.7.framework/Info.plist</key>
 		<data>
-		AI921IqlPtj+0piTLYBm7lamGdU=
+		HVVBi1gGGzAU7GSNhx/YJVedhXg=
 		</data>
 		<key>ios-arm64/udx-native.1.20.7.framework/_CodeSignature/CodeResources</key>
 		<data>
-		02wLL57ngRmQDqWAPcLJyJz3Q/o=
+		9i+gdqYlPPerDUdJvBeZADwV4tU=
 		</data>
 		<key>ios-arm64/udx-native.1.20.7.framework/udx-native.1.20.7</key>
 		<data>
-		XUsw3nOgeE9rbgCHSu96Cs+dqNM=
+		4jMCtbkgydFuClC/RibFgdVx8Dc=
 		</data>
 	</dict>
 	<key>files2</key>
@@ -35,42 +35,42 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			eIsUL56z230JMzo5dkr3wGqxl4kTbY5+LRKWNVMPwIA=
+			6YPLcq0Sq99dbPVq1hAxc/UqYXRVscr/hMga/E2xMm0=
 			</data>
 		</dict>
 		<key>ios-arm64-simulator/udx-native.1.20.7.framework/_CodeSignature/CodeResources</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			1Aq7JqYkOKSfelocw31HfDEHvzHsHu0ukIhTsjZlAGo=
+			EgE6wrdXHbaJEXxgmcukLc6IbebcPdp97JnacR9016s=
 			</data>
 		</dict>
 		<key>ios-arm64-simulator/udx-native.1.20.7.framework/udx-native.1.20.7</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			ydizNUKYFWp07KHTYAvlxOwWqv5gpLUbYsBFcI/Bd+E=
+			aAUkxsMnJKnVX5q+ydLzOTJbeCkVNDgkr+stwM/9svo=
 			</data>
 		</dict>
 		<key>ios-arm64/udx-native.1.20.7.framework/Info.plist</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			eIsUL56z230JMzo5dkr3wGqxl4kTbY5+LRKWNVMPwIA=
+			6YPLcq0Sq99dbPVq1hAxc/UqYXRVscr/hMga/E2xMm0=
 			</data>
 		</dict>
 		<key>ios-arm64/udx-native.1.20.7.framework/_CodeSignature/CodeResources</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			1Aq7JqYkOKSfelocw31HfDEHvzHsHu0ukIhTsjZlAGo=
+			EgE6wrdXHbaJEXxgmcukLc6IbebcPdp97JnacR9016s=
 			</data>
 		</dict>
 		<key>ios-arm64/udx-native.1.20.7.framework/udx-native.1.20.7</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			jO9o5ZNWzpOXLmDex0Wy8n/3z4aa5Y9ZMI+OkIp2uwg=
+			A72WcWReGmzVkUYd2ZQb6sJmIXUdhBSOYhGmY9dCk/k=
 			</data>
 		</dict>
 	</dict>

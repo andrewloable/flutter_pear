@@ -76,10 +76,26 @@ void main() {
         entity.copySync('${pkgRoot.path}/pear-end/$name');
       }
     }
-    Link('${pkgRoot.path}/pear-end/node_modules')
-        .createSync(realNodeModules.path);
-    Directory('${parent.path}/flutter_pear_bare/android/src/main/jniLibs')
-        .createSync(recursive: true);
+    // A real copy, not a symlink: newer bare-pack/bare-link resolve through
+    // a symlinked node_modules to its real path, so every manifest key grows
+    // an out-of-tree ../.. prefix and never matches the committed bundle.
+    // `cp -c` clones on APFS (instant); plain `cp -R` is the fallback.
+    final cloned = await Process.run('cp', [
+      '-cR',
+      realNodeModules.path,
+      '${pkgRoot.path}/pear-end/node_modules',
+    ]);
+    if (cloned.exitCode != 0) {
+      final copied = await Process.run('cp', [
+        '-R',
+        realNodeModules.path,
+        '${pkgRoot.path}/pear-end/node_modules',
+      ]);
+      expect(copied.exitCode, 0, reason: copied.stderr.toString());
+    }
+    Directory(
+      '${parent.path}/flutter_pear_bare/android/src/main/jniLibs',
+    ).createSync(recursive: true);
 
     // bare-pack computes every embedded file's manifest-path KEY relative to
     // the process's current working directory, not the entry file's own

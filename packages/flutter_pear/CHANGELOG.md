@@ -1,3 +1,36 @@
+## 0.4.10
+
+**Added: `Pear.publicKey()`.** This device's swarm public key, the one a peer sees
+as `PearConnection.remotePublicKey` (RPC `swarm.publicKey`). A messenger needs
+it to sign both transport keys of a session. Public key only; a relay setting
+never changes it.
+
+**Added: `PearConnection.relayed`, `relayedChanges` and `PearCloseStats.relayed`.**
+Whether a connection goes through a relay, as this device sees it. It may say
+relayed for a direct connection, never direct for a relayed one. `swarm.connection`
+and `connection.close` carry it, and a new event `connection.path` reports a
+change (a relayed connection becoming direct). The worklet learns it by watching
+`dht.connect`, so no private hyperdht state is read. An older bundle omits the
+field, which reads as `false`.
+
+**Upgraded pear-end dependencies:** corestore 7.12.5 -> 7.16.1, protomux 3.12.0 ->
+3.13.1, compact-encoding 3.5.0 -> 3.6.0, bare-fs 4.8.1 -> 4.8.4, bare-pipe 4.3.1 -> 4.4.0.
+
+
+**Added: `Pear.setRelay(PearRelay)`, a relay configured by public key plus a
+member seed.** Additive; `setRelayKey` and the 12-digit derivation are
+unchanged (BladeWatch devices in the field depend on them). A 12-digit key
+lets every holder compute the relay's own secret key and pose as the relay: it
+cannot read relayed traffic, but it sees the IP addresses of peers that dial it
+and can drop their traffic. That is fine for one owner's own devices, not for a
+key shipped inside an app or passed to contacts in an invite. A `PearRelay`
+holds the relay's public key and a 32-byte member seed; the relay's own key
+pair is generated on the relay host, so holding the configuration never yields
+its secret key. New RPC `relay.setKeys` (`PearMethod.relaySetKeys`); a
+malformed request fails with `INVALID_RELAY_KEY`. `setRelay(null)` and
+`setRelayKey(null)` both turn off whichever relay is active. The seed is never
+logged, echoed or printed.
+
 ## 0.4.9
 
 **Added: an owner relay, for two peers that hole punching cannot connect.** No

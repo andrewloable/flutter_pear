@@ -61,11 +61,23 @@ abstract final class PearMethod {
   /// now" -- `online` can. Polled; there is no event for it.
   static const dhtStatus = 'dht.status';
 
+  /// This worklet's swarm public key: reply `{publicKey}` (64 hex characters),
+  /// the key a connected peer sees as the remote public key.
+  static const swarmPublicKey = 'swarm.publicKey';
+
   /// Sets (`p.key`, the owner's 12-digit relay key) or clears (`p.key` null)
   /// the owner relay -- see `Pear.setRelayKey`. Replies `{relayPublicKey}`
   /// while on and `{}` when off; never the key itself. A malformed key fails
   /// with [PearErrorCode.invalidRelayKey] and changes nothing.
   static const relaySet = 'relay.set';
+
+  /// Sets the relay by its public key and a member seed: request
+  /// `{publicKey, memberSeed}` (64 hex characters each), reply
+  /// `{memberPublicKey}`. Unlike [relaySet]'s 12-digit key, holding these never
+  /// lets anyone compute the relay's own secret key. `relay.set` with a null
+  /// key turns this relay off too. A malformed request fails with
+  /// [PearErrorCode.invalidRelayKey] and changes nothing.
+  static const relaySetKeys = 'relay.setKeys';
 
   /// Writes `p.data` (whole-payload base64, NOT chunked/streamed) to a new
   /// file inside the worklet's own storage and returns `{path}` — the
@@ -305,6 +317,11 @@ abstract final class PearEventName {
 
   /// A peer connection closed.
   static const connectionClose = 'connection.close';
+
+  /// A peer connection's relayed value changed while it was open: payload
+  /// `{topic, peer, relayed}`. Sent only on a change; see
+  /// [PearConnection.relayed].
+  static const connectionPath = 'connection.path';
 
   /// A swarm-level lifecycle notice (joining, errors, …) not tied to one peer.
   static const swarmLifecycle = 'swarm.lifecycle';
@@ -629,7 +646,8 @@ abstract final class PearErrorCode {
   static const baseClosed = 'BASE_CLOSED';
 
   /// [PearMethod.relaySet]'s key is not 12 digits (spaces and dashes are
-  /// ignored). Nothing changed: the previous relay setting still applies.
+  /// ignored), or [PearMethod.relaySetKeys]'s publicKey or memberSeed is not
+  /// 64 hex characters. Nothing changed: the previous relay setting still applies.
   static const invalidRelayKey = 'INVALID_RELAY_KEY';
 
   /// The explicit err.code -> exception-category registry (LOCKED: entries

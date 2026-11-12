@@ -385,12 +385,85 @@ void main() {
       rtoCount: 3,
       retransmits: 41,
       ipv6: false,
+      relayed: false,
     ));
     expect(conns.last.closeStats, isNull, reason: 'a close with no stats');
   });
 
-  test(
-      'establishedConnections captures a connection that arrived before '
+  group('relayed', () {
+    final peer = PearCrypto.unsafeTopicFromString('relayed-peer');
+
+    Future<PearConnection> connect(
+      PearSwarm swarm,
+      Map<String, Object?> extra,
+    ) async {
+      worklet.sendJsonFrame({
+        'ev': PearEventName.swarmConnection,
+        'p': {'topic': topic.hex, 'peer': peer.hex, ...extra},
+      });
+      return swarm.connections.first;
+    }
+
+    void path(bool relayed) => worklet.sendJsonFrame({
+      'ev': PearEventName.connectionPath,
+      'p': {'topic': topic.hex, 'peer': peer.hex, 'relayed': relayed},
+    });
+
+    test(
+      'swarm.connection with relayed: true marks the connection relayed',
+      () async {
+        final conn = await connect(await joinSwarm(), {'relayed': true});
+        expect(conn.relayed, isTrue);
+      },
+    );
+
+    test(
+      'a swarm.connection without the field reads as not relayed (older bundle)',
+      () async {
+        final conn = await connect(await joinSwarm(), {});
+        expect(conn.relayed, isFalse);
+      },
+    );
+
+    test(
+      'connection.path changes relayed and emits only on a change',
+      () async {
+        final conn = await connect(await joinSwarm(), {'relayed': true});
+        final seen = <bool>[];
+        conn.relayedChanges.listen(seen.add);
+
+        path(false);
+        path(false);
+        await Future<void>.delayed(Duration.zero);
+        expect(conn.relayed, isFalse);
+        expect(seen, [false]);
+      },
+    );
+
+    test(
+      'connection.close carries stats.relayed and ends relayedChanges',
+      () async {
+        final swarm = await joinSwarm();
+        final conn = await connect(swarm, {'relayed': true});
+        var done = false;
+        conn.relayedChanges.listen((_) {}, onDone: () => done = true);
+
+        worklet.sendJsonFrame({
+          'ev': PearEventName.connectionClose,
+          'p': {
+            'topic': topic.hex,
+            'peer': peer.hex,
+            'stats': {'error': null, 'relayed': true},
+          },
+        });
+        await Future<void>.delayed(Duration.zero);
+        expect(conn.closeStats!.relayed, isTrue);
+        expect(done, isTrue);
+      },
+    );
+  });
+
+  test('establishedConnections captures a connection that arrived before '
       'any .connections subscription -- the same late-subscriber race '
       'currentState already solves for the state stream', () async {
     final swarm = await joinSwarm();

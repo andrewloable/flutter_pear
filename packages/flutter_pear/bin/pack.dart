@@ -133,15 +133,14 @@ Future<int> linkNativeAddons(String pkgRoot) async {
 
   final tmpOut = Directory.systemTemp.createTempSync('fp_pack_addons');
   try {
-    final result = await Process.run(
-      'bare-link',
-      [
-        for (final host in nativeAddonAbis.values) ...['--host', host],
-        '--out',
-        tmpOut.path,
-      ],
-      workingDirectory: pearEndDir,
-    );
+    final result = await Process.run('bare-link', [
+      for (final host in nativeAddonAbis.values) ...['--host', host],
+      '--out',
+      tmpOut.path,
+      // bare-link >=4 requires the module-graph entry; older versions
+      // assumed the working directory's package.
+      './index.js',
+    ], workingDirectory: pearEndDir);
     stdout.write(result.stdout);
     stderr.write(result.stderr);
     if (result.exitCode != 0) {
@@ -235,14 +234,12 @@ Future<int> linkNativeAddonsIos(String pkgRoot) async {
 
   final tmpOut = Directory.systemTemp.createTempSync('fp_pack_addons_ios');
   try {
-    final result = await Process.run(
-      'bare-link',
-      [
-        for (final host in iosAddonHosts) ...['--host', host],
-        '--out', tmpOut.path,
-      ],
-      workingDirectory: pearEndDir,
-    );
+    final result = await Process.run('bare-link', [
+      for (final host in iosAddonHosts) ...['--host', host],
+      '--out',
+      tmpOut.path,
+      './index.js',
+    ], workingDirectory: pearEndDir);
     stdout.write(result.stdout);
     stderr.write(result.stderr);
     if (result.exitCode != 0) {

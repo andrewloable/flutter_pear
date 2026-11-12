@@ -179,6 +179,48 @@ const swarm = new Hyperswarm(
   Bare.argv.includes(PERSISTENT_IDENTITY_FLAG) ? { seed: loadOrCreateIdentitySeed() } : {}
 )
 
+// Which connections are relayed. hyperdht marks nothing on the socket it returns, but a
+// relayed connection is built by connecting to the relay (c.dht.connect(relayPublicKey), on
+// both the dialing and the accepting side, whichever side chose the relay) and then pointing
+// the peer connection's raw UDX stream at the relay's address. So a connection is relayed
+// exactly when its raw stream's remote address is the remote address of a socket this DHT
+// opened toward a relay. We watch dht.connect (a public method) to learn those addresses:
+// no private hyperdht state is read. Known blind spots, all in the safe direction: a direct
+// peer that shares an address with a relay is reported relayed; an address once seen for a
+// relay stays "relay" for the life of the worklet. The unsafe direction needs a relay socket
+// we never saw opened, and every relay socket comes through dht.connect on this instance.
+const dialSockets = new Set() // live sockets opened by swarm.dht.connect
+const relayAddresses = new Set() // "host:port" of every socket toward a key that is not a known swarm peer
+const rawAddress = (stream) => (stream && stream.remoteHost ? stream.remoteHost + ':' + stream.remotePort : null)
+{
+  const dhtConnect = swarm.dht.connect.bind(swarm.dht)
+  swarm.dht.connect = (publicKey, opts) => {
+    const socket = dhtConnect(publicKey, opts)
+    dialSockets.add(socket)
+    socket.once('close', () => dialSockets.delete(socket))
+    // A dial to a swarm peer is the peer, not a relay; anything else is a relay candidate.
+    const isPeer = swarm.peers.has(Buffer.from(publicKey).toString('hex'))
+    socket.once('open', () => {
+      const addr = rawAddress(socket.rawStream)
+      if (addr && !isPeer) relayAddresses.add(addr)
+    })
+    return socket
+  }
+}
+
+// True unless the connection can be shown to be direct: an unreadable address counts as
+// relayed. It may say relayed for a direct connection, never direct for a relayed one.
+function isRelayed (conn) {
+  const addr = conn ? rawAddress(conn.rawStream) : null
+  if (addr === null) return true
+  if (relayAddresses.has(addr)) return true
+  for (const socket of dialSockets) {
+    if (socket !== conn && rawAddress(socket.rawStream) === addr) return true
+  }
+  return false
+}
+if (typeof module !== 'undefined') module.exports = { isRelayed } // for tests; unused in the bundle
+
 // Opt-in OWNER relay (Method.RELAY_SET, flutter_pear 0.4.9). Hole punching cannot
 // connect two peers that are both behind randomizing NATs: hyperdht aborts with
 // HOLEPUNCH_DOUBLE_RANDOMIZED_NATS without trying, and a phone on mobile data
@@ -232,22 +274,56 @@ async function deriveRelayKeyPairs (digits) {
   return { server: derive('server'), member: derive('member') }
 }
 
+function applyRelay (member, relayPublicKey) {
+  swarm.dht.defaultKeyPair = member
+  swarm.relayThrough = (force, s) => (force || s.dht.randomized ? relayPublicKey : null)
+}
+
+// Changes apply in arrival order; a failed one never blocks the next.
+function queueRelayChange (fn) {
+  const applied = relayQueue.then(fn)
+  relayQueue = applied.catch(() => {})
+  return applied
+}
+
 // key null turns relaying off. A malformed key throws before anything changes.
 function setRelay (key) {
   const digits = key == null ? null : relayKeyDigits(key)
-  const applied = relayQueue.then(async () => {
+  return queueRelayChange(async () => {
     if (digits === null) {
       swarm.dht.defaultKeyPair = ORIGINAL_DHT_KEY_PAIR
       swarm.relayThrough = null
       return {}
     }
     const { server, member } = await deriveRelayKeyPairs(digits)
-    swarm.dht.defaultKeyPair = member
-    swarm.relayThrough = (force, s) => (force || s.dht.randomized ? server.publicKey : null)
+    applyRelay(member, server.publicKey)
     return { relayPublicKey: server.publicKey.toString('hex') }
   })
-  relayQueue = applied.catch(() => {})
-  return applied
+}
+
+// Relay by PUBLIC key plus a member seed. A 12-digit key (setRelay) lets every
+// holder compute the relay's SERVER secret key and pose as the relay: they
+// cannot read relayed traffic but see the IPs of peers that dial them and can
+// drop their traffic. Here the relay's own key pair is generated independently
+// on the relay host, so holding this configuration (a default key shipped in an
+// app, one passed in an invite) never yields the relay's secret key.
+// The seed is a secret: it never appears in a reply, an error or a log.
+const RELAY_HEX_32 = /^[0-9a-fA-F]{64}$/
+function setRelayKeys (p) {
+  const publicKey = p && p.publicKey
+  const memberSeed = p && p.memberSeed
+  if (typeof publicKey !== 'string' || !RELAY_HEX_32.test(publicKey) ||
+      typeof memberSeed !== 'string' || !RELAY_HEX_32.test(memberSeed)) {
+    const err = new Error('a relay public key and member seed are each 64 hex characters')
+    err.code = ErrorCode.INVALID_RELAY_KEY
+    throw err
+  }
+  const relayPublicKey = Buffer.from(publicKey, 'hex')
+  const member = crypto.keyPair(Buffer.from(memberSeed, 'hex'))
+  return queueRelayChange(async () => {
+    applyRelay(member, relayPublicKey)
+    return { memberPublicKey: member.publicKey.toString('hex') }
+  })
 }
 const connections = new Map() // peer public key (hex) -> connection, shared across topics
 // peer hex -> Protomux message sender for Method.CONNECTION_WRITE -- see the
@@ -278,6 +354,7 @@ swarm.on('connection', (conn, info) => {
   const peer = info.publicKey.toString('hex')
   connections.set(peer, conn)
   const openedAt = Date.now()
+  let relayed = isRelayed(conn) // this device's view; updated if the path changes (remote-changed)
   let lastError = null // set by conn.on('error') below, which fires before 'close'
 
   // Messages that arrived before this connection was tagged with any joined
@@ -299,7 +376,7 @@ swarm.on('connection', (conn, info) => {
     if (!t || t.connectedPeers.has(peer)) return
     t.connectedPeers.add(peer)
     t.everConnected = true
-    send({ ev: EventName.SWARM_CONNECTION, p: { topic: topicHex, peer } })
+    send({ ev: EventName.SWARM_CONNECTION, p: { topic: topicHex, peer, relayed } })
     sendState(topicHex, SwarmState.CONNECTED)
     for (const data of held) send({ ev: EventName.CONNECTION_DATA, p: { topic: topicHex, peer, data } })
     held = []
@@ -307,6 +384,21 @@ swarm.on('connection', (conn, info) => {
   }
   for (const topicBuf of info.topics) announce(topicBuf)
   info.on('topic', announce)
+  // A relayed connection can become direct (hyperdht keeps punching), which moves the raw
+  // stream's remote address. Re-evaluate then, and tell each joined topic only on a change.
+  if (conn.rawStream) {
+    conn.rawStream.on('remote-changed', () => {
+      const now = isRelayed(conn)
+      if (now === relayed) return
+      relayed = now
+      for (const topicBuf of info.topics) {
+        const topicHex = topicBuf.toString('hex')
+        const t = topics.get(topicHex)
+        if (!t || !t.connectedPeers.has(peer)) continue
+        send({ ev: EventName.CONNECTION_PATH, p: { topic: topicHex, peer, relayed } })
+      }
+    })
+  }
   if (!info.client) tagInboundConnection(conn, info)
 
   // Method.CONNECTION_DATA/CONNECTION_WRITE's raw app-data pass-through must
@@ -359,7 +451,7 @@ swarm.on('connection', (conn, info) => {
     connections.delete(peer)
     connectionChannels.delete(peer)
     replicationStreams.delete(peer) // E5.2: the chained replicate() stream dies with its connection
-    const stats = closeStats(conn, openedAt, lastError)
+    const stats = closeStats(conn, openedAt, lastError, relayed)
     for (const topicBuf of info.topics) {
       const topicHex = topicBuf.toString('hex')
       const t = topics.get(topicHex)
@@ -384,9 +476,9 @@ swarm.on('connection', (conn, info) => {
 // expiring). One object per close, nothing per packet; the host decides whether to log it.
 // Counts and codes only: never an address or a key, since a host's log may leave the device.
 // `error` is null for a clean close by either side. UDX's own counters, sampled as the stream
-// ends: rtt is its smoothed RTT, rtoCount its retransmission timeouts. No `relayed` field:
-// pear-end configures no blind relay (relayThrough), so no connection is relayed.
-function closeStats (conn, openedAt, err) {
+// ends: rtt is its smoothed RTT, rtoCount its retransmission timeouts. `relayed` is the value
+// when the connection ended (see isRelayed): a boolean, never an address.
+function closeStats (conn, openedAt, err, relayed) {
   const raw = conn.rawStream
   const read = (f) => {
     try {
@@ -404,7 +496,8 @@ function closeStats (conn, openedAt, err) {
     rtt: read((r) => r.rtt),
     rtoCount: read((r) => r.rtoCount),
     retransmits: read((r) => r.retransmits),
-    ipv6: read((r) => (r.remoteFamily ? r.remoteFamily === 6 : null))
+    ipv6: read((r) => (r.remoteFamily ? r.remoteFamily === 6 : null)),
+    relayed: relayed !== false
   }
 }
 
@@ -874,10 +967,20 @@ async function handle ({ m, p }) {
     case Method.DHT_STATUS: {
       return { online: swarm.dht.online === true, firewalled: swarm.dht.firewalled === true }
     }
+    // The key peers see for this device. swarm.keyPair, NOT
+    // swarm.dht.defaultKeyPair: a relay setting replaces the latter with the
+    // relay member key. Public half only.
+    case Method.SWARM_PUBLIC_KEY: {
+      return { publicKey: swarm.keyPair.publicKey.toString('hex') }
+    }
     // The owner relay (see setRelay): p.key is the 12-digit relay key, or null
     // to stop relaying. Replies {relayPublicKey} -- never the key itself.
     case Method.RELAY_SET: {
       return setRelay(p ? p.key : null)
+    }
+    // Relay by public key + member seed; see setRelayKeys.
+    case Method.RELAY_SET_KEYS: {
+      return setRelayKeys(p)
     }
     case Method.ATTACH_INFO: {
       return {
@@ -919,7 +1022,7 @@ async function handle ({ m, p }) {
         sendState(p.topic, SwarmState.DISCOVERING)
       } else if (existing.connectedPeers.size > 0) {
         for (const peer of existing.connectedPeers) {
-          send({ ev: EventName.SWARM_CONNECTION, p: { topic: p.topic, peer } })
+          send({ ev: EventName.SWARM_CONNECTION, p: { topic: p.topic, peer, relayed: isRelayed(connections.get(peer)) } })
         }
         sendState(p.topic, SwarmState.CONNECTED)
       } else if (existing.everConnected) {

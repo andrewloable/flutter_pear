@@ -6,27 +6,27 @@
 	<dict>
 		<key>ios-arm64-simulator/bare-type.1.1.0.framework/Info.plist</key>
 		<data>
-		uZIMA5QsjfFyn6xetgvMCF6JBDQ=
+		o4PGVl+AW7zH76BANjtRtxRrRqA=
 		</data>
 		<key>ios-arm64-simulator/bare-type.1.1.0.framework/_CodeSignature/CodeResources</key>
 		<data>
-		QWNOnCOn/a2CAwKIXyN4VoUvfl8=
+		VtSxtMV0F2ypeWcFi/HZOdVnLGc=
 		</data>
 		<key>ios-arm64-simulator/bare-type.1.1.0.framework/bare-type.1.1.0</key>
 		<data>
-		jVH64Yhz3cAPrTtJHfa9XO9il4Q=
+		zxJGn3wn0RJcbds+w+g7cvTUdWQ=
 		</data>
 		<key>ios-arm64/bare-type.1.1.0.framework/Info.plist</key>
 		<data>
-		uZIMA5QsjfFyn6xetgvMCF6JBDQ=
+		o4PGVl+AW7zH76BANjtRtxRrRqA=
 		</data>
 		<key>ios-arm64/bare-type.1.1.0.framework/_CodeSignature/CodeResources</key>
 		<data>
-		QWNOnCOn/a2CAwKIXyN4VoUvfl8=
+		VtSxtMV0F2ypeWcFi/HZOdVnLGc=
 		</data>
 		<key>ios-arm64/bare-type.1.1.0.framework/bare-type.1.1.0</key>
 		<data>
-		RG6kmUWcW0SVbH1H0BLaS7u7gHI=
+		HTYCqtovYXkq0K01PiKhpJT7RYM=
 		</data>
 	</dict>
 	<key>files2</key>
@@ -35,42 +35,42 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			AZXlVpWzbgtTG62XgTkJ80UpJ6Jd9E31FTew80UUY14=
+			i59HYaDHzz0AXlBcjTzIqqc33BjnrPBFStk3YSY4QCg=
 			</data>
 		</dict>
 		<key>ios-arm64-simulator/bare-type.1.1.0.framework/_CodeSignature/CodeResources</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			sVBVLhUWuBQD6eCu6tWf4PILa+ct7+wu/2tPQ6hXumI=
+			RmKhqDhZyOC09IJ1nQvqEiuNeCoGG0hSt28UOHP75sM=
 			</data>
 		</dict>
 		<key>ios-arm64-simulator/bare-type.1.1.0.framework/bare-type.1.1.0</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			8y1F02YlWS9ts5kpdoLQTkG1IdjO5Fm3Ws4ddf64vGs=
+			G598QhFt7qLPV4fUsmeU8osxLIDGUhALGnOg5W2+5ZI=
 			</data>
 		</dict>
 		<key>ios-arm64/bare-type.1.1.0.framework/Info.plist</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			AZXlVpWzbgtTG62XgTkJ80UpJ6Jd9E31FTew80UUY14=
+			i59HYaDHzz0AXlBcjTzIqqc33BjnrPBFStk3YSY4QCg=
 			</data>
 		</dict>
 		<key>ios-arm64/bare-type.1.1.0.framework/_CodeSignature/CodeResources</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			sVBVLhUWuBQD6eCu6tWf4PILa+ct7+wu/2tPQ6hXumI=
+			RmKhqDhZyOC09IJ1nQvqEiuNeCoGG0hSt28UOHP75sM=
 			</data>
 		</dict>
 		<key>ios-arm64/bare-type.1.1.0.framework/bare-type.1.1.0</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			RTn492SZ7j1+tMkhqLC3/Il6By9amSmRY9jafilc624=
+			eOADi0NSzjZXbBQGfpHI8o8wZBw2Pzm8rDCzuGH2D2I=
 			</data>
 		</dict>
 	</dict>

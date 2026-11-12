@@ -319,6 +319,19 @@ class Pear {
   Future<PearSwarm> join(PearKey topic, {bool announce = true, bool acceptUnannounced = false}) =>
       PearSwarm.join(_rpc, topic, announce: announce, acceptUnannounced: acceptUnannounced);
 
+  /// This device's swarm public key: the key a peer sees as
+  /// [PearConnection.remotePublicKey] for connections to this worklet.
+  ///
+  /// It is the same for every topic and connection of this worklet, and it
+  /// changes each time the worklet starts unless the host passes the
+  /// persistent-identity flag, so read it after [Pear.start] and do not store
+  /// it across restarts. A relay setting ([setRelayKey], [setRelay]) never
+  /// changes it. Public key only: no secret leaves the worklet.
+  Future<PearKey> publicKey() async {
+    final result = await _rpc.call(PearMethod.swarmPublicKey);
+    return PearKey.fromHex((result as Map)['publicKey'] as String);
+  }
+
   /// Lets this peer reach others through its owner's relay when no direct
   /// connection is possible: both peers behind randomizing NATs, such as a
   /// device on carrier CGNAT and a phone on mobile data, which hole punching
@@ -333,7 +346,9 @@ class Pear {
   /// call can take around a second on a slow device. WHEN to relay stays
   /// Hyperswarm's decision: only while this peer's NAT randomizes, or after a
   /// hole punch failed. Connections that work directly are never relayed.
-  /// The key never leaves the worklet and is never logged.
+  /// The key never leaves the worklet and is never logged. Everyone holding a
+  /// 12-digit key can compute the relay's own secret key; for a key shared
+  /// beyond one owner's devices, use [setRelay] instead.
   ///
   /// Returns the relay's public key (64 hex characters) while on, and null
   /// when off. It is not secret: it is how the relay is found, and the
@@ -344,6 +359,34 @@ class Pear {
     final digits = relayKey == null ? null : normalizeRelayKey(relayKey);
     final result = await _rpc.call(PearMethod.relaySet, {'key': digits});
     return result is Map ? result['relayPublicKey'] as String? : null;
+  }
+
+  /// Like [setRelayKey], but the relay is identified by its public key plus a
+  /// member seed ([PearRelay]), so holding the configuration never lets anyone
+  /// compute the relay's own secret key. Use this when the configuration is
+  /// shipped in an app or passed to contacts; use [setRelayKey] for one owner's
+  /// own devices.
+  ///
+  /// Both peers must hold the SAME relay (same public key and member seed):
+  /// the relay admits only peers using the member key derived from the seed.
+  /// Pass null to stop relaying; `setRelay(null)` and `setRelayKey(null)` both
+  /// turn off whichever relay is active. WHEN to relay stays Hyperswarm's
+  /// decision, as for [setRelayKey]. The seed never leaves the worklet and is
+  /// never logged.
+  ///
+  /// Returns the member public key the relay must admit, or null when off.
+  Future<PearKey?> setRelay(PearRelay? relay) async {
+    if (relay == null) {
+      await _rpc.call(PearMethod.relaySet, {'key': null});
+      return null;
+    }
+    final result = await _rpc.call(PearMethod.relaySetKeys, {
+      'publicKey': relay.publicKey.hex,
+      'memberSeed': relay.memberSeed
+          .map((b) => b.toRadixString(16).padLeft(2, '0'))
+          .join(),
+    });
+    return PearKey.fromHex((result as Map)['memberPublicKey'] as String);
   }
 
   /// [relayKey] as its bare 12 digits, with spaces and dashes removed.
@@ -460,4 +503,31 @@ class Pear {
     await _rpc.dispose();
     await worklet.terminate();
   }
+}
+
+/// A blind relay identified by its public key, plus the seed of the member
+/// key pair it admits. Holding one lets a device use the relay; it never
+/// lets anyone compute the relay's own secret key (unlike a 12-digit key).
+class PearRelay {
+  /// Throws [ArgumentError] unless [memberSeed] is exactly 32 bytes; the
+  /// error never contains the seed.
+  PearRelay(this.publicKey, Uint8List memberSeed)
+    : memberSeed = Uint8List.fromList(memberSeed) {
+    if (memberSeed.length != 32) {
+      throw ArgumentError.value(
+        '(hidden)',
+        'memberSeed',
+        'a member seed is 32 bytes',
+      );
+    }
+  }
+
+  /// The relay's public key.
+  final PearKey publicKey;
+
+  /// The 32-byte member seed (a secret), copied on construction.
+  final Uint8List memberSeed;
+
+  @override
+  String toString() => 'PearRelay($publicKey)';
 }

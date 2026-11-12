@@ -27,9 +27,15 @@ const Method = {
   // already-running worklet.
   ATTACH_INFO: 'attach.info',
   DHT_STATUS: 'dht.status',
+  // Replies {publicKey} (hex): this worklet's swarm key pair's public half, the
+  // key a connected peer sees as the remote public key. See index.js.
+  SWARM_PUBLIC_KEY: 'swarm.publicKey',
   // Sets (p.key, 12 digits) or clears (p.key null) the owner relay -- see
   // index.js's setRelay and schema.dart's PearMethod.relaySet.
   RELAY_SET: 'relay.set',
+  // Sets the relay by its PUBLIC key plus a 32-byte member seed (p.publicKey,
+  // p.memberSeed, 64 hex each) -- see index.js's setRelayKeys.
+  RELAY_SET_KEYS: 'relay.setKeys',
   // File-path bulk seam (E4.4, codex #4 LOCKED): writes p.data (whole
   // payload, base64, NOT chunked/streamed) to a new file in this worklet's
   // storage and returns {path}. See schema.dart's PearMethod.bulkWriteFile.
@@ -85,6 +91,9 @@ const EventName = {
   SWARM_CONNECTION: 'swarm.connection',
   CONNECTION_DATA: 'connection.data',
   CONNECTION_CLOSE: 'connection.close',
+  // A connection's relayed value changed while it was open (a relayed one became
+  // direct, or the reverse): {topic, peer, relayed}. Never sent for no change.
+  CONNECTION_PATH: 'connection.path',
   SWARM_LIFECYCLE: 'swarm.lifecycle',
   // A frame this side couldn't handle (unrecognized FrameType byte, or a
   // JSON frame that failed to parse) -- synthesized locally, never a real
@@ -149,7 +158,8 @@ const ErrorCode = {
   UNKNOWN_RECIPE: 'UNKNOWN_RECIPE',
   UNKNOWN_BASE: 'UNKNOWN_BASE',
   BASE_CLOSED: 'BASE_CLOSED',
-  // RELAY_SET's key is not 12 digits.
+  // RELAY_SET's key is not 12 digits, or RELAY_SET_KEYS' publicKey/memberSeed
+  // is not 64 hex characters.
   INVALID_RELAY_KEY: 'INVALID_RELAY_KEY'
 }
 

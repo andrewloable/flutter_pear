@@ -114,15 +114,28 @@ void main() {
       // responses (see bare_worklet.dart's own doc), and the microtask
       // scheduling keeps this genuinely asynchronous.
       // relay.set answers like pear-end: the relay's public key while on.
-      final relayOn = method == PearMethod.relaySet && (decoded['p'] as Map)['key'] != null;
+      final relayOn =
+          method == PearMethod.relaySet && (decoded['p'] as Map)['key'] != null;
+      final keysOn = method == PearMethod.relaySetKeys;
+      final pubKeyOn = method == PearMethod.swarmPublicKey;
       scheduleMicrotask(() {
         messenger.handlePlatformMessage(
           ipcChannel,
-          codec.encodeMessage(_lengthPrefixed(_jsonFrame({
-            'id': id,
-            'ok': relayOn ? <String, Object?>{'relayPublicKey': 'ab' * 32} : <String, Object?>{},
-            'n': nonce,
-          }))),
+          codec.encodeMessage(
+            _lengthPrefixed(
+              _jsonFrame({
+                'id': id,
+                'ok': pubKeyOn
+                    ? <String, Object?>{'publicKey': 'ef' * 32}
+                    : keysOn
+                    ? <String, Object?>{'memberPublicKey': 'cd' * 32}
+                    : relayOn
+                    ? <String, Object?>{'relayPublicKey': 'ab' * 32}
+                    : <String, Object?>{},
+                'n': nonce,
+              }),
+            ),
+          ),
           (_) {},
         );
       });
@@ -504,6 +517,13 @@ void main() {
     );
   });
 
+  test('publicKey asks the worklet for the swarm public key', () async {
+    final pear = await Pear.start();
+    expect(await pear.publicKey(), PearKey.fromHex('ef' * 32));
+    expect(sentRequests.last['m'], PearMethod.swarmPublicKey);
+    await pear.dispose();
+  });
+
   group('owner relay (flutter_pear 0.4.9)', () {
     Map<Object?, Object?> lastRelaySet() =>
         sentRequests.lastWhere((r) => r['m'] == PearMethod.relaySet);
@@ -536,6 +556,66 @@ void main() {
         expect(sentRequests.length, sentBefore, reason: 'nothing sent for "$bad"');
       }
       await pear.dispose();
+    });
+
+    test(
+      'setRelay sends the public key and seed as hex and returns the member key',
+      () async {
+        final pear = await Pear.start();
+        final relayKey = PearKey.fromHex('ab' * 32);
+        final seed = Uint8List.fromList(List.generate(32, (i) => i));
+        final member = await pear.setRelay(PearRelay(relayKey, seed));
+        expect(member, PearKey.fromHex('cd' * 32));
+        final req = sentRequests.last;
+        expect(req['m'], PearMethod.relaySetKeys);
+        expect(req['p'], {
+          'publicKey': 'ab' * 32,
+          'memberSeed': List.generate(
+            32,
+            (i) => i.toRadixString(16).padLeft(2, '0'),
+          ).join(),
+        });
+        await pear.dispose();
+      },
+    );
+
+    test('setRelay(null) turns the relay off', () async {
+      final pear = await Pear.start();
+      expect(await pear.setRelay(null), isNull);
+      expect(sentRequests.last['m'], PearMethod.relaySet);
+      expect(sentRequests.last['p'], {'key': null});
+      await pear.dispose();
+    });
+
+    test(
+      'PearRelay refuses a seed that is not 32 bytes, without echoing it',
+      () {
+        final key = PearKey.fromHex('ab' * 32);
+        for (final n in [0, 31, 33]) {
+          final seed = Uint8List.fromList(List.filled(n, 0xa7));
+          final sentBefore = sentRequests.length;
+          expect(
+            () => PearRelay(key, seed),
+            throwsA(
+              isA<ArgumentError>().having(
+                (e) => e.toString(),
+                'message',
+                isNot(contains('a7')),
+              ),
+            ),
+            reason: '$n bytes',
+          );
+          expect(sentRequests.length, sentBefore);
+        }
+      },
+    );
+
+    test('PearRelay copies the seed and never prints it', () {
+      final src = Uint8List.fromList(List.filled(32, 0xa7));
+      final relay = PearRelay(PearKey.fromHex('ab' * 32), src);
+      src[0] = 0;
+      expect(relay.memberSeed[0], 0xa7);
+      expect(relay.toString(), isNot(contains('a7a7')));
     });
 
     test('normalizeRelayKey is the same check, for validating input first', () {

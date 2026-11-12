@@ -299,13 +299,19 @@ abstract final class PearErrorCatalog {
           're-open via `PearBase.open()` if you need it again.',
     ),
     PearErrorCode.invalidRelayKey: PearErrorCatalogEntry(
-      problem: 'Pear.setRelayKey was given a relay key that is not 12 '
-          'digits.',
-      cause: 'A typo, a missing group, or letters or non-ASCII digits in '
-          'the key. Spaces and dashes are ignored; nothing else is.',
-      fix: 'Enter the exact 12 digits the relay was set up with, e.g. '
+      problem:
+          'Pear.setRelayKey was given a relay key that is not 12 '
+          'digits, or Pear.setRelay was given a relay public key or member '
+          'seed that is not 32 bytes.',
+      cause:
+          'A typo, a missing group, or letters or non-ASCII digits in '
+          'the 12-digit key (spaces and dashes are ignored; nothing else '
+          'is), or a public key or member seed of the wrong length.',
+      fix:
+          'Enter the exact 12 digits the relay was set up with, e.g. '
           '4821-0937-5562. Validate input first with '
-          '`Pear.normalizeRelayKey`.',
+          '`Pear.normalizeRelayKey`. For Pear.setRelay, pass a 32-byte '
+          'public key and a 32-byte member seed.',
     ),
   };
 }

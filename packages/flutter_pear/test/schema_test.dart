@@ -14,6 +14,9 @@ void main() {
     expect(PearMethod.attachInfo, 'attach.info');
     expect(PearMethod.dhtStatus, 'dht.status');
     expect(PearMethod.relaySet, 'relay.set');
+    expect(PearMethod.relaySetKeys, 'relay.setKeys');
+    expect(PearMethod.swarmPublicKey, 'swarm.publicKey');
+    expect(PearEventName.connectionPath, 'connection.path');
     expect(PearMethod.bulkWriteFile, 'bulk.writeFile');
     expect(PearMethod.storeGet, 'store.get');
     expect(PearMethod.coreAppend, 'core.append');
@@ -137,6 +140,9 @@ void main() {
     expect(jsValue('ATTACH_INFO'), PearMethod.attachInfo);
     expect(jsValue('DHT_STATUS'), PearMethod.dhtStatus);
     expect(jsValue('RELAY_SET'), PearMethod.relaySet);
+    expect(jsValue('RELAY_SET_KEYS'), PearMethod.relaySetKeys);
+    expect(jsValue('SWARM_PUBLIC_KEY'), PearMethod.swarmPublicKey);
+    expect(jsValue('CONNECTION_PATH'), PearEventName.connectionPath);
     expect(jsValue('BULK_WRITE_FILE'), PearMethod.bulkWriteFile);
     expect(jsValue('STORE_GET'), PearMethod.storeGet);
     expect(jsValue('CORE_APPEND'), PearMethod.coreAppend);

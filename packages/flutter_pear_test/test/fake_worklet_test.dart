@@ -53,7 +53,87 @@ void main() {
   });
 
   test(
-      'two fake peers joining the same topic both get a connection to '
+    'relay.setKeys validates, records the public key, and relay.set null clears both',
+    () async {
+      final worklet = FakeBareWorklet(hub: hub);
+      final rpc = await connectedRpc(worklet);
+      await rpc.call(PearMethod.relaySet, {'key': '4821-0937-5562'});
+      final pub = 'AB' * 32;
+
+      expect(
+        await rpc.call(PearMethod.relaySetKeys, {
+          'publicKey': pub,
+          'memberSeed': '01' * 32,
+        }),
+        {'memberPublicKey': 'ff' * 32},
+      );
+      expect(worklet.relayPublicKey, 'ab' * 32);
+      expect(worklet.relayKey, isNull, reason: 'the other kind is cleared');
+
+      await expectLater(
+        rpc.call(PearMethod.relaySetKeys, {
+          'publicKey': pub,
+          'memberSeed': '01' * 31,
+        }),
+        throwsA(
+          isA<PearException>().having(
+            (e) => e.code,
+            'code',
+            PearErrorCode.invalidRelayKey,
+          ),
+        ),
+      );
+      expect(
+        worklet.relayPublicKey,
+        'ab' * 32,
+        reason: 'a malformed request changes nothing',
+      );
+
+      await rpc.call(PearMethod.relaySet, {'key': null});
+      expect(worklet.relayPublicKey, isNull);
+      expect(worklet.relayKey, isNull);
+    },
+  );
+
+  test(
+    'connections start direct; setRelayed flips relayed and emits on relayedChanges',
+    () async {
+      final workletA = FakeBareWorklet(hub: hub);
+      final workletB = FakeBareWorklet(hub: hub);
+      final rpcA = await connectedRpc(workletA);
+      final rpcB = await connectedRpc(workletB);
+      final swarmA = await PearSwarm.join(rpcA, topic);
+      final firstA = swarmA.connections.first;
+      await PearSwarm.join(rpcB, topic);
+      final conn = await firstA;
+      expect(conn.relayed, isFalse, reason: 'direct by default');
+
+      final changes = <bool>[];
+      conn.relayedChanges.listen(changes.add);
+      workletA.setRelayed(workletB, true);
+      await Future<void>.delayed(Duration.zero);
+      expect(conn.relayed, isTrue);
+      expect(changes, [true]);
+
+      workletA.setRelayed(workletB, false);
+      await Future<void>.delayed(Duration.zero);
+      expect(conn.relayed, isFalse);
+      expect(changes, [true, false]);
+    },
+  );
+
+  test(
+    'dht.status answers like pear-end: an in-memory hub is always reachable',
+    () async {
+      final rpc = await connectedRpc(FakeBareWorklet(hub: hub));
+      expect(await rpc.call(PearMethod.dhtStatus), {
+        'online': true,
+        'firewalled': false,
+      });
+    },
+  );
+
+  test('two fake peers joining the same topic both get a connection to '
       'each other', () async {
     final workletA = FakeBareWorklet(hub: hub);
     final workletB = FakeBareWorklet(hub: hub);
@@ -69,6 +149,11 @@ void main() {
     final connB = await firstConnB;
     expect(connA.remotePublicKey.hex, workletB.peerKey);
     expect(connB.remotePublicKey.hex, workletA.peerKey);
+    expect(
+      (await rpcA.call(PearMethod.swarmPublicKey) as Map)['publicKey'],
+      connB.remotePublicKey.hex,
+      reason: "A's own key is the one B sees",
+    );
   });
 
   group('announce and acceptUnannounced', () {
