@@ -1,3 +1,11 @@
+## Unreleased
+
+**Added: connection control in the fake.** `FakeBareWorklet` answers
+`PearMethod.connectionDestroy` (closes the connection on both sides) and
+`PearMethod.peerRefuse` (disconnects a refused pair; `FakeSwarmHub.join` does not
+reconnect them until the peer is accepted). `FakeBareWorklet.refusedPeers`
+exposes the refused set for app tests.
+
 ## 0.4.10
 
 **Added: `swarm.publicKey` and `relayed` in the fake.** `FakeBareWorklet` answers

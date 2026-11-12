@@ -16,6 +16,8 @@ void main() {
     expect(PearMethod.relaySet, 'relay.set');
     expect(PearMethod.relaySetKeys, 'relay.setKeys');
     expect(PearMethod.swarmPublicKey, 'swarm.publicKey');
+    expect(PearMethod.connectionDestroy, 'connection.destroy');
+    expect(PearMethod.peerRefuse, 'peer.refuse');
     expect(PearEventName.connectionPath, 'connection.path');
     expect(PearMethod.bulkWriteFile, 'bulk.writeFile');
     expect(PearMethod.storeGet, 'store.get');
@@ -142,6 +144,8 @@ void main() {
     expect(jsValue('RELAY_SET'), PearMethod.relaySet);
     expect(jsValue('RELAY_SET_KEYS'), PearMethod.relaySetKeys);
     expect(jsValue('SWARM_PUBLIC_KEY'), PearMethod.swarmPublicKey);
+    expect(jsValue('CONNECTION_DESTROY'), PearMethod.connectionDestroy);
+    expect(jsValue('PEER_REFUSE'), PearMethod.peerRefuse);
     expect(jsValue('CONNECTION_PATH'), PearEventName.connectionPath);
     expect(jsValue('BULK_WRITE_FILE'), PearMethod.bulkWriteFile);
     expect(jsValue('STORE_GET'), PearMethod.storeGet);

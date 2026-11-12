@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -45,6 +46,59 @@ void main() {
 
     expect(await rpc.call(PearMethod.relaySet, {'key': null}), <String, Object?>{});
     expect(worklet.relayKey, isNull);
+  });
+
+  test('refusing a peer disconnects the pair, join does not reconnect them, accepting does', () async {
+    final workletA = FakeBareWorklet(hub: hub);
+    final workletB = FakeBareWorklet(hub: hub);
+    final rpcA = await connectedRpc(workletA);
+    final rpcB = await connectedRpc(workletB);
+    final swarmA = await PearSwarm.join(rpcA, topic);
+    final firstA = swarmA.connections.first;
+    final swarmB = await PearSwarm.join(rpcB, topic);
+    final conn = await firstA;
+    final closed = Completer<void>();
+    conn.data.listen((_) {}, onDone: closed.complete);
+
+    await rpcA.call(PearMethod.peerRefuse, {'peer': workletB.peerKey, 'refused': true});
+    await closed.future;
+    expect(workletA.refusedPeers, {workletB.peerKey});
+
+    // Both join again: the hub does not reconnect a refused pair.
+    hub.join(topic.hex, workletB);
+    hub.join(topic.hex, workletA);
+    await Future<void>.delayed(Duration.zero);
+    expect(swarmA.establishedConnections.length, 1, reason: 'no new connection');
+
+    final reconnected = swarmA.connections.first;
+    await rpcA.call(PearMethod.peerRefuse, {'peer': workletB.peerKey, 'refused': false});
+    final again = await reconnected;
+    expect(again.remotePublicKey.hex, workletB.peerKey);
+    expect(workletA.refusedPeers, isEmpty);
+    expect(swarmB.establishedConnections, isNotEmpty);
+  });
+
+  test('connection.destroy closes both sides and is a no-op for an unknown peer', () async {
+    final workletA = FakeBareWorklet(hub: hub);
+    final workletB = FakeBareWorklet(hub: hub);
+    final rpcA = await connectedRpc(workletA);
+    final rpcB = await connectedRpc(workletB);
+    final swarmA = await PearSwarm.join(rpcA, topic);
+    final firstA = swarmA.connections.first;
+    final swarmB = await PearSwarm.join(rpcB, topic);
+    final firstB = swarmB.connections.first;
+    final connA = await firstA;
+    final connB = await firstB;
+    final doneA = Completer<void>();
+    final doneB = Completer<void>();
+    connA.data.listen((_) {}, onDone: doneA.complete);
+    connB.data.listen((_) {}, onDone: doneB.complete);
+
+    await connA.close();
+    await doneA.future;
+    await doneB.future;
+    await connA.close(); // already closed: no error
+    expect(await rpcA.call(PearMethod.connectionDestroy, {'peer': 'ab' * 32}), isNull);
   });
 
   test('dht.status answers like pear-end: an in-memory hub is always reachable', () async {

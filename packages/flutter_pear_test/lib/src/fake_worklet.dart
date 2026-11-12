@@ -78,8 +78,25 @@ class FakeSwarmHub {
     for (final other in peers.entries.toList()) {
       if (identical(other.key, worklet)) continue;
       if (!_JoinMode.connects(mine, other.value)) continue;
+      // A refusal in either direction keeps the pair apart, as Hyperswarm's
+      // firewall does for incoming connections and before every dial.
+      if (worklet._refusedPeers.contains(other.key.peerKey) ||
+          other.key._refusedPeers.contains(worklet.peerKey)) {
+        continue;
+      }
       worklet._connectTo(other.key, topicHex);
       other.key._connectTo(worklet, topicHex);
+    }
+  }
+
+  /// Re-runs [join] for every topic [worklet] is in: what Hyperswarm's retry
+  /// does once a refused peer is accepted again.
+  void _reconnect(FakeBareWorklet worklet) {
+    for (final entry in _topics.entries.toList()) {
+      final mode = entry.value[worklet];
+      if (mode == null) continue;
+      join(entry.key, worklet,
+          announce: mode.announce, acceptUnannounced: mode.acceptUnannounced);
     }
   }
 
@@ -173,6 +190,12 @@ class FakeBareWorklet implements WorkletIpc {
   final Map<String, Set<String>> _connectionTopics = {}; // peer hex -> topics
   final Set<String> _relayedPeers =
       {}; // peers whose connection is marked relayed
+  final Set<String> _refusedPeers = {};
+
+  /// The peers (public key hex) this worklet refused through
+  /// [PearMethod.peerRefuse], for app tests to assert on. Like the real
+  /// worklet's, it starts empty.
+  Set<String> get refusedPeers => Set.unmodifiable(_refusedPeers);
   // Topics that have reached PearSwarmState.connected at least once --
   // mirrors pear-end/index.js's per-topic `everConnected` flag, needed for
   // the idempotent-rejoin replay below to pick RECONNECTING over
@@ -389,6 +412,27 @@ class FakeBareWorklet implements WorkletIpc {
           hub.leave(topicHex, this);
         }
         return {'left': topicHex};
+      case PearMethod.connectionDestroy:
+        // Idempotent: no open connection is not an error. Both sides see the close.
+        final other = _connections[params['peer'] as String];
+        if (other != null) {
+          disconnectFrom(other);
+          other.disconnectFrom(this);
+        }
+        return null;
+      case PearMethod.peerRefuse:
+        final refusedHex = params['peer'] as String;
+        if (params['refused'] == true) {
+          _refusedPeers.add(refusedHex);
+          final other = _connections[refusedHex];
+          if (other != null) {
+            disconnectFrom(other);
+            other.disconnectFrom(this);
+          }
+        } else if (_refusedPeers.remove(refusedHex)) {
+          hub._reconnect(this);
+        }
+        return null;
       case PearMethod.connectionWrite:
         final peerHex = params['peer'] as String;
         final other = _connections[peerHex];

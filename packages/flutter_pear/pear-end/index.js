@@ -175,9 +175,15 @@ function loadOrCreateIdentitySeed () {
   return seed
 }
 
-const swarm = new Hyperswarm(
-  Bare.argv.includes(PERSISTENT_IDENTITY_FLAG) ? { seed: loadOrCreateIdentitySeed() } : {}
-)
+// Peers the app refused (Method.PEER_REFUSE), as public key hex. Memory only: empty after a
+// worklet restart. Hyperswarm asks this firewall for every incoming connection AND before every
+// dial, and bans a peer it returns true for (see unbanPeer for lifting that).
+const refusedPeers = new Set()
+
+const swarm = new Hyperswarm({
+  ...(Bare.argv.includes(PERSISTENT_IDENTITY_FLAG) ? { seed: loadOrCreateIdentitySeed() } : {}),
+  firewall: (remotePublicKey) => refusedPeers.has(remotePublicKey.toString('hex'))
+})
 
 // Which connections are relayed. hyperdht marks nothing on the socket it returns, but a
 // relayed connection is built by connecting to the relay (c.dht.connect(relayPublicKey), on
@@ -1047,6 +1053,30 @@ async function handle ({ m, p }) {
         await swarm.leave(Buffer.from(p.topic, 'hex'))
       }
       return { left: p.topic }
+    }
+    // End one connection. Goes through the normal close path: the 'close' handler in
+    // swarm.on('connection') sends CONNECTION_CLOSE and cleans up. Idempotent: no open
+    // connection is not an error. Hyperswarm may redial; PEER_REFUSE prevents that.
+    case Method.CONNECTION_DESTROY: {
+      const conn = connections.get(p.peer)
+      if (conn) conn.destroy()
+      return null
+    }
+    // Refuse (or accept again) a peer: closes any open connection and keeps Hyperswarm from
+    // dialing or accepting it. Hyperswarm bans a peer its firewall rejected, so accepting
+    // again has to lift that ban too.
+    case Method.PEER_REFUSE: {
+      const info = swarm.peers.get(p.peer)
+      if (p.refused === true) {
+        refusedPeers.add(p.peer)
+        if (info) info.ban(true)
+        const conn = connections.get(p.peer)
+        if (conn) conn.destroy()
+      } else {
+        refusedPeers.delete(p.peer)
+        if (info) info.ban(false)
+      }
+      return null
     }
     case Method.CONNECTION_WRITE: {
       // Sent over the shared Protomux channel (see connectionChannels' doc

@@ -319,6 +319,19 @@ class Pear {
   Future<PearSwarm> join(PearKey topic, {bool announce = true, bool acceptUnannounced = false}) =>
       PearSwarm.join(_rpc, topic, announce: announce, acceptUnannounced: acceptUnannounced);
 
+  /// Refuses [remotePublicKey]: any open connection to it is closed at once and
+  /// it is not connected to again, in either direction, until [acceptPeer].
+  ///
+  /// Refusals are forgotten when the worklet restarts. The key is the peer's
+  /// transport key, which changes when that peer restarts unless it uses a
+  /// persistent identity, so a refusal does not follow a person.
+  Future<void> refusePeer(PearKey remotePublicKey) =>
+      _rpc.call(PearMethod.peerRefuse, {'peer': remotePublicKey.hex, 'refused': true});
+
+  /// Lifts a [refusePeer]: the peer may connect, and be connected to, again.
+  Future<void> acceptPeer(PearKey remotePublicKey) =>
+      _rpc.call(PearMethod.peerRefuse, {'peer': remotePublicKey.hex, 'refused': false});
+
   /// This device's swarm public key: the key a peer sees as
   /// [PearConnection.remotePublicKey] for connections to this worklet.
   ///

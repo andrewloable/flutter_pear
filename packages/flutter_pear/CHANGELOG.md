@@ -1,3 +1,15 @@
+## Unreleased
+
+**Added: `PearConnection.close()`, `Pear.refusePeer()` and `Pear.acceptPeer()`.** An
+app can now end one connection and keep a peer away. `close()` ends a single
+connection through the normal close path (`data` closes, `closeStats` is filled),
+and is a no-op on one that already closed. Hyperswarm redials peers on a joined
+topic, so `refusePeer(key)` also closes any open connection to that peer and
+stops it being dialed or accepted, in either direction, until `acceptPeer(key)`.
+Refusals live in memory only and are forgotten when the worklet restarts, and
+they follow a transport key, which changes when a peer restarts without a
+persistent identity. New RPC methods `connection.destroy` and `peer.refuse`.
+
 ## 0.4.10
 
 **Added: `Pear.publicKey()`.** This device's swarm public key, the one a peer sees

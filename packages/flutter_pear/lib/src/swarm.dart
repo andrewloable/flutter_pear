@@ -134,6 +134,17 @@ class PearConnection {
     });
   }
 
+  /// Ends this connection. [data] then closes through the normal
+  /// `connection.close` event and [closeStats] is filled as for any close.
+  /// Completes without error, and sends nothing, if it already closed.
+  ///
+  /// Hyperswarm may reconnect to the same peer on a joined topic; to prevent
+  /// that, use [Pear.refusePeer].
+  Future<void> close() {
+    if (_closed) return Future.value();
+    return _rpc.call(PearMethod.connectionDestroy, {'peer': remotePublicKey.hex});
+  }
+
   Future<void> _close([PearCloseStats? stats]) {
     _closed = true;
     _closeStats = stats;

@@ -29,6 +29,17 @@ abstract final class PearMethod {
   /// Write bytes to a peer connection.
   static const connectionWrite = 'connection.write';
 
+  /// Ends the connection to `p.peer` (peer public key hex). It closes through
+  /// the normal `connection.close` event. Idempotent: no open connection is not
+  /// an error. Hyperswarm may reconnect; see [peerRefuse].
+  static const connectionDestroy = 'connection.destroy';
+
+  /// Refuses (`p.refused` true) or accepts again (false) the peer `p.peer`
+  /// (public key hex). A refused peer's connection is closed at once and it is
+  /// neither dialed nor accepted until accepted again. Held in memory only;
+  /// forgotten when the worklet restarts.
+  static const peerRefuse = 'peer.refuse';
+
   /// Debug-only: throws a forced JS error so the RPC error path can be
   /// exercised end-to-end. Not part of the production surface.
   static const debugForceError = 'debug.forceError';

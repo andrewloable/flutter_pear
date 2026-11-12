@@ -7,6 +7,9 @@
 const Method = {
   SWARM_JOIN: 'swarm.join',
   SWARM_LEAVE: 'swarm.leave',
+  // End one connection / refuse a peer: see index.js's refusedPeers.
+  CONNECTION_DESTROY: 'connection.destroy',
+  PEER_REFUSE: 'peer.refuse',
   CONNECTION_WRITE: 'connection.write',
   // Debug-only: throws a forced JS error so the RPC error path can be
   // exercised end-to-end. Not part of the production surface.

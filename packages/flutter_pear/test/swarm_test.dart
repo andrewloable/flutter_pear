@@ -463,6 +463,39 @@ void main() {
     );
   });
 
+  test('close() sends connection.destroy; after the close event data is done and a second close() sends nothing',
+      () async {
+    final swarm = await joinSwarm();
+    final peer = PearCrypto.unsafeTopicFromString('closing-peer');
+    worklet.sendJsonFrame({
+      'ev': PearEventName.swarmConnection,
+      'p': {'topic': topic.hex, 'peer': peer.hex},
+    });
+    final conn = await swarm.connections.first;
+    var dataDone = false;
+    conn.data.listen((_) {}, onDone: () => dataDone = true);
+
+    final closing = conn.close();
+    await Future<void>.delayed(Duration.zero);
+    expect(worklet.sentFrames.last['m'], PearMethod.connectionDestroy);
+    expect(worklet.sentFrames.last['p'], {'peer': peer.hex});
+    worklet.respond(worklet.lastRequestId, ok: null);
+    await closing;
+    expect(dataDone, isFalse, reason: 'closes via the connection.close event, not the reply');
+
+    worklet.sendJsonFrame({
+      'ev': PearEventName.connectionClose,
+      'p': {'topic': topic.hex, 'peer': peer.hex, 'stats': {'error': null}},
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(dataDone, isTrue);
+    expect(conn.closeStats, isNotNull);
+
+    final sent = worklet.sentFrames.length;
+    await conn.close();
+    expect(worklet.sentFrames.length, sent, reason: 'already closed: nothing sent');
+  });
+
   test('establishedConnections captures a connection that arrived before '
       'any .connections subscription -- the same late-subscriber race '
       'currentState already solves for the state stream', () async {

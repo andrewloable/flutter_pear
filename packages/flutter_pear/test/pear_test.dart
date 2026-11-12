@@ -524,6 +524,17 @@ void main() {
     await pear.dispose();
   });
 
+  test('refusePeer and acceptPeer send the peer and the refused flag', () async {
+    final pear = await Pear.start();
+    final key = PearKey.fromHex('12' * 32);
+    await pear.refusePeer(key);
+    expect(sentRequests.last['m'], PearMethod.peerRefuse);
+    expect(sentRequests.last['p'], {'peer': key.hex, 'refused': true});
+    await pear.acceptPeer(key);
+    expect(sentRequests.last['p'], {'peer': key.hex, 'refused': false});
+    await pear.dispose();
+  });
+
   group('owner relay (flutter_pear 0.4.9)', () {
     Map<Object?, Object?> lastRelaySet() =>
         sentRequests.lastWhere((r) => r['m'] == PearMethod.relaySet);
