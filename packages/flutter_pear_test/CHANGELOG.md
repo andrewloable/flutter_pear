@@ -1,4 +1,4 @@
-## Unreleased
+## 0.4.11
 
 **Added: connection control in the fake.** `FakeBareWorklet` answers
 `PearMethod.connectionDestroy` (closes the connection on both sides) and

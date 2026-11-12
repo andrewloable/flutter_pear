@@ -1,4 +1,4 @@
-## Unreleased
+## 0.4.11
 
 **Rebuilt the bundled pear-end** (including the desktop bundle copies) for
 `connection.destroy` and `peer.refuse`, which `flutter_pear` adds. No native

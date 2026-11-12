@@ -1,4 +1,4 @@
-## Unreleased
+## 0.4.11
 
 **Added: `PearConnection.close()`, `Pear.refusePeer()` and `Pear.acceptPeer()`.** An
 app can now end one connection and keep a peer away. `close()` ends a single
