@@ -463,6 +463,103 @@ void main() {
     );
   });
 
+  group('datagrams', () {
+    final peer = PearCrypto.unsafeTopicFromString('datagram-peer');
+    final other = PearCrypto.unsafeTopicFromString('another-peer');
+
+    Future<PearConnection> connect(PearSwarm swarm) async {
+      worklet.sendJsonFrame({
+        'ev': PearEventName.swarmConnection,
+        'p': {'topic': topic.hex, 'peer': peer.hex},
+      });
+      return swarm.connections.first;
+    }
+
+    void message(PearKey from, Uint8List bytes) => worklet.sendJsonFrame({
+          'ev': PearEventName.connectionMessage,
+          'p': {'topic': topic.hex, 'peer': from.hex, 'data': base64Encode(bytes)},
+        });
+
+    void closeEvent() => worklet.sendJsonFrame({
+          'ev': PearEventName.connectionClose,
+          'p': {'topic': topic.hex, 'peer': peer.hex},
+        });
+
+    test('sendDatagram calls connection.send with the peer and base64 data', () async {
+      final conn = await connect(await joinSwarm());
+
+      final sending = conn.sendDatagram(Uint8List.fromList([1, 2, 3]));
+      await Future<void>.delayed(Duration.zero);
+      expect(worklet.sentFrames.last['m'], PearMethod.connectionSend);
+      expect(worklet.sentFrames.last['p'], {
+        'peer': peer.hex,
+        'data': base64Encode([1, 2, 3]),
+      });
+      worklet.respond(worklet.lastRequestId, ok: null);
+      await sending;
+    });
+
+    test('datagrams emits on connection.message for this peer, and data emits nothing', () async {
+      final conn = await connect(await joinSwarm());
+      final datagrams = <List<int>>[];
+      final data = <List<int>>[];
+      conn.datagrams.listen(datagrams.add);
+      conn.data.listen(data.add);
+
+      message(peer, Uint8List.fromList([9, 8]));
+      message(other, Uint8List.fromList([7]));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(datagrams, [
+        [9, 8]
+      ]);
+      expect(data, isEmpty);
+    });
+
+    test('sendDatagram on a closed connection fails with connectionClosed and calls nothing', () async {
+      final conn = await connect(await joinSwarm());
+      closeEvent();
+      await Future<void>.delayed(Duration.zero);
+      final sent = worklet.sentFrames.length;
+
+      await expectLater(
+        conn.sendDatagram(Uint8List.fromList([1])),
+        throwsA(isA<PearConnectionException>()
+            .having((e) => e.code, 'code', PearErrorCode.connectionClosed)),
+      );
+      expect(worklet.sentFrames.length, sent);
+    });
+
+    test('sendDatagram refuses more than maxDatagramSize and calls nothing', () async {
+      final conn = await connect(await joinSwarm());
+      expect(PearConnection.maxDatagramSize, 1108);
+      final sent = worklet.sentFrames.length;
+
+      await expectLater(
+        conn.sendDatagram(Uint8List(PearConnection.maxDatagramSize + 1)),
+        throwsA(isA<PearConnectionException>()
+            .having((e) => e.code, 'code', PearErrorCode.datagramTooLarge)),
+      );
+      expect(worklet.sentFrames.length, sent, reason: 'nothing sent for 1109 bytes');
+
+      final sending = conn.sendDatagram(Uint8List(PearConnection.maxDatagramSize));
+      await Future<void>.delayed(Duration.zero);
+      expect(worklet.sentFrames.length, sent + 1, reason: 'exactly one call for 1108 bytes');
+      worklet.respond(worklet.lastRequestId, ok: null);
+      await sending;
+    });
+
+    test('datagrams closes when the connection closes', () async {
+      final conn = await connect(await joinSwarm());
+      var done = false;
+      conn.datagrams.listen((_) {}, onDone: () => done = true);
+
+      closeEvent();
+      await Future<void>.delayed(Duration.zero);
+      expect(done, isTrue);
+    });
+  });
+
   test('close() sends connection.destroy; after the close event data is done and a second close() sends nothing',
       () async {
     final swarm = await joinSwarm();

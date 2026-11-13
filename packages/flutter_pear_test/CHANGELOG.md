@@ -1,3 +1,11 @@
+## 0.4.12
+
+**Added: datagrams in the fake.** `FakeBareWorklet` answers `PearMethod.connectionSend`
+(unknown peer, and `DATAGRAM_TOO_LARGE` above `PearConnection.maxDatagramSize`) and emits
+`connection.message`. It delivers every datagram exactly once and in order, which a real
+network does not, so a test that passes against the fake says nothing about loss,
+reordering or duplication.
+
 ## 0.4.11
 
 **Added: connection control in the fake.** `FakeBareWorklet` answers

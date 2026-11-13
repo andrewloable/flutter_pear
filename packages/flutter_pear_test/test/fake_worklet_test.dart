@@ -101,6 +101,47 @@ void main() {
     expect(await rpcA.call(PearMethod.connectionDestroy, {'peer': 'ab' * 32}), isNull);
   });
 
+  test('connection.send to an unknown peer fails with unknownPeer', () async {
+    final worklet = FakeBareWorklet(hub: hub);
+    final rpc = await connectedRpc(worklet);
+
+    await expectLater(
+      rpc.call(PearMethod.connectionSend, {'peer': 'ab' * 32, 'data': ''}),
+      throwsA(isA<PearException>().having((e) => e.code, 'code', PearErrorCode.unknownPeer)),
+    );
+  });
+
+  test('connection.send refuses a datagram above the limit and delivers one at it', () async {
+    final workletA = FakeBareWorklet(hub: hub);
+    final workletB = FakeBareWorklet(hub: hub);
+    final rpcA = await connectedRpc(workletA);
+    final rpcB = await connectedRpc(workletB);
+    final swarmA = await PearSwarm.join(rpcA, topic);
+    final firstA = swarmA.connections.first;
+    final swarmB = await PearSwarm.join(rpcB, topic);
+    final firstB = swarmB.connections.first;
+    final connA = await firstA;
+    final connB = await firstB;
+    final arrived = <int>[];
+    connB.datagrams.listen((d) => arrived.add(d.length));
+
+    Future<void> send(int n) => rpcA.call(PearMethod.connectionSend, {
+          'peer': connA.remotePublicKey.hex,
+          'data': base64Encode(Uint8List(n)),
+        });
+
+    await expectLater(
+      send(PearConnection.maxDatagramSize + 1),
+      throwsA(isA<PearException>().having((e) => e.code, 'code', PearErrorCode.datagramTooLarge)),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(arrived, isEmpty, reason: 'nothing delivered for 1109 bytes');
+
+    await send(PearConnection.maxDatagramSize);
+    await Future<void>.delayed(Duration.zero);
+    expect(arrived, [PearConnection.maxDatagramSize]);
+  });
+
   test('dht.status answers like pear-end: an in-memory hub is always reachable', () async {
     final rpc = await connectedRpc(FakeBareWorklet(hub: hub));
     expect(await rpc.call(PearMethod.dhtStatus), {'online': true, 'firewalled': false});

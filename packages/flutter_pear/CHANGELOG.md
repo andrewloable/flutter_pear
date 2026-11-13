@@ -1,3 +1,18 @@
+## 0.4.12
+
+**Added: unreliable datagrams on `PearConnection`.** `PearConnection.sendDatagram`,
+`datagrams` and `maxDatagramSize` (1108 bytes) give an app a second path on the same
+connection that may drop or reorder packets and never waits. `write` is reliable and
+ordered, so one lost packet stalls every packet behind it; call audio and video stutter.
+A datagram is one UDP packet, never split, sent with Hyperswarm's existing encrypted
+`trySend` message API, and it crosses a relayed connection. It may be lost, arrive out
+of order, or arrive more than once (a relay or anyone on the path can replay one); it is
+encrypted and authenticated to the peer. The future from `sendDatagram` completing means
+the worklet took it, not that it arrived. A peer on an older flutter_pear never receives
+it and no error is raised, so the app must agree on support itself. A datagram above the
+limit fails with the new `DATAGRAM_TOO_LARGE` and sends nothing. New wire names:
+method `connection.send`, event `connection.message`, error `DATAGRAM_TOO_LARGE`.
+
 ## 0.4.11
 
 **Added: `PearConnection.close()`, `Pear.refusePeer()` and `Pear.acceptPeer()`.** An

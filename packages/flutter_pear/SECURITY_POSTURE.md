@@ -115,6 +115,14 @@ already truncates to the first 8 hex characters (`PearKey(a1b2c3d4…)`), so
 even a future `'$key'` string interpolation slipping past the log-hygiene
 test would only ever expose 4 of the 32 key bytes, never the full key.
 
+## Datagram replay
+
+`PearConnection.sendDatagram` datagrams are encrypted and authenticated on the connection's
+Noise session, but carry no replay protection and no ordering: a relay, or anyone on the
+path, can deliver a captured datagram again or out of order. An app that cares must carry
+its own sequence number and reject repeats. Datagram payloads, peer keys and addresses are
+never logged (the log-hygiene test above covers the new code too).
+
 ## Cross-references
 
 - `packages/flutter_pear_bare/android/src/main/res/xml/flutter_pear_data_extraction_rules.xml` / `flutter_pear_full_backup_content.xml` — the actual exclusion rules.

@@ -332,6 +332,10 @@ function setRelayKeys (p) {
   })
 }
 const connections = new Map() // peer public key (hex) -> connection, shared across topics
+// The largest datagram (Method.CONNECTION_SEND) that always fits one UDP packet: libudx's base
+// MTU 1200, minus its IPv6 header allowance 68, minus the 24 bytes secret-stream adds to a
+// message (8-byte nonce prefix plus a 16-byte MAC). A datagram is never split.
+const MAX_DATAGRAM_BYTES = 1108
 // peer hex -> Protomux message sender for Method.CONNECTION_WRITE -- see the
 // Protomux.from(conn) comment in swarm.on('connection', ...) below for why
 // this can't just be conn.write() directly once BlindPairing (E5.6) is in
@@ -406,6 +410,18 @@ swarm.on('connection', (conn, info) => {
     })
   }
   if (!info.client) tagInboundConnection(conn, info)
+
+  // A datagram from the peer (Method.CONNECTION_SEND on its side): encrypted and authenticated
+  // by the connection's Noise session, but unordered, unreliable and replayable. Unlike
+  // CONNECTION_DATA it is never held: one that arrives before a joined topic is tagged is dropped.
+  conn.on('message', (buffer) => {
+    if (buffer.byteLength > MAX_DATAGRAM_BYTES) return
+    const data = buffer.toString('base64')
+    for (const topicBuf of info.topics) {
+      const topicHex = topicBuf.toString('hex')
+      if (topics.has(topicHex)) send({ ev: EventName.CONNECTION_MESSAGE, p: { topic: topicHex, peer, data } })
+    }
+  })
 
   // Method.CONNECTION_DATA/CONNECTION_WRITE's raw app-data pass-through must
   // go through a Protomux channel, not conn.on('data')/conn.write()
@@ -1076,6 +1092,24 @@ async function handle ({ m, p }) {
         refusedPeers.delete(p.peer)
         if (info) info.ban(false)
       }
+      return null
+    }
+    // One unreliable, unordered datagram (see MAX_DATAGRAM_BYTES). Sent with conn.trySend: no
+    // retry, no ordering, no delivery report; resolving only means the worklet took it.
+    case Method.CONNECTION_SEND: {
+      const conn = connections.get(p.peer)
+      if (!conn) {
+        const err = new Error('unknown peer: ' + p.peer)
+        err.code = ErrorCode.UNKNOWN_PEER
+        throw err
+      }
+      const buffer = Buffer.from(p.data, 'base64')
+      if (buffer.byteLength > MAX_DATAGRAM_BYTES) {
+        const err = new Error('datagram is ' + buffer.byteLength + ' bytes, the limit is ' + MAX_DATAGRAM_BYTES)
+        err.code = ErrorCode.DATAGRAM_TOO_LARGE
+        throw err
+      }
+      conn.trySend(buffer)
       return null
     }
     case Method.CONNECTION_WRITE: {

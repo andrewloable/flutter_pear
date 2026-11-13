@@ -1,3 +1,9 @@
+## 0.4.12
+
+**Rebuilt the bundled pear-end** (including the desktop bundle copies) for
+`connection.send` and `connection.message`, which `flutter_pear` adds. No native
+addon, Bare Kit or platform change.
+
 ## 0.4.11
 
 **Rebuilt the bundled pear-end** (including the desktop bundle copies) for

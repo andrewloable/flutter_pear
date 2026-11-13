@@ -19,6 +19,8 @@ void main() {
     expect(PearMethod.connectionDestroy, 'connection.destroy');
     expect(PearMethod.peerRefuse, 'peer.refuse');
     expect(PearEventName.connectionPath, 'connection.path');
+    expect(PearMethod.connectionSend, 'connection.send');
+    expect(PearEventName.connectionMessage, 'connection.message');
     expect(PearMethod.bulkWriteFile, 'bulk.writeFile');
     expect(PearMethod.storeGet, 'store.get');
     expect(PearMethod.coreAppend, 'core.append');
@@ -92,6 +94,7 @@ void main() {
     expect(PearErrorCode.unknownBase, 'UNKNOWN_BASE');
     expect(PearErrorCode.baseClosed, 'BASE_CLOSED');
     expect(PearErrorCode.invalidRelayKey, 'INVALID_RELAY_KEY');
+    expect(PearErrorCode.datagramTooLarge, 'DATAGRAM_TOO_LARGE');
 
     expect(PearSwarmState.discovering.name, 'discovering');
     expect(PearSwarmState.connecting.name, 'connecting');
@@ -147,6 +150,8 @@ void main() {
     expect(jsValue('CONNECTION_DESTROY'), PearMethod.connectionDestroy);
     expect(jsValue('PEER_REFUSE'), PearMethod.peerRefuse);
     expect(jsValue('CONNECTION_PATH'), PearEventName.connectionPath);
+    expect(jsValue('CONNECTION_SEND'), PearMethod.connectionSend);
+    expect(jsValue('CONNECTION_MESSAGE'), PearEventName.connectionMessage);
     expect(jsValue('BULK_WRITE_FILE'), PearMethod.bulkWriteFile);
     expect(jsValue('STORE_GET'), PearMethod.storeGet);
     expect(jsValue('CORE_APPEND'), PearMethod.coreAppend);
@@ -221,6 +226,7 @@ void main() {
     expect(jsValue('UNKNOWN_BASE'), PearErrorCode.unknownBase);
     expect(jsValue('BASE_CLOSED'), PearErrorCode.baseClosed);
     expect(jsValue('INVALID_RELAY_KEY'), PearErrorCode.invalidRelayKey);
+    expect(jsValue('DATAGRAM_TOO_LARGE'), PearErrorCode.datagramTooLarge);
 
     expect(jsValue('LWW'), PearRecipe.lww.name);
     expect(jsValue('ORDERED_LOG'), PearRecipe.orderedLog.name);

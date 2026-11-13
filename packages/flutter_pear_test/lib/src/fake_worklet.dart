@@ -10,6 +10,8 @@ import 'package:flutter_pear_bare/flutter_pear_bare.dart';
 import 'package:flutter_pear/src/crypto.dart';
 // ignore: implementation_imports
 import 'package:flutter_pear/src/schema.dart';
+// ignore: implementation_imports
+import 'package:flutter_pear/src/swarm.dart' show PearConnection;
 
 part 'failure_injection.dart';
 
@@ -122,6 +124,11 @@ class FakeSwarmHub {
 ///
 /// Join two instances to the same [FakeSwarmHub] to simulate two peers
 /// finding each other.
+///
+/// DATAGRAMS: `PearMethod.connectionSend` delivers every datagram exactly
+/// once and in order, which a real network does not: a test that passes
+/// against this fake says nothing about datagram loss, reordering or
+/// duplication.
 ///
 /// TIMING NOTE: unlike a real network, an already-present peer connects
 /// here with no discovery delay at all -- the connecting side's own
@@ -441,6 +448,24 @@ class FakeBareWorklet implements WorkletIpc {
               'unknown peer: $peerHex', PearErrorCode.unknownPeer);
         }
         other._receiveData(peerKey, params['data'] as String);
+        return null;
+      case PearMethod.connectionSend:
+        // Same checks as pear-end's CONNECTION_SEND. UNLIKE a real network, the
+        // fake delivers every datagram exactly once and in order: a test that
+        // passes here says nothing about loss, reordering or duplication.
+        final peerHex = params['peer'] as String;
+        final other = _connections[peerHex];
+        if (other == null) {
+          throw FakeRpcError(
+              'unknown peer: $peerHex', PearErrorCode.unknownPeer);
+        }
+        final dataBase64 = params['data'] as String;
+        if (base64Decode(dataBase64).length > PearConnection.maxDatagramSize) {
+          throw FakeRpcError(
+              'datagram is larger than ${PearConnection.maxDatagramSize} bytes',
+              PearErrorCode.datagramTooLarge);
+        }
+        other._receiveMessage(peerKey, dataBase64);
         return null;
       case PearMethod.storeGet:
         final keyParam = params['key'] as String?;
@@ -1376,6 +1401,20 @@ class FakeBareWorklet implements WorkletIpc {
       if (!stillConnected) {
         _sendState(topicHex, PearSwarmState.reconnecting);
       }
+    }
+  }
+
+  /// Delivers a datagram like [_receiveData] delivers stream data, but as
+  /// [PearEventName.connectionMessage]. Exactly once and in order, which a real
+  /// network does not guarantee.
+  void _receiveMessage(String fromPeerHex, String dataBase64) {
+    final topics = _connectionTopics[fromPeerHex] ?? const <String>{};
+    for (final topicHex in topics) {
+      _emitEvent(PearEventName.connectionMessage, {
+        'topic': topicHex,
+        'peer': fromPeerHex,
+        'data': dataBase64,
+      });
     }
   }
 

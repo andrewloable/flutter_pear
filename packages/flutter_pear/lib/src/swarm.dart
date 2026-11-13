@@ -70,6 +70,8 @@ class PearConnection {
 
   final StreamController<Uint8List> _data =
       StreamController<Uint8List>.broadcast();
+  final StreamController<Uint8List> _datagrams =
+      StreamController<Uint8List>.broadcast();
   final StreamController<bool> _relayedChanges =
       StreamController<bool>.broadcast();
   bool _closed = false;
@@ -108,6 +110,54 @@ class PearConnection {
   Stream<Uint8List> get data => _data.stream;
 
   void _add(Uint8List bytes) => _data.add(bytes);
+
+  /// The largest datagram [sendDatagram] accepts, in bytes. A datagram is one
+  /// UDP packet and is never split.
+  static const int maxDatagramSize = 1108;
+
+  /// Datagrams received from the peer on this connection. Closes when the
+  /// connection closes.
+  ///
+  /// A datagram may be lost, arrive out of order, or arrive more than once: a
+  /// relay, or anyone on the path, can replay one, so an app that cares needs
+  /// its own sequence number. It is encrypted and authenticated to the peer.
+  /// Datagrams are a separate path from [data]; nothing here carries them.
+  Stream<Uint8List> get datagrams => _datagrams.stream;
+
+  void _addDatagram(Uint8List bytes) => _datagrams.add(bytes);
+
+  /// Sends [bytes] to the peer as one unreliable, unordered datagram, for
+  /// traffic that must never wait behind a lost packet, such as call audio.
+  /// Use [write] when the data has to arrive.
+  ///
+  /// A datagram may be lost, arrive out of order, or arrive more than once (a
+  /// relay or anyone on the path can replay one). It is encrypted and
+  /// authenticated to the peer. The returned future completing means the
+  /// worklet took it, not that it arrived. A peer on a flutter_pear older than
+  /// this release never receives it and no error is raised, so the app must
+  /// agree on support itself.
+  ///
+  /// Fails with [PearErrorCode.connectionClosed] once this connection has
+  /// closed, and with [PearErrorCode.datagramTooLarge] when [bytes] is longer
+  /// than [maxDatagramSize]; in both cases without calling the worklet.
+  Future<void> sendDatagram(Uint8List bytes) {
+    if (_closed) {
+      return Future.error(pearExceptionFor(
+        'cannot send a datagram: this PearConnection has already closed',
+        code: PearErrorCode.connectionClosed,
+      ));
+    }
+    if (bytes.length > maxDatagramSize) {
+      return Future.error(pearExceptionFor(
+        'a datagram is at most $maxDatagramSize bytes, got ${bytes.length}',
+        code: PearErrorCode.datagramTooLarge,
+      ));
+    }
+    return _rpc.call(PearMethod.connectionSend, {
+      'peer': remotePublicKey.hex,
+      'data': base64Encode(bytes),
+    });
+  }
 
   /// Sends [bytes] to the peer — no delivery/ordering guarantee if this
   /// connection drops mid-flight (see this class's own doc). Fails with
@@ -149,6 +199,7 @@ class PearConnection {
     _closed = true;
     _closeStats = stats;
     _relayedChanges.close();
+    _datagrams.close();
     return _data.close();
   }
 }
@@ -321,6 +372,8 @@ class PearSwarm {
           _connections.add(conn);
         case PearEventName.connectionPath:
           _byKey[p['peer']]?._setRelayed(p['relayed'] == true);
+        case PearEventName.connectionMessage:
+          _byKey[p['peer']]?._addDatagram(base64Decode(p['data'] as String));
         case PearEventName.connectionData:
           _byKey[p['peer']]?._add(base64Decode(p['data'] as String));
         case PearEventName.connectionClose:

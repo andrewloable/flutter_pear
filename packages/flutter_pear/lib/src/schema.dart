@@ -29,6 +29,14 @@ abstract final class PearMethod {
   /// Write bytes to a peer connection.
   static const connectionWrite = 'connection.write';
 
+  /// Sends one unreliable, unordered datagram to `p.peer` (peer public key
+  /// hex). Request `{peer, data}` with `data` base64, at most 1108 bytes
+  /// decoded; replies null. Fails with [PearErrorCode.unknownPeer] when there
+  /// is no open connection to the peer and with
+  /// [PearErrorCode.datagramTooLarge] when `data` is too large. The datagram
+  /// may be lost, reordered or duplicated; see `PearConnection.sendDatagram`.
+  static const connectionSend = 'connection.send';
+
   /// Ends the connection to `p.peer` (peer public key hex). It closes through
   /// the normal `connection.close` event. Idempotent: no open connection is not
   /// an error. Hyperswarm may reconnect; see [peerRefuse].
@@ -325,6 +333,10 @@ abstract final class PearEventName {
 
   /// Bytes arrived on a peer connection.
   static const connectionData = 'connection.data';
+
+  /// A datagram arrived on a peer connection (see [PearMethod.connectionSend]):
+  /// payload `{topic, peer, data}` with `data` base64.
+  static const connectionMessage = 'connection.message';
 
   /// A peer connection closed.
   static const connectionClose = 'connection.close';
@@ -661,6 +673,10 @@ abstract final class PearErrorCode {
   /// 64 hex characters. Nothing changed: the previous relay setting still applies.
   static const invalidRelayKey = 'INVALID_RELAY_KEY';
 
+  /// A datagram passed to [PearMethod.connectionSend] is larger than 1108
+  /// bytes. Nothing was sent.
+  static const datagramTooLarge = 'DATAGRAM_TOO_LARGE';
+
   /// The explicit err.code -> exception-category registry (LOCKED: entries
   /// only, no prefix/substring heuristics). A code not listed here —
   /// including one this version of the schema simply doesn't know about
@@ -690,6 +706,7 @@ abstract final class PearErrorCode {
     unknownBase: PearErrorCategory.storage,
     baseClosed: PearErrorCategory.storage,
     invalidRelayKey: PearErrorCategory.connection,
+    datagramTooLarge: PearErrorCategory.connection,
   };
 }
 

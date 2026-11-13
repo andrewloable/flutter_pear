@@ -11,6 +11,8 @@ const Method = {
   CONNECTION_DESTROY: 'connection.destroy',
   PEER_REFUSE: 'peer.refuse',
   CONNECTION_WRITE: 'connection.write',
+  // One unreliable, unordered datagram to a peer: see index.js's CONNECTION_SEND case.
+  CONNECTION_SEND: 'connection.send',
   // Debug-only: throws a forced JS error so the RPC error path can be
   // exercised end-to-end. Not part of the production surface.
   DEBUG_FORCE_ERROR: 'debug.forceError',
@@ -93,6 +95,8 @@ const Method = {
 const EventName = {
   SWARM_CONNECTION: 'swarm.connection',
   CONNECTION_DATA: 'connection.data',
+  // A datagram arrived on a connection: {topic, peer, data (base64)}.
+  CONNECTION_MESSAGE: 'connection.message',
   CONNECTION_CLOSE: 'connection.close',
   // A connection's relayed value changed while it was open (a relayed one became
   // direct, or the reverse): {topic, peer, relayed}. Never sent for no change.
@@ -163,7 +167,9 @@ const ErrorCode = {
   BASE_CLOSED: 'BASE_CLOSED',
   // RELAY_SET's key is not 12 digits, or RELAY_SET_KEYS' publicKey/memberSeed
   // is not 64 hex characters.
-  INVALID_RELAY_KEY: 'INVALID_RELAY_KEY'
+  INVALID_RELAY_KEY: 'INVALID_RELAY_KEY',
+  // CONNECTION_SEND's datagram is larger than MAX_DATAGRAM_BYTES (1108).
+  DATAGRAM_TOO_LARGE: 'DATAGRAM_TOO_LARGE'
 }
 
 // Which built-in Autobase merge recipe a PearBase.open call (E5.8) picks --

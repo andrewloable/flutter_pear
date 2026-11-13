@@ -47,7 +47,7 @@ Single v0.1 release (Android) — every row below ships together, no staged prev
 |---|---|---|
 | Bare Kit worklet | `BareWorklet` | E1/E4 |
 | RPC contract (framing, typed errors, session/version handshake, connection state) | `PearRpc`, `PearException` hierarchy | E2 |
-| Hyperswarm + secret-stream | `PearSwarm`, `PearConnection` (Stream/Sink of bytes) | E2 |
+| Hyperswarm + secret-stream | `PearSwarm`, `PearConnection` (Stream/Sink of bytes, plus unreliable datagrams) | E2 |
 | hypercore-crypto | `PearCrypto` (keypairs, hashes, `unsafeTopicFromString` — real apps use `PearPairing` invites instead of a shared string topic) | E2 |
 | Corestore + Hypercore | `PearStore`, `PearCore` (append, get, replicate, watch) | E5 |
 | Hyperbee | `PearBee` (get/put/del, range streams, watch) | E5 |

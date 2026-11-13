@@ -56,6 +56,16 @@ this file (GitHub, pub.dev, a local viewer, ...).
   VPN) — this is a network-environment issue, not something flutter_pear
   can work around.
 
+<a id="DATAGRAM_TOO_LARGE"></a>
+### DATAGRAM_TOO_LARGE
+
+- **Problem:** A datagram passed to `PearConnection.sendDatagram` is larger
+  than `PearConnection.maxDatagramSize` (1108 bytes).
+- **Cause:** A datagram travels as one UDP packet and is never split, so it
+  has a hard size limit. Nothing was sent.
+- **Fix:** Split the data in your app, or send it with
+  `PearConnection.write`, which is reliable and has no such limit.
+
 ## RPC / worklet lifecycle
 
 <a id="UNKNOWN_METHOD"></a>

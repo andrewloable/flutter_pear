@@ -42,8 +42,10 @@ const VECTOR = {
 // Never touch the public DHT from a test -- the same testnet swap the other suites use.
 let currentBootstrap = null
 const swarmInstances = []
+let relayOnly = false // opt-in, see relayOnlyDht
 class TestnetHyperswarm extends Hyperswarm {
   constructor (opts = {}) {
+    if (relayOnly) opts = { ...opts, dht: relayOnlyDht() }
     super({ ...opts, bootstrap: currentBootstrap })
     swarmInstances.push(this)
   }
@@ -130,6 +132,20 @@ function bootWorklet () {
     return response
   }
   return { swarm, call, isRelayed, events }
+}
+
+// A DHT for Hyperswarm's public opts.dht that can only reach a peer through a relay: its server
+// never hole punches or shares a local address, and Hyperswarm's own dials skip the same-host LAN
+// shortcut. hyperdht's internal dial to the relay passes no keyPair and keeps its LAN path;
+// without that exception it cannot reach the relay and fails with HOLEPUNCH_ABORTED.
+function relayOnlyDht () {
+  const dht = new DHT({ bootstrap: currentBootstrap })
+  const createServer = dht.createServer.bind(dht)
+  dht.createServer = (o, onconnection) => createServer({ ...o, holepunch: false, shareLocalAddress: false }, onconnection)
+  const connect = dht.connect.bind(dht)
+  dht.connect = (publicKey, o) => connect(publicKey, o && o.keyPair ? { ...o, localConnection: false, fastOpen: false } : o)
+  cleanup.push(() => dht.destroy())
+  return dht
 }
 
 // Hyperswarm reads the NAT type from its DHT when it decides; pin it per case.
@@ -492,4 +508,43 @@ test('connection.path is sent only when the value changes', async () => {
 
   connA.rawStream.emit('remote-changed') // still relayed
   assert.equal(paths().length, 1)
+})
+
+// Datagrams (Method.CONNECTION_SEND) over a connection that can only exist through the relay.
+// Needs the relay-only DHT: on one host two worklets otherwise connect directly.
+test('a datagram crosses a relayed connection', async () => {
+  await startRelay()
+  relayOnly = true
+  let a, b
+  try {
+    a = bootWorklet()
+    b = bootWorklet()
+  } finally {
+    relayOnly = false
+  }
+  await a.call(Method.RELAY_SET, { key: VECTOR.key })
+  await b.call(Method.RELAY_SET, { key: VECTOR.key })
+  setRandomized(a.swarm, true)
+  setRandomized(b.swarm, true)
+
+  const { connA, connB } = await swarmPair(a, b)
+  await new Promise((resolve) => setTimeout(resolve, 2000)) // a datagram right after open can be lost
+  const connectionEvent = (w) => w.events.find((e) => e.ev === EventName.SWARM_CONNECTION)
+  assert.equal(connectionEvent(a).p.relayed, true, 'relayed on a')
+  assert.equal(connectionEvent(b).p.relayed, true, 'relayed on b')
+  assert.equal(a.isRelayed(connA), true)
+  assert.equal(b.isRelayed(connB), true)
+
+  const bSeesA = connectionEvent(b).p.peer
+  const aSeesB = connectionEvent(a).p.peer
+  const res = await a.call(Method.CONNECTION_SEND, { peer: aSeesB, data: 'b3ZlciB0aGUgcmVsYXk=' })
+  assert.equal(res.err, undefined)
+
+  const messages = () => b.events.filter((e) => e.ev === EventName.CONNECTION_MESSAGE)
+  for (let i = 0; i < 50 && messages().length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.equal(messages().length, 1)
+  assert.equal(messages()[0].p.data, 'b3ZlciB0aGUgcmVsYXk=')
+  assert.equal(messages()[0].p.peer, bSeesA)
+  assert.equal(a.isRelayed(connA), true, 'still relayed: the datagram went through the relay')
+  assert.equal(b.isRelayed(connB), true)
 })

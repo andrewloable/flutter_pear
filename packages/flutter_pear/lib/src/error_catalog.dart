@@ -42,6 +42,14 @@ abstract final class PearErrorCatalog {
           'closing -- get the new PearConnection from '
           'PearSwarm.connections instead of reusing an old one.',
     ),
+    PearErrorCode.datagramTooLarge: PearErrorCatalogEntry(
+      problem: 'A datagram passed to PearConnection.sendDatagram is larger '
+          'than PearConnection.maxDatagramSize (1108 bytes).',
+      cause: 'A datagram travels as one UDP packet and is never split, so '
+          'it has a hard size limit. Nothing was sent.',
+      fix: 'Split the data in your app, or send it with '
+          'PearConnection.write, which is reliable and has no such limit.',
+    ),
     PearErrorCode.connectionClosed: PearErrorCatalogEntry(
       problem: 'Called write() on a PearConnection that has already '
           'closed.',

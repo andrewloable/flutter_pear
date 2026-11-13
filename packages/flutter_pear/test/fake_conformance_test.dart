@@ -47,4 +47,34 @@ void main() {
     await swarmA.leave();
     await swarmB.leave();
   });
+
+  test('datagrams run end-to-end against two FakeBareWorklets', () async {
+    final hub = FakeSwarmHub();
+    final workletA = FakeBareWorklet(hub: hub);
+    final workletB = FakeBareWorklet(hub: hub);
+    final rpcA = PearRpc(workletA);
+    final rpcB = PearRpc(workletB);
+    await rpcA.call(PearMethod.attachInfo);
+    await rpcB.call(PearMethod.attachInfo);
+    final topic =
+        PearCrypto.unsafeTopicFromString('flutter_pear-datagram-conformance');
+
+    final swarmA = await PearSwarm.join(rpcA, topic);
+    final firstConnA = swarmA.connections.first;
+    final swarmB = await PearSwarm.join(rpcB, topic);
+    final firstConnB = swarmB.connections.first;
+    final connA = await firstConnA;
+    final connB = await firstConnB;
+
+    final streamBytes = <Uint8List>[];
+    connB.data.listen(streamBytes.add);
+    final received = connB.datagrams.first;
+    await connA.sendDatagram(Uint8List.fromList([4, 5, 6]));
+    expect(await received, [4, 5, 6]);
+    await Future<void>.delayed(Duration.zero);
+    expect(streamBytes, isEmpty, reason: 'a datagram never arrives on data');
+
+    await swarmA.leave();
+    await swarmB.leave();
+  });
 }
