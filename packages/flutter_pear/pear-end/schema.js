@@ -123,7 +123,10 @@ const EventName = {
   // zip-slip hardening (plan decision 36): symlink entries and
   // containment-escaping paths from an untrusted peer drive never reach
   // disk, but a dev debugging a file that never arrived needs to see why.
-  DRIVE_MIRROR_WARNING: 'drive.mirrorWarning'
+  DRIVE_MIRROR_WARNING: 'drive.mirrorWarning',
+  // Progress of a DRIVE_GET or DRIVE_PUT that was given a `transfer` id: {transfer, bytes, total}
+  // (total is null when unknown). At most every 250 ms, plus once at the end.
+  DRIVE_PROGRESS: 'drive.progress'
 }
 
 const ErrorCode = {
@@ -169,7 +172,10 @@ const ErrorCode = {
   // is not 64 hex characters.
   INVALID_RELAY_KEY: 'INVALID_RELAY_KEY',
   // CONNECTION_SEND's datagram is larger than MAX_DATAGRAM_BYTES (1108).
-  DATAGRAM_TOO_LARGE: 'DATAGRAM_TOO_LARGE'
+  DATAGRAM_TOO_LARGE: 'DATAGRAM_TOO_LARGE',
+  // A DRIVE_GET or DRIVE_PUT moved no bytes for `idleMs`; it was stopped (a get's partial file
+  // removed).
+  TRANSFER_STALLED: 'TRANSFER_STALLED'
 }
 
 // Which built-in Autobase merge recipe a PearBase.open call (E5.8) picks --

@@ -69,6 +69,7 @@ void main() {
     expect(PearEventName.pairingCandidate, 'pairing.candidate');
     expect(PearEventName.baseUpdate, 'base.update');
     expect(PearEventName.driveMirrorWarning, 'drive.mirrorWarning');
+    expect(PearEventName.driveProgress, 'drive.progress');
 
     expect(PearErrorCode.unknownPeer, 'UNKNOWN_PEER');
     expect(PearErrorCode.unknownMethod, 'UNKNOWN_METHOD');
@@ -95,6 +96,7 @@ void main() {
     expect(PearErrorCode.baseClosed, 'BASE_CLOSED');
     expect(PearErrorCode.invalidRelayKey, 'INVALID_RELAY_KEY');
     expect(PearErrorCode.datagramTooLarge, 'DATAGRAM_TOO_LARGE');
+    expect(PearErrorCode.transferStalled, 'TRANSFER_STALLED');
 
     expect(PearSwarmState.discovering.name, 'discovering');
     expect(PearSwarmState.connecting.name, 'connecting');
@@ -201,6 +203,7 @@ void main() {
     expect(jsValue('PAIRING_CANDIDATE'), PearEventName.pairingCandidate);
     expect(jsValue('BASE_UPDATE'), PearEventName.baseUpdate);
     expect(jsValue('DRIVE_MIRROR_WARNING'), PearEventName.driveMirrorWarning);
+    expect(jsValue('DRIVE_PROGRESS'), PearEventName.driveProgress);
 
     expect(jsValue('UNKNOWN_PEER'), PearErrorCode.unknownPeer);
     expect(jsValue('UNKNOWN_METHOD'), PearErrorCode.unknownMethod);
@@ -227,6 +230,7 @@ void main() {
     expect(jsValue('BASE_CLOSED'), PearErrorCode.baseClosed);
     expect(jsValue('INVALID_RELAY_KEY'), PearErrorCode.invalidRelayKey);
     expect(jsValue('DATAGRAM_TOO_LARGE'), PearErrorCode.datagramTooLarge);
+    expect(jsValue('TRANSFER_STALLED'), PearErrorCode.transferStalled);
 
     expect(jsValue('LWW'), PearRecipe.lww.name);
     expect(jsValue('ORDERED_LOG'), PearRecipe.orderedLog.name);

@@ -37,7 +37,7 @@ const crypto = require('hypercore-crypto')
 const sodium = require('sodium-universal')
 const fs = require('bare-fs')
 const path = require('bare-path')
-const { pipelinePromise, Writable } = require('streamx')
+const { pipelinePromise, Writable, Transform } = require('streamx')
 const { Method, EventName, ErrorCode, SwarmState, FrameType, HandshakeField } = require('./schema')
 
 // Identifies this worklet process/generation. Generated once at boot, never
@@ -584,6 +584,44 @@ function tagInboundConnection (conn, info) {
   }
   next()
   conn.on('close', () => clearTimeout(timer))
+}
+
+// DRIVE_GET/DRIVE_PUT used to be one plain pipeline, bounded only by Dart's 10 s RPC timeout, so a
+// large file on a slow network failed while bytes were still flowing (KinNode gap G15: 20 MB over
+// mobile data). The transfer now fails only when NO bytes move for `idleMs` (default 30 s), with
+// TRANSFER_STALLED; Dart gives the call a long overall cap instead. With a `transfer` id, progress
+// is reported as DRIVE_PROGRESS events.
+const DEFAULT_TRANSFER_IDLE_MS = 30000
+const PROGRESS_INTERVAL_MS = 250
+
+async function watchedTransfer (source, sink, p, total) {
+  const idleMs = Number.isInteger(p.idleMs) && p.idleMs > 0 ? p.idleMs : DEFAULT_TRANSFER_IDLE_MS
+  const transfer = typeof p.transfer === 'string' ? p.transfer : null
+  let bytes = 0
+  let lastReport = 0
+  const report = () => {
+    lastReport = Date.now()
+    send({ ev: EventName.DRIVE_PROGRESS, p: { transfer, bytes, total } })
+  }
+  const counter = new Transform({
+    transform (chunk, cb) {
+      bytes += chunk.byteLength
+      timer.refresh()
+      if (transfer && Date.now() - lastReport >= PROGRESS_INTERVAL_MS) report()
+      cb(null, chunk)
+    }
+  })
+  const timer = setTimeout(() => {
+    const err = new Error('transfer moved no bytes for ' + idleMs + ' ms')
+    err.code = ErrorCode.TRANSFER_STALLED
+    counter.destroy(err)
+  }, idleMs)
+  try {
+    await pipelinePromise(source, counter, sink)
+  } finally {
+    clearTimeout(timer)
+  }
+  if (transfer) report()
 }
 
 // Hyperswarm 4.x's own event surface (checked against its installed source)
@@ -1412,10 +1450,9 @@ async function handle ({ m, p }) {
     case Method.DRIVE_PUT: {
       return withStorageErrors(async () => {
         const drive = getOpenDriveOrThrow(p.drive)
-        await pipelinePromise(
-          fs.createReadStream(p.localSourcePath),
-          drive.createWriteStream(p.path)
-        )
+        let total = null
+        try { total = fs.statSync(p.localSourcePath).size } catch (_) {}
+        await watchedTransfer(fs.createReadStream(p.localSourcePath), drive.createWriteStream(p.path), p, total)
         return null
       })
     }
@@ -1434,10 +1471,18 @@ async function handle ({ m, p }) {
           err.code = ErrorCode.FILE_NOT_FOUND
           throw err
         }
-        await pipelinePromise(
-          drive.createReadStream(p.path),
-          fs.createWriteStream(p.destinationPath)
-        )
+        let total = null
+        try {
+          const entry = await drive.entry(p.path)
+          if (entry && entry.value && entry.value.blob) total = entry.value.blob.byteLength
+        } catch (_) {}
+        try {
+          await watchedTransfer(drive.createReadStream(p.path), fs.createWriteStream(p.destinationPath), p, total)
+        } catch (err) {
+          // A failed get leaves no partial file behind.
+          try { fs.unlinkSync(p.destinationPath) } catch (_) {}
+          throw err
+        }
         return null
       })
     }

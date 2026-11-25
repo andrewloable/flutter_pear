@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_pear/flutter_pear.dart';
+import 'package:flutter_pear_bare/flutter_pear_bare.dart';
 // ignore: implementation_imports
 import 'package:flutter_pear/src/rpc.dart';
 // ignore: implementation_imports
@@ -352,4 +355,137 @@ void main() {
     await rpcA.dispose();
     await rpcB.dispose();
   });
+
+  group('transfers with no fixed deadline (KinNode gap G15)', () {
+    test('G15-1 a get whose reply takes 11 s still succeeds (the old 10 s RPC timeout is gone)',
+        () async {
+      final slow = _ReplyRewriter(FakeBareWorklet(), 'drive.get',
+          delay: const Duration(seconds: 11));
+      final slowRpc = PearRpc(slow);
+      await slowRpc.call(PearMethod.attachInfo);
+      final drive = await PearDrive.open(slowRpc, name: 'slow');
+      await drive.put('/a.txt', await writeLocalFile('a.txt', 'hello'));
+      final dst = '${tempDir.path}/a-out.txt';
+      expect(await drive.get('/a.txt', dst), dst);
+      expect(await File(dst).readAsString(), 'hello');
+      await slowRpc.dispose();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('maxDuration is the RPC timeout', () async {
+      final slow = _ReplyRewriter(FakeBareWorklet(), 'drive.get',
+          delay: const Duration(milliseconds: 1500));
+      final slowRpc = PearRpc(slow);
+      await slowRpc.call(PearMethod.attachInfo);
+      final drive = await PearDrive.open(slowRpc, name: 'cap');
+      await drive.put('/a.txt', await writeLocalFile('b.txt', 'x'));
+      await expectLater(
+        drive.get('/a.txt', '${tempDir.path}/b-out.txt',
+            idleTimeout: const Duration(milliseconds: 200),
+            maxDuration: const Duration(seconds: 1)),
+        throwsA(isA<PearException>()
+            .having((e) => e.code, 'code', PearErrorCode.rpcTimeout)),
+      );
+      await slowRpc.dispose();
+    });
+
+    test('idleTimeout is sent to the worklet as idleMs', () async {
+      final spy = _ReplyRewriter(FakeBareWorklet(), 'drive.get');
+      final spyRpc = PearRpc(spy);
+      await spyRpc.call(PearMethod.attachInfo);
+      final drive = await PearDrive.open(spyRpc, name: 'spy');
+      await drive.put('/a.txt', await writeLocalFile('c.txt', 'x'));
+      await drive.get('/a.txt', '${tempDir.path}/c-out.txt',
+          idleTimeout: const Duration(seconds: 5));
+      expect(spy.lastParams?['idleMs'], 5000);
+      expect(spy.lastParams?.containsKey('transfer'), isFalse,
+          reason: 'no transfer id without onProgress');
+      await spyRpc.dispose();
+    });
+
+    test('G15-2 a stall reported by the worklet surfaces as transferStalled', () async {
+      final stall = _ReplyRewriter(FakeBareWorklet(), 'drive.get',
+          errorCode: PearErrorCode.transferStalled);
+      final stallRpc = PearRpc(stall);
+      await stallRpc.call(PearMethod.attachInfo);
+      final drive = await PearDrive.open(stallRpc, name: 'stall');
+      await drive.put('/a.txt', await writeLocalFile('d.txt', 'x'));
+      await expectLater(
+        drive.get('/a.txt', '${tempDir.path}/d-out.txt'),
+        throwsA(isA<PearException>()
+            .having((e) => e.code, 'code', PearErrorCode.transferStalled)),
+      );
+      await stallRpc.dispose();
+    });
+
+    test('progress reaches only its own call, ending at bytes == total', () async {
+      final drive = await PearDrive.open(rpc, name: 'progress');
+      await drive.put('/one.txt', await writeLocalFile('one.txt', '12345'));
+      await drive.put('/two.txt', await writeLocalFile('two.txt', '1234567890'));
+      final one = <(int, int?)>[];
+      final two = <(int, int?)>[];
+      await Future.wait([
+        drive.get('/one.txt', '${tempDir.path}/one-out.txt',
+            onProgress: (b, t) => one.add((b, t))),
+        drive.get('/two.txt', '${tempDir.path}/two-out.txt',
+            onProgress: (b, t) => two.add((b, t))),
+      ]);
+      expect(one, [(5, 5)]);
+      expect(two, [(10, 10)]);
+      // Nothing more is delivered after the call completed.
+      await drive.get('/one.txt', '${tempDir.path}/one-again.txt');
+      expect(one, [(5, 5)]);
+    });
+
+    test('put reports progress too', () async {
+      final drive = await PearDrive.open(rpc, name: 'put-progress');
+      final seen = <(int, int?)>[];
+      await drive.put('/p.txt', await writeLocalFile('p.txt', 'abcdef'),
+          onProgress: (b, t) => seen.add((b, t)));
+      expect(seen, [(6, 6)]);
+    });
+  });
+}
+
+/// Wraps a worklet and, for requests of [method], records their params and
+/// either delays the reply by [delay] or replaces it with an error [errorCode].
+class _ReplyRewriter implements WorkletIpc {
+  _ReplyRewriter(this._inner, this.method, {this.delay, this.errorCode});
+
+  final WorkletIpc _inner;
+  final String method;
+  final Duration? delay;
+  final String? errorCode;
+  final _ids = <int>{};
+  Map<String, Object?>? lastParams;
+
+  @override
+  Stream<WorkletCrash> get onCrash => _inner.onCrash;
+
+  @override
+  Future<void> send(Uint8List frame) {
+    if (frame.isNotEmpty && frame[0] == PearFrameType.json) {
+      final msg = jsonDecode(utf8.decode(frame.sublist(1)));
+      if (msg is Map && msg['m'] == method) {
+        _ids.add(msg['id'] as int);
+        lastParams = Map<String, Object?>.from(msg['p'] as Map);
+      }
+    }
+    return _inner.send(frame);
+  }
+
+  @override
+  Stream<Uint8List> get incoming => _inner.incoming.asyncMap((frame) async {
+        if (frame.isEmpty || frame[0] != PearFrameType.json) return frame;
+        final msg = jsonDecode(utf8.decode(frame.sublist(1)));
+        if (msg is! Map || !_ids.contains(msg['id'])) return frame;
+        if (delay != null) await Future<void>.delayed(delay!);
+        if (errorCode == null) return frame;
+        final rewritten = Map<String, Object?>.from(msg)
+          ..remove('ok')
+          ..['err'] = {'code': errorCode, 'message': 'rewritten by test'};
+        final body = utf8.encode(jsonEncode(rewritten));
+        return Uint8List(body.length + 1)
+          ..[0] = PearFrameType.json
+          ..setRange(1, body.length + 1, body);
+      });
 }

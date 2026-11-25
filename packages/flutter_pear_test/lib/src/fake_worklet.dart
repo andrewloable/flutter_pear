@@ -741,6 +741,7 @@ class FakeBareWorklet implements WorkletIpc {
         final bytes =
             await File(params['localSourcePath'] as String).readAsBytes();
         drive.files[params['path'] as String] = bytes;
+        _emitDriveProgress(params, bytes.length);
         return null;
       case PearMethod.driveGet:
         final drive = _requireOpenDrive(params['drive'] as String);
@@ -751,6 +752,7 @@ class FakeBareWorklet implements WorkletIpc {
               'file not found: $virtualPath', PearErrorCode.fileNotFound);
         }
         await File(params['destinationPath'] as String).writeAsBytes(bytes);
+        _emitDriveProgress(params, bytes.length);
         return null;
       case PearMethod.driveExists:
         final drive = _requireOpenDrive(params['drive'] as String);
@@ -1435,6 +1437,16 @@ class FakeBareWorklet implements WorkletIpc {
       'state': state.name,
       if (reason != null) 'reason': reason,
     });
+  }
+
+  /// A get or put given a `transfer` id reports one [PearEventName.driveProgress]
+  /// event with `bytes == total`: the fake copies in one step and never stalls,
+  /// so `idleMs` is accepted and ignored.
+  void _emitDriveProgress(Map<Object?, Object?> params, int size) {
+    final transfer = params['transfer'];
+    if (transfer is! String) return;
+    _emitEvent(PearEventName.driveProgress,
+        {'transfer': transfer, 'bytes': size, 'total': size});
   }
 
   void _emitEvent(String name, Map<String, Object?> payload,

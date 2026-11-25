@@ -42,6 +42,15 @@ abstract final class PearErrorCatalog {
           'closing -- get the new PearConnection from '
           'PearSwarm.connections instead of reusing an old one.',
     ),
+    PearErrorCode.transferStalled: PearErrorCatalogEntry(
+      problem: 'A PearDrive.get or put moved no bytes for its idle timeout '
+          '(default 30 s) and was stopped.',
+      cause: 'The peer holding the file went away or the network stopped '
+          'delivering. A slow transfer is not a stall: any progress resets '
+          'the timer. A failed get leaves no partial file.',
+      fix: 'Retry when the peer is connected again; pass a longer '
+          'idleTimeout if your network pauses for longer than that.',
+    ),
     PearErrorCode.datagramTooLarge: PearErrorCatalogEntry(
       problem: 'A datagram passed to PearConnection.sendDatagram is larger '
           'than PearConnection.maxDatagramSize (1108 bytes).',

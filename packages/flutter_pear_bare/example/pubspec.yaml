@@ -4,17 +4,19 @@ publish_to: none
 version: 0.0.1
 
 environment:
-  # 3.10.0, not this repo's usual 3.5.0 floor (see flutter_pear/pubspec.yaml
-  # et al.): the installed Flutter SDK's `flutter create` template
-  # (lib/main.dart, unmodified boilerplate) uses dot-shorthand syntax that
-  # needs it. Harmless here -- unlike a published library package, this
-  # example app makes no compatibility promise to anything depending on it.
-  sdk: '>=3.10.0 <4.0.0'
-  flutter: '>=3.24.0'
+  # 3.12 / Flutter 3.44: the floor of material_ui (below), and the same floor
+  # flutter_pear_bare itself has. Harmless here -- unlike a published library
+  # package, this example app makes no compatibility promise to anything
+  # depending on it.
+  sdk: '>=3.12.0 <4.0.0'
+  flutter: '>=3.44.0'
 
 dependencies:
   flutter:
     sdk: flutter
+  # Flutter's own Material library, unbundled: package:flutter/material.dart is
+  # deprecated after Flutter 3.47.
+  material_ui: ^1.0.0
   flutter_pear_bare:
     path: ../
   # flutter_pear_bare ships no pear-end bundle of its own by design (that's

@@ -56,6 +56,17 @@ this file (GitHub, pub.dev, a local viewer, ...).
   VPN) — this is a network-environment issue, not something flutter_pear
   can work around.
 
+<a id="TRANSFER_STALLED"></a>
+### TRANSFER_STALLED
+
+- **Problem:** A `PearDrive.get` or `put` moved no bytes for its idle timeout
+  (default 30 s) and was stopped.
+- **Cause:** The peer holding the file went away or the network stopped
+  delivering. A slow transfer is not a stall: any progress resets the timer.
+  A failed get leaves no partial file.
+- **Fix:** Retry when the peer is connected again; pass a longer
+  `idleTimeout` if your network pauses for longer than that.
+
 <a id="DATAGRAM_TOO_LARGE"></a>
 ### DATAGRAM_TOO_LARGE
 

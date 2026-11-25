@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_pear/flutter_pear.dart';
 // ignore: implementation_imports
 import 'package:flutter_pear/src/rpc.dart';

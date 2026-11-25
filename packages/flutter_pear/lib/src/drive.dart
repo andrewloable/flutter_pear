@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'crypto.dart';
 import 'rpc.dart';
@@ -100,13 +101,30 @@ class PearDrive {
 
   /// Streams the local file at [localSourcePath] into this drive at
   /// [virtualPath], overwriting any existing content there.
-  Future<void> put(String virtualPath, String localSourcePath) => _rpc.call(
+  ///
+  /// Fails with [PearErrorCode.transferStalled] when no bytes move for
+  /// [idleTimeout], and with [PearErrorCode.rpcTimeout] only after
+  /// [maxDuration], which must be longer. A large file on a slow network is
+  /// fine as long as it keeps moving. [onProgress], when given, is called with
+  /// the bytes moved so far and the file size (null when unknown), at most
+  /// every 250 ms and once at the end.
+  Future<void> put(
+    String virtualPath,
+    String localSourcePath, {
+    Duration idleTimeout = PearDriveDefaults.idleTimeout,
+    Duration maxDuration = PearDriveDefaults.maxDuration,
+    void Function(int bytes, int? total)? onProgress,
+  }) =>
+      _transfer(
         PearMethod.drivePut,
         {
           'drive': key.hex,
           'path': virtualPath,
           'localSourcePath': localSourcePath
         },
+        idleTimeout,
+        maxDuration,
+        onProgress,
       );
 
   /// Streams the content at [virtualPath] to the local file
@@ -118,13 +136,64 @@ class PearDrive {
   /// so this never guesses where they should land in your app's sandbox.
   /// Throws with [PearErrorCode.fileNotFound] if [virtualPath] doesn't
   /// exist.
-  Future<String> get(String virtualPath, String destinationPath) async {
-    await _rpc.call(PearMethod.driveGet, {
-      'drive': key.hex,
-      'path': virtualPath,
-      'destinationPath': destinationPath,
-    });
+  ///
+  /// Fails with [PearErrorCode.transferStalled] when no bytes move for
+  /// [idleTimeout], and with [PearErrorCode.rpcTimeout] only after
+  /// [maxDuration], which must be longer. A failed get leaves no partial file
+  /// at [destinationPath]. [onProgress], when given, is called with the bytes
+  /// moved so far and the file size (null when unknown), at most every 250 ms
+  /// and once at the end.
+  Future<String> get(
+    String virtualPath,
+    String destinationPath, {
+    Duration idleTimeout = PearDriveDefaults.idleTimeout,
+    Duration maxDuration = PearDriveDefaults.maxDuration,
+    void Function(int bytes, int? total)? onProgress,
+  }) async {
+    await _transfer(
+      PearMethod.driveGet,
+      {
+        'drive': key.hex,
+        'path': virtualPath,
+        'destinationPath': destinationPath,
+      },
+      idleTimeout,
+      maxDuration,
+      onProgress,
+    );
     return destinationPath;
+  }
+
+  static final _random = Random.secure();
+
+  /// One get or put: the worklet enforces [idleTimeout]; [maxDuration] is the
+  /// RPC timeout. With [onProgress], a random transfer id routes this call's
+  /// [PearEventName.driveProgress] events to it until the call completes.
+  Future<void> _transfer(
+    String method,
+    Map<String, Object?> params,
+    Duration idleTimeout,
+    Duration maxDuration,
+    void Function(int bytes, int? total)? onProgress,
+  ) async {
+    assert(maxDuration > idleTimeout, 'maxDuration must be longer than idleTimeout');
+    StreamSubscription<PearEvent>? progress;
+    if (onProgress != null) {
+      final transfer = List.generate(16, (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+      params['transfer'] = transfer;
+      progress = _rpc.events.listen((e) {
+        if (e.name != PearEventName.driveProgress) return;
+        final p = e.payload;
+        if (p is! Map || p['transfer'] != transfer) return;
+        onProgress(p['bytes'] as int, p['total'] as int?);
+      });
+    }
+    params['idleMs'] = idleTimeout.inMilliseconds;
+    try {
+      await _rpc.call(method, params, maxDuration);
+    } finally {
+      await progress?.cancel();
+    }
   }
 
   /// Whether [virtualPath] exists in this drive.
@@ -168,9 +237,16 @@ class PearDrive {
   /// written -- rejected instead (zip-slip hardening). See
   /// [PearDriveMirrorResult.rejected] for the count and [mirrorWarnings]
   /// for a per-entry stream of why.
-  Future<PearDriveMirrorResult> mirrorToDisk(String localDir) async {
+  ///
+  /// [maxDuration] is the RPC timeout (default [PearDriveDefaults.maxDuration]):
+  /// a whole drive can take far longer than [PearRpcDefaults.callTimeout].
+  /// There is no idle timeout or progress for a mirror yet.
+  Future<PearDriveMirrorResult> mirrorToDisk(
+    String localDir, {
+    Duration maxDuration = PearDriveDefaults.maxDuration,
+  }) async {
     final result = await _rpc.call(PearMethod.driveMirrorToDisk,
-        {'drive': key.hex, 'localDir': localDir}) as Map;
+        {'drive': key.hex, 'localDir': localDir}, maxDuration) as Map;
     return (
       added: result['added'] as int,
       changed: result['changed'] as int,

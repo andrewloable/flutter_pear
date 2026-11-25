@@ -398,6 +398,12 @@ abstract final class PearEventName {
   /// within that drive, and `reason` is exactly `'symlink-rejected'` or
   /// `'path-escape'`. See `PearDrive.mirrorWarnings`.
   static const driveMirrorWarning = 'drive.mirrorWarning';
+
+  /// Progress of a [PearMethod.driveGet] or [PearMethod.drivePut] that was
+  /// given a `transfer` id. Payload: `{transfer, bytes, total}` -- bytes moved
+  /// so far, and the file size or null when unknown. At most every 250 ms,
+  /// plus once at the end. See `PearDrive.get`'s `onProgress`.
+  static const driveProgress = 'drive.progress';
 }
 
 /// Connection-state vocabulary for `PearSwarm.state` — also the wire value
@@ -677,6 +683,12 @@ abstract final class PearErrorCode {
   /// bytes. Nothing was sent.
   static const datagramTooLarge = 'DATAGRAM_TOO_LARGE';
 
+  /// A [PearMethod.driveGet] or [PearMethod.drivePut] moved no bytes for its
+  /// idle timeout (`PearDrive.get`'s `idleTimeout`, default
+  /// [PearDriveDefaults.idleTimeout]). It was stopped; a get leaves no partial
+  /// file behind.
+  static const transferStalled = 'TRANSFER_STALLED';
+
   /// The explicit err.code -> exception-category registry (LOCKED: entries
   /// only, no prefix/substring heuristics). A code not listed here —
   /// including one this version of the schema simply doesn't know about
@@ -707,6 +719,7 @@ abstract final class PearErrorCode {
     baseClosed: PearErrorCategory.storage,
     invalidRelayKey: PearErrorCategory.connection,
     datagramTooLarge: PearErrorCategory.connection,
+    transferStalled: PearErrorCategory.storage,
   };
 }
 
@@ -719,6 +732,23 @@ abstract final class PearSwarmDefaults {
   /// makes an unreachable network (e.g. UDP blocked by a NAT) an honest,
   /// bounded failure instead of an infinite silent wait.
   static const joinTimeout = Duration(seconds: 30);
+}
+
+/// Defaults for `PearDrive` transfers ([PearMethod.driveGet],
+/// [PearMethod.drivePut], [PearMethod.driveMirrorToDisk]).
+abstract final class PearDriveDefaults {
+  /// How long a get or put may go without moving a single byte before the
+  /// worklet stops it with [PearErrorCode.transferStalled]. Long enough to
+  /// ride out a short network stall, short enough that a dead transfer is
+  /// reported in well under a minute. Overridable per call.
+  static const idleTimeout = Duration(seconds: 30);
+
+  /// The overall cap on one transfer call, used as its RPC timeout: only a
+  /// backstop for a worklet that never answers, since the idle timeout ends a
+  /// stalled transfer much sooner. A drive transfer cannot use
+  /// [PearRpcDefaults.callTimeout] (10 s): any file that took longer failed
+  /// while bytes were still arriving. Overridable per call.
+  static const maxDuration = Duration(hours: 1);
 }
 
 /// Runtime policy defaults. Unlike the rest of this file, these aren't part

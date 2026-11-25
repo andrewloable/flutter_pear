@@ -1,3 +1,14 @@
+## 0.4.13
+
+**Fixed: drive transfers no longer fail after 10 s.** `PearDrive.get` and `put` used the
+10-second RPC timeout, so any file that took longer failed with `RPC_TIMEOUT` while bytes were
+still arriving (found by KinNode: a 20 MB file over mobile data). They now fail only when no bytes
+move for `idleTimeout` (default `PearDriveDefaults.idleTimeout`, 30 s), with the new error
+`TRANSFER_STALLED`; a failed get leaves no partial file. The overall cap is `maxDuration` (default
+`PearDriveDefaults.maxDuration`, 1 hour), which `mirrorToDisk` also takes. New optional
+`onProgress(bytes, total)` on `get` and `put`, fed by the new `drive.progress` event. All
+additions are optional named parameters; existing calls keep working.
+
 ## 0.4.12
 
 **Added: unreliable datagrams on `PearConnection`.** `PearConnection.sendDatagram`,

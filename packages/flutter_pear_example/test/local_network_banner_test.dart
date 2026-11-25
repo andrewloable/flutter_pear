@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_pear/flutter_pear.dart';
 import 'package:flutter_pear_example/local_network_banner.dart';

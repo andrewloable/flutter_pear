@@ -1,3 +1,8 @@
+## 0.4.13
+
+The fake worklet accepts `drive.get`/`drive.put`'s new `idleMs` and `transfer` params and, when a
+`transfer` id is given, emits one `drive.progress` event with `bytes == total`. It never stalls.
+
 ## 0.4.12
 
 **Added: datagrams in the fake.** `FakeBareWorklet` answers `PearMethod.connectionSend`
