@@ -2,6 +2,8 @@
 
 The full [Pear](https://pears.com/) peer-to-peer stack as a Dart-idiomatic Flutter plugin. Build serverless, end-to-end-encrypted P2P apps — discovery, encrypted connections, append-only logs, key/value stores, file drives, and multi-writer sync — without writing a line of Kotlin, Swift, or JavaScript.
 
+**Read the overview on loable.tech:** [flutter_pear — serverless P2P networking for Flutter](https://loable.tech/flutter-pear-p2p/), covering how it works, what is new in 0.4, and the gotchas behind most stuck connections.
+
 ![Chat demo: an Android emulator joins a room, connects to a desktop peer, and exchanges messages both ways](docs/chat-demo.gif)
 
 > **Platforms — all five:** Android · iOS (**SIMULATOR-VALIDATED** — see [iOS platform notes](packages/flutter_pear/doc/ios.md) before shipping) · macOS · Linux · Windows (desktop is new in 0.3.0 — see [Desktop](#desktop-new-in-030)). Requires Flutter SDK ≥ 3.44 (bundles Dart ≥ 3.12) and, on Android, **`minSdk` 29**.
