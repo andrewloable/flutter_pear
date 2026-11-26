@@ -1,3 +1,40 @@
+## 0.4.14
+
+**Fixed: a later connection to the same peer could carry no data (found by KinNode, gap G16).**
+Three causes:
+
+- A connection whose other half is gone is now closed. When both peers dial each other at once,
+  Hyperswarm keeps one connection and destroys the other on each side; on a real network the two
+  sides could keep different halves, or the reset of a destroyed half never arrived, and the
+  surviving connection was reported but silent until UDX timed out (13 to 18 s), and Hyperswarm
+  could refuse the peer's new dials for it meanwhile. A live peer always speaks within 5 s (pear-end
+  opens a channel at once, and Hyperswarm sends a keepalive every 5 s), so pear-end now closes a
+  connection that has read nothing after 8 s, and Hyperswarm dials again. Its `closeStats.error`
+  is `PEER_SILENT`.
+- A reconnect could stay silent on one side, or on both. Hyperswarm redials a peer about 1 s after
+  a connection closes without checking again that the topic is still joined, and a connection can
+  outlive the topic it was made for. Such a connection carries no joined topic, and each side
+  attached it to the next topic only if its own lookup found the other's announcement, so one side
+  (or both) never reported it and dropped its data. Joining a topic with `acceptUnannounced`, when
+  it is the only joined topic accepting unannounced peers, now gives it every open connection,
+  inbound or outbound, that carries no topic still joined on the swarm, and an outbound redial that
+  lands with no such topic is tagged as an inbound connection is (by the same rule). With several
+  such topics joined, a leftover connection is attached only when a lookup finds the peer, as
+  before. A connection on a topic something else joined on the same swarm (blind-pairing) is left
+  alone. Also, a closed connection's topic listener is removed from the peer record Hyperswarm
+  reuses, so it can no longer fire for a later connection.
+- The first message on a connection could be lost in Dart. pear-end holds data that arrives
+  before a connection is tagged with a topic and sends it right after `swarm.connection`, but
+  the app attaches its `PearConnection.data` listener only when its `PearSwarm.connections`
+  listener runs, a microtask later, and `data` was a plain broadcast stream that dropped it.
+  `data` now keeps what arrives before anything listens, up to the new
+  `PearConnection.earlyDataLimit` (256 KiB, more closes the connection), and gives it to the
+  first listener. Measured on a Mac and an Android phone: when one device joined 1.7 s after the
+  other, the peer's first message never reached the app.
+
+Regression tests: `pear-end/test/reconnect-data.test.js` and the "early data" group in
+`test/swarm_test.dart`.
+
 ## 0.4.13
 
 **Fixed: drive transfers no longer fail after 10 s.** `PearDrive.get` and `put` used the

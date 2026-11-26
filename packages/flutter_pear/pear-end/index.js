@@ -336,6 +336,11 @@ const connections = new Map() // peer public key (hex) -> connection, shared acr
 // MTU 1200, minus its IPv6 header allowance 68, minus the 24 bytes secret-stream adds to a
 // message (8-byte nonce prefix plus a 16-byte MAC). A datagram is never split.
 const MAX_DATAGRAM_BYTES = 1108
+// How long a new connection may stay silent before it is closed (see swarm.on('connection')). A
+// live peer speaks at once (its worklet opens a Protomux channel on every connection), and any
+// Hyperswarm peer sends a keepalive every 5 s (hyperdht's connectionKeepAlive): 8 s leaves 3 s of
+// one-way latency.
+const SILENT_PEER_MS = 8000
 // peer hex -> Protomux message sender for Method.CONNECTION_WRITE -- see the
 // Protomux.from(conn) comment in swarm.on('connection', ...) below for why
 // this can't just be conn.write() directly once BlindPairing (E5.6) is in
@@ -353,6 +358,9 @@ const pairing = new BlindPairing(swarm)
 // entry per topic actually requested via Method.SWARM_JOIN below (E4.4:
 // replaces the E1/E1.4 gate's single hardcoded topic).
 const topics = new Map() // topic hex -> { connectedPeers: Set<peer hex>, everConnected: bool, acceptUnannounced: bool }
+// Every open connection, with its PeerInfo: SWARM_JOIN re-tags any that carry no joined topic (see
+// tagUntaggedConnections).
+const openConnections = new Map() // conn -> info
 
 // E2.7: the PearSwarmState machine's wire side -- see swarm.dart's
 // PearSwarmStatus/PearSwarmState for the Dart-side consumer.
@@ -366,6 +374,19 @@ swarm.on('connection', (conn, info) => {
   const openedAt = Date.now()
   let relayed = isRelayed(conn) // this device's view; updated if the path changes (remote-changed)
   let lastError = null // set by conn.on('error') below, which fires before 'close'
+  // A connection that has read nothing after SILENT_PEER_MS has lost its other half without a reset
+  // reaching this side: KinNode gap G16 on devices, where Hyperswarm resolved a duplicate
+  // differently on each side and each kept a half the other had destroyed. Hyperswarm keeps such a
+  // connection until UDX times out (13 to 18 s measured) and may refuse the peer's new dials for
+  // it meanwhile (its duplicate tie-break keeps an existing connection that has read nothing).
+  // Close it, so the next dial makes a connection that works.
+  const silent = setTimeout(() => {
+    if (conn.rawBytesRead > 0) return
+    const err = new Error('peer sent nothing on this connection')
+    err.code = 'PEER_SILENT'
+    conn.destroy(err)
+  }, SILENT_PEER_MS)
+  conn.on('close', () => clearTimeout(silent))
 
   // Messages that arrived before this connection was tagged with any joined
   // topic (base64, oldest first) -- see tagInboundConnection below. Released
@@ -394,6 +415,9 @@ swarm.on('connection', (conn, info) => {
   }
   for (const topicBuf of info.topics) announce(topicBuf)
   info.on('topic', announce)
+  // Hyperswarm keeps one PeerInfo per peer across its connections: drop this connection's
+  // listener when it closes, or a closed connection's announce keeps firing for later ones.
+  conn.on('close', () => info.off('topic', announce))
   // A relayed connection can become direct (hyperdht keeps punching), which moves the raw
   // stream's remote address. Re-evaluate then, and tell each joined topic only on a change.
   if (conn.rawStream) {
@@ -409,7 +433,12 @@ swarm.on('connection', (conn, info) => {
       }
     })
   }
-  if (!info.client) tagInboundConnection(conn, info)
+  openConnections.set(conn, info)
+  conn.on('close', () => openConnections.delete(conn))
+  // An outbound connection is tagged by the lookup that found the peer, unless Hyperswarm made it to
+  // redial a peer for topics this side has since left (see tagUntaggedConnections): tag that one as
+  // an inbound one.
+  if (!info.client || carriesNoJoinedTopic(info)) tagInboundConnection(conn, info)
 
   // A datagram from the peer (Method.CONNECTION_SEND on its side): encrypted and authenticated
   // by the connection's Noise session, but unordered, unreliable and replayable. Unlike
@@ -622,6 +651,34 @@ async function watchedTransfer (source, sink, p, total) {
     clearTimeout(timer)
   }
   if (transfer) report()
+}
+
+// True when no topic of the connection is still joined in Hyperswarm, by Dart or by anything else on
+// this swarm: it was made for topics since left. A blind-pairing connection carries a topic that
+// blind-pairing has joined, so it is never re-tagged as a Dart topic's peer.
+function carriesNoJoinedTopic (info) {
+  return !info.topics.some((t) => swarm.status(t))
+}
+
+// A connection can outlive every topic it was made for: Hyperswarm redials a peer the moment a
+// connection closes while its topic is still joined, and the new connection stays open after both
+// sides leave that topic. When both then join the next topic, each side attaches it only if its own
+// lookup finds the other's announcement, and a lookup that ran before the announcement landed finds
+// nothing until the next refresh, minutes later (KinNode gap G16: one side reported the connection,
+// the other never did and dropped its data). tagInboundConnection's retries cannot help, they only
+// refresh topics joined at the time, and they cover inbound connections only, while this happens
+// to either side. So when a join leaves exactly one topic accepting unannounced peers, give it
+// every open connection, inbound or outbound, that carries no joined topic (carriesNoJoinedTopic),
+// as tagInboundConnection does for a new inbound one.
+function tagUntaggedConnections () {
+  const accepting = [...topics].filter(([, t]) => t.acceptUnannounced)
+  if (accepting.length !== 1) return
+  const topicBuf = Buffer.from(accepting[0][0], 'hex')
+  for (const [conn, info] of openConnections) {
+    if (conn.destroyed) continue
+    if (!carriesNoJoinedTopic(info)) continue
+    info._topic(topicBuf)
+  }
 }
 
 // Hyperswarm 4.x's own event surface (checked against its installed source)
@@ -1080,6 +1137,7 @@ async function handle ({ m, p }) {
         // an already-joined topic keeps its first mode (the branches below never re-join).
         swarm.join(Buffer.from(p.topic, 'hex'), { server: p.server !== false, client: true })
         sendState(p.topic, SwarmState.DISCOVERING)
+        tagUntaggedConnections()
       } else if (existing.connectedPeers.size > 0) {
         for (const peer of existing.connectedPeers) {
           send({ ev: EventName.SWARM_CONNECTION, p: { topic: p.topic, peer, relayed: isRelayed(connections.get(peer)) } })

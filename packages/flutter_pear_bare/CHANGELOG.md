@@ -1,3 +1,9 @@
+## 0.4.14
+
+**Rebuilt the bundled pear-end** (including the desktop bundle copies) for the reconnect
+fix in `flutter_pear` (a later connection to the same peer could carry no data). No native
+addon, Bare Kit or platform change.
+
 ## 0.4.13
 
 **Rebuilt the bundled pear-end** (including the desktop bundle copies) for the drive

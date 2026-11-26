@@ -463,6 +463,86 @@ void main() {
     );
   });
 
+  // KinNode gap G16 (devices): pear-end holds data that arrives before a connection is tagged
+  // and sends it right after swarm.connection. The app attaches its data listener when it
+  // receives the connection, a microtask later, so a broadcast stream dropped that data.
+  group('early data', () {
+    final peer = PearCrypto.unsafeTopicFromString('early-peer');
+
+    void connectionEvent() => worklet.sendJsonFrame({
+          'ev': PearEventName.swarmConnection,
+          'p': {'topic': topic.hex, 'peer': peer.hex},
+        });
+    void dataEvent(List<int> bytes) => worklet.sendJsonFrame({
+          'ev': PearEventName.connectionData,
+          'p': {'topic': topic.hex, 'peer': peer.hex, 'data': base64Encode(bytes)},
+        });
+
+    test('data sent right after swarm.connection reaches the listener the app attaches', () async {
+      final swarm = await joinSwarm();
+      final got = <List<int>>[];
+      swarm.connections.listen((c) => c.data.listen(got.add));
+      connectionEvent();
+      dataEvent([1]);
+      dataEvent([2, 3]);
+      await pumpEventQueue();
+      expect(got, [
+        [1],
+        [2, 3]
+      ]);
+    });
+
+    test('a second data listener gets only what arrives after it subscribed', () async {
+      final swarm = await joinSwarm();
+      connectionEvent();
+      final conn = await swarm.connections.first;
+      dataEvent([1]);
+      await pumpEventQueue();
+      final first = <List<int>>[], second = <List<int>>[];
+      conn.data.listen(first.add);
+      await pumpEventQueue();
+      conn.data.listen(second.add);
+      dataEvent([2]);
+      await pumpEventQueue();
+      expect(first, [
+        [1],
+        [2]
+      ]);
+      expect(second, [
+        [2]
+      ]);
+    });
+
+    test('data kept for a listener that subscribes after the close is delivered, then done', () async {
+      final swarm = await joinSwarm();
+      connectionEvent();
+      final conn = await swarm.connections.first;
+      dataEvent([7]);
+      worklet.sendJsonFrame({
+        'ev': PearEventName.connectionClose,
+        'p': {'topic': topic.hex, 'peer': peer.hex},
+      });
+      await pumpEventQueue();
+      expect(await conn.data.toList(), [
+        [7]
+      ]);
+    });
+
+    test('more than earlyDataLimit bytes before any listener closes the connection', () async {
+      final swarm = await joinSwarm();
+      connectionEvent();
+      final conn = await swarm.connections.first;
+      dataEvent(List.filled(PearConnection.earlyDataLimit, 0));
+      await pumpEventQueue();
+      expect(worklet.sentFrames.where((f) => f['m'] == PearMethod.connectionDestroy), isEmpty);
+      dataEvent([1]);
+      await pumpEventQueue();
+      expect(worklet.sentFrames.last['m'], PearMethod.connectionDestroy);
+      expect(worklet.sentFrames.last['p'], {'peer': peer.hex});
+      expect(conn.data.isBroadcast, isTrue);
+    });
+  });
+
   group('datagrams', () {
     final peer = PearCrypto.unsafeTopicFromString('datagram-peer');
     final other = PearCrypto.unsafeTopicFromString('another-peer');

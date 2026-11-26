@@ -16,7 +16,8 @@ typedef PearSwarmStatus = ({PearSwarmState state, PearException? error});
 
 /// Why a [PearConnection] closed (pear-end's `connection.close` stats): counts and codes only,
 /// never an address or a key. [error] is null for a clean close by either side, else the error's
-/// code (`ETIMEDOUT`) or its message with anything address- or key-shaped masked. [rtt] is UDX's
+/// code (`ETIMEDOUT`) or its message with anything address- or key-shaped masked; `PEER_SILENT`
+/// means pear-end closed a connection on which the peer sent nothing for 8 s. [rtt] is UDX's
 /// smoothed round-trip time and [rtoCount] its retransmission timeouts, both sampled as the
 /// stream ended; [ipv6] is the remote address family. [relayed] is [PearConnection.relayed] as
 /// of the close (false when the worklet predates it). Any other field a pear-end could not read is null.
@@ -107,9 +108,40 @@ class PearConnection {
 
   /// Bytes received from the peer. Closes when this connection drops — see
   /// this class's own doc for why that's never silently recovered.
-  Stream<Uint8List> get data => _data.stream;
+  ///
+  /// Bytes that arrive before anything listens (pear-end sends data it held for a connection
+  /// right after announcing it, before the app's [PearSwarm.connections] listener has run) are
+  /// kept, up to [earlyDataLimit], and delivered to the first listener, even if the connection
+  /// has closed by then. A later listener gets only what arrives after it subscribed.
+  Stream<Uint8List> get data => Stream.multi((c) {
+        final early = _early;
+        _early = null;
+        if (early != null) early.forEach(c.add);
+        final sub = _data.stream.listen(c.add, onError: c.addError, onDone: c.close);
+        c.onCancel = sub.cancel;
+      }, isBroadcast: true);
 
-  void _add(Uint8List bytes) => _data.add(bytes);
+  // Data received before the first listener, or null once one has subscribed.
+  List<Uint8List>? _early = [];
+  int _earlyBytes = 0;
+
+  void _add(Uint8List bytes) {
+    final early = _early;
+    if (early == null) return _data.add(bytes);
+    _earlyBytes += bytes.length;
+    if (_earlyBytes > earlyDataLimit) {
+      // A peer that outruns the bound loses the connection rather than messages, as in pear-end.
+      _early = [];
+      _earlyBytes = 0;
+      close().catchError((Object _) {});
+      return;
+    }
+    early.add(bytes);
+  }
+
+  /// How many bytes [data] keeps for its first listener, received before anything listened (as
+  /// pear-end's own bound on data held for an untagged connection). More closes the connection.
+  static const int earlyDataLimit = 256 * 1024;
 
   /// The largest datagram [sendDatagram] accepts, in bytes. A datagram is one
   /// UDP packet and is never split.

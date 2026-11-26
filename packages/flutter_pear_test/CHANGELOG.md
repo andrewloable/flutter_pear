@@ -1,3 +1,7 @@
+## 0.4.14
+
+No change to the fake. Released in step with `flutter_pear` 0.4.14.
+
 ## 0.4.13
 
 The fake worklet accepts `drive.get`/`drive.put`'s new `idleMs` and `transfer` params and, when a
